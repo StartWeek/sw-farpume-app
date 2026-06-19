@@ -22,6 +22,7 @@ const codeByResource = {
     supplier: "kode_supplier",
     customer: "kode_customer",
     sales: "kode_sales",
+    botol: "kode_botol",
 };
 
 export default function MasterPage({ resource, title, rows = [], fields = [] }) {
