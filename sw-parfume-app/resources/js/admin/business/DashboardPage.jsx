@@ -22,21 +22,21 @@ export default function DashboardPage({ metrics = {} }) {
                 <div className="grid gap-4 md:grid-cols-4">
                     {cards.map(([label, value]) => (
                         <Card key={label}>
-                            <div className="text-xs font-bold uppercase text-muted">{label}</div>
-                            <div className="mt-2 text-xl font-black text-main">{value}</div>
+                            <div className="text-[11px] font-bold uppercase tracking-widest text-muted">{label}</div>
+                            <div className="mt-2.5 text-xl font-extrabold tracking-tight text-main">{value}</div>
                         </Card>
                     ))}
                 </div>
                 <div className="grid gap-4 lg:grid-cols-2">
                     <Card>
-                        <h2 className="mb-3 text-base font-black">Inventory per Gudang</h2>
+                        <h2 className="mb-4 text-[13px] font-bold uppercase tracking-widest text-muted">Inventory per Gudang</h2>
                         <SimpleTable rows={metrics.inventory_per_gudang || []} columns={[
                             { key: "name", label: "Gudang" },
                             { key: "stok_ml", label: "Stok ML", render: (row) => number(row.stok_ml) },
                         ]} />
                     </Card>
                     <Card>
-                        <h2 className="mb-3 text-base font-black">Stok Menipis</h2>
+                        <h2 className="mb-4 text-[13px] font-bold uppercase tracking-widest text-muted">Stok Menipis</h2>
                         <SimpleTable rows={metrics.stok_menipis || []} columns={[
                             { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
                             { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },

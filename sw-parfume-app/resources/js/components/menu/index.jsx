@@ -130,7 +130,7 @@ export const menuAdmin = [
         icon: IconReceipt2,
         children: [
             {
-                label: "Pembelian",
+                label: "Pembelian Supplier",
                 icon: IconPackageImport,
                 href: "/admin/pembelian",
                 accessKey: "pembelian",
@@ -159,11 +159,12 @@ export const menuAdmin = [
                 href: "/admin/piutang",
                 accessKey: "piutang",
             },
+
             {
-                label: "Piutang Supplier",
-                icon: IconCreditCardRefund,
-                href: "/admin/piutang-supplier",
-                accessKey: "piutang-supplier",
+                label: "Uang Kas",
+                icon: IconReceipt2,
+                href: "/admin/kas",
+                accessKey: "kas",
             },
         ],
     },
@@ -172,7 +173,7 @@ export const menuAdmin = [
         icon: IconReportAnalytics,
         children: [
             {
-                label: "Pembelian",
+                label: "Pembelian Supplier",
                 icon: IconFileAnalytics,
                 href: "/admin/laporan/pembelian",
                 accessKey: "laporan-pembelian",
@@ -213,12 +214,7 @@ export const menuAdmin = [
                 href: "/admin/laporan/piutang",
                 accessKey: "laporan-piutang",
             },
-            {
-                label: "Piutang Supplier",
-                icon: IconCreditCardRefund,
-                href: "/admin/laporan/piutang-supplier",
-                accessKey: "laporan-piutang-supplier",
-            },
+
             {
                 label: "Kas",
                 icon: IconReceipt2,
@@ -233,23 +229,5 @@ export const menuAdmin = [
             },
         ],
     },
-    {
-        label: "Komponen",
-        icon: IconComponents,
-        superOnly: true,
-        children: [
-            {
-                label: "Showcase Utama",
-                icon: IconLayoutGrid,
-                href: "/admin/examples/components",
-                superOnly: true,
-            },
-            {
-                label: "Subscription Table",
-                icon: IconClipboardData,
-                href: "/admin/examples/subscriptions",
-                superOnly: true,
-            },
-        ],
-    },
+
 ];

@@ -11,7 +11,7 @@ const payments = ["CASH", "TRANSFER", "TEMPO", "DP"];
 
 export default function TransactionPage({ type, rows = [], refs = {} }) {
     useFlashMessages();
-    const { flash = {} } = usePage().props;
+    const { flash = {}, errors = {} } = usePage().props;
     const isBuy = type === "pembelian";
     const isWholesale = type === "sales" || type === "grosir";
     const title = isBuy ? "Pembelian Supplier" : isWholesale ? "Penjualan Sales" : "Penjualan Retail";
@@ -89,15 +89,36 @@ export default function TransactionPage({ type, rows = [], refs = {} }) {
                     <form onSubmit={submit} className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-4">
                             {isBuy ? (
-                                <Field label="Supplier"><Select value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}><option value="">Pilih supplier</option>{(refs.supplier || []).map((row) => <option key={row.id} value={row.id}>{row.nama_supplier}</option>)}</Select></Field>
+                                <Field label="Supplier">
+                                    <Select error={!!errors.id_supplier} value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}>
+                                        <option value="">Pilih supplier</option>
+                                        {(refs.supplier || []).map((row) => <option key={row.id} value={row.id}>{row.nama_supplier}</option>)}
+                                    </Select>
+                                    {errors.id_supplier && <div className="mt-1 text-xs text-red-500">{errors.id_supplier}</div>}
+                                </Field>
                             ) : (
-                                <Field label="Customer"><Select value={form.id_customer} onChange={(event) => set("id_customer", event.target.value)}><option value="">Pilih customer</option>{customers.map((row) => <option key={row.id} value={row.id}>{row.nama_customer} ({row.tipe_customer})</option>)}</Select></Field>
+                                <Field label="Customer">
+                                    <Select error={!!errors.id_customer} value={form.id_customer} onChange={(event) => set("id_customer", event.target.value)}>
+                                        <option value="">Pilih customer</option>
+                                        {customers.map((row) => <option key={row.id} value={row.id}>{row.nama_customer} ({row.tipe_customer})</option>)}
+                                    </Select>
+                                    {errors.id_customer && <div className="mt-1 text-xs text-red-500">{errors.id_customer}</div>}
+                                </Field>
                             )}
-                            {!isBuy ? <Field label="Sales"><Select value={form.id_sales || ""} onChange={(event) => set("id_sales", event.target.value)}><option value="">Tanpa sales</option>{(refs.sales || []).map((row) => <option key={row.id} value={row.id}>{row.nama_sales}</option>)}</Select></Field> : null}
-                            <Field label="Gudang"><Select value={form.id_gudang} onChange={(event) => set("id_gudang", event.target.value)}><option value="">Pilih gudang</option>{(refs.gudang || []).map((row) => <option key={row.id} value={row.id}>{row.nama_gudang}</option>)}</Select></Field>
-                            <Field label="Metode Bayar"><Select value={form.metode_pembayaran} onChange={(event) => set("metode_pembayaran", event.target.value)}>{payments.map((payment) => <option key={payment}>{payment}</option>)}</Select></Field>
-                            {form.metode_pembayaran === "DP" ? <Field label="Jumlah DP"><CurrencyInput value={form.jumlah_bayar || ""} onChange={(event) => set("jumlah_bayar", event.target.value)} /></Field> : null}
-                            {["TEMPO", "DP"].includes(form.metode_pembayaran) ? <Field label="Jatuh Tempo"><Input type="date" value={form.jatuh_tempo || ""} onChange={(event) => set("jatuh_tempo", event.target.value)} /></Field> : null}
+                            {!isBuy ? <Field label="Sales"><Select error={!!errors.id_sales} value={form.id_sales || ""} onChange={(event) => set("id_sales", event.target.value)}><option value="">Tanpa sales</option>{(refs.sales || []).map((row) => <option key={row.id} value={row.id}>{row.nama_sales}</option>)}</Select>{errors.id_sales && <div className="mt-1 text-xs text-red-500">{errors.id_sales}</div>}</Field> : null}
+                            <Field label="Gudang">
+                                <Select error={!!errors.id_gudang} value={form.id_gudang} onChange={(event) => set("id_gudang", event.target.value)}>
+                                    <option value="">Pilih gudang</option>
+                                    {(refs.gudang || []).map((row) => <option key={row.id} value={row.id}>{row.nama_gudang}</option>)}
+                                </Select>
+                                {errors.id_gudang && <div className="mt-1 text-xs text-red-500">{errors.id_gudang}</div>}
+                            </Field>
+                            <Field label="Metode Bayar">
+                                <Select error={!!errors.metode_pembayaran} value={form.metode_pembayaran} onChange={(event) => set("metode_pembayaran", event.target.value)}>{payments.map((payment) => <option key={payment}>{payment}</option>)}</Select>
+                                {errors.metode_pembayaran && <div className="mt-1 text-xs text-red-500">{errors.metode_pembayaran}</div>}
+                            </Field>
+                            {form.metode_pembayaran === "DP" ? <Field label="Jumlah DP"><CurrencyInput error={!!errors.jumlah_bayar} value={form.jumlah_bayar || ""} onChange={(event) => set("jumlah_bayar", event.target.value)} />{errors.jumlah_bayar && <div className="mt-1 text-xs text-red-500">{errors.jumlah_bayar}</div>}</Field> : null}
+                            {["TEMPO", "DP"].includes(form.metode_pembayaran) ? <Field label="Jatuh Tempo"><Input error={!!errors.jatuh_tempo} type="date" value={form.jatuh_tempo || ""} onChange={(event) => set("jatuh_tempo", event.target.value)} />{errors.jatuh_tempo && <div className="mt-1 text-xs text-red-500">{errors.jatuh_tempo}</div>}</Field> : null}
                         </div>
 
                         <div className="space-y-3">
@@ -113,7 +134,7 @@ export default function TransactionPage({ type, rows = [], refs = {} }) {
                                 return (
                                     <div key={index} className="grid gap-3 rounded-lg border border-stroke bg-page p-3 md:grid-cols-7">
                                         <Field label="Tipe Item">
-                                            <Select value={item.tipe_item} onChange={(event) => {
+                                            <Select error={!!errors[`items.${index}.tipe_item`]} value={item.tipe_item} onChange={(event) => {
                                                 const nextType = event.target.value;
                                                 updateItem(index, "tipe_item", nextType);
                                                 updateItem(index, "item_id", "");
@@ -123,19 +144,30 @@ export default function TransactionPage({ type, rows = [], refs = {} }) {
                                                 <option value="ABSOLUTE">Absolute</option>
                                                 <option value="BOTOL">Botol</option>
                                             </Select>
+                                            {errors[`items.${index}.tipe_item`] && <div className="mt-1 text-[10px] text-red-500">{errors[`items.${index}.tipe_item`]}</div>}
                                         </Field>
                                         <Field label="Item">
-                                            <Select value={item.item_id} onChange={(event) => updateItem(index, "item_id", event.target.value)}>
+                                            <Select error={!!errors[`items.${index}.item_id`]} value={item.item_id} onChange={(event) => updateItem(index, "item_id", event.target.value)}>
                                                 <option value="">Pilih item</option>
                                                 {itemOptions(refs, item.tipe_item).map((row) => <option key={row.id} value={row.id}>{item.tipe_item === "BOTOL" ? row.nama_botol : row.nama_barang}</option>)}
                                             </Select>
+                                            {errors[`items.${index}.item_id`] && <div className="mt-1 text-[10px] text-red-500">{errors[`items.${index}.item_id`]}</div>}
                                         </Field>
-                                        <Field label="Qty"><Input type="number" value={item.qty_input} onChange={(event) => updateItem(index, "qty_input", event.target.value)} /></Field>
-                                        <Field label="Satuan"><Select value={item.satuan_input} onChange={(event) => updateItem(index, "satuan_input", event.target.value)}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</Select></Field>
-                                        <Field label={isBuy ? "Harga Beli" : "Harga Jual"}><CurrencyInput value={item.harga || ""} placeholder={formatInputNumber(defaultPrice || "")} onChange={(event) => updateItem(index, "harga", event.target.value)} /></Field>
-                                        <div className="rounded-lg bg-card px-3 py-2 text-sm text-muted">
-                                            <div>Dasar: <b className="text-main">{number(convertedQty)} {item.tipe_item === "BOTOL" ? "botol" : "ML"}</b></div>
-                                            <div>Subtotal: <b className="text-main">{money(subtotal)}</b></div>
+                                        <Field label="Qty">
+                                            <Input error={!!errors[`items.${index}.qty_input`]} type="number" value={item.qty_input} onChange={(event) => updateItem(index, "qty_input", event.target.value)} />
+                                            {errors[`items.${index}.qty_input`] && <div className="mt-1 text-[10px] text-red-500">{errors[`items.${index}.qty_input`]}</div>}
+                                        </Field>
+                                        <Field label="Satuan">
+                                            <Select error={!!errors[`items.${index}.satuan_input`]} value={item.satuan_input} onChange={(event) => updateItem(index, "satuan_input", event.target.value)}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</Select>
+                                            {errors[`items.${index}.satuan_input`] && <div className="mt-1 text-[10px] text-red-500">{errors[`items.${index}.satuan_input`]}</div>}
+                                        </Field>
+                                        <Field label={isBuy ? "Harga Beli" : "Harga Jual"}>
+                                            <CurrencyInput error={!!errors[`items.${index}.harga`]} value={item.harga || ""} placeholder={formatInputNumber(defaultPrice || "")} onChange={(event) => updateItem(index, "harga", event.target.value)} />
+                                            {errors[`items.${index}.harga`] && <div className="mt-1 text-[10px] text-red-500">{errors[`items.${index}.harga`]}</div>}
+                                        </Field>
+                                        <div className="rounded-lg bg-page/60 px-3.5 py-2.5 text-[13px] text-muted">
+                                            <div>Dasar: <b className="font-bold text-main">{number(convertedQty)} {item.tipe_item === "BOTOL" ? "botol" : "ML"}</b></div>
+                                            <div className="mt-0.5">Subtotal: <b className="font-bold text-main">{money(subtotal)}</b></div>
                                         </div>
                                         <div className="flex items-end justify-end">
                                             <Button icon={IconTrash} iconOnly variant="danger" size="sm" onClick={() => removeItem(index)} />
@@ -154,10 +186,10 @@ export default function TransactionPage({ type, rows = [], refs = {} }) {
                 {tempoPayment ? (
                     <Card>
                         <form onSubmit={submitTempoPayment} className="grid gap-4 md:grid-cols-[1fr_220px_auto] md:items-end">
-                            <div className="text-sm text-muted">
-                                Pembayaran tempo <b className="text-main">{tempoPayment.number}</b>
-                                <div>{tempoPayment.party || "-"}</div>
-                                <div>Sisa: <b className="text-main">{money(tempoPayment.remaining)}</b></div>
+                            <div className="text-[13px] font-medium text-muted">
+                                Pembayaran tempo <b className="font-bold text-main">{tempoPayment.number}</b>
+                                <div className="mt-0.5">{tempoPayment.party || "-"}</div>
+                                <div className="mt-0.5">Sisa: <b className="font-bold text-main">{money(tempoPayment.remaining)}</b></div>
                             </div>
                             <Field label="Jumlah Bayar">
                                 <CurrencyInput value={tempoAmount} onChange={(event) => setTempoAmount(event.target.value)} />
@@ -278,8 +310,8 @@ function ReceiptModal({ receipt, onClose, onPrint, onBluetooth, bluetoothLoading
             <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg bg-card shadow-premium">
                 <div className="flex items-center justify-between border-b border-stroke px-5 py-4">
                     <div>
-                        <div className="text-base font-black text-main">{receipt.title}</div>
-                        <div className="text-xs text-muted">{receipt.number}</div>
+                        <div className="text-lg font-extrabold tracking-tight text-main">{receipt.title}</div>
+                        <div className="mt-0.5 text-xs font-medium text-muted">{receipt.number}</div>
                     </div>
                     <Button icon={IconX} iconOnly variant="ghost" onClick={onClose} />
                 </div>
@@ -290,9 +322,9 @@ function ReceiptModal({ receipt, onClose, onPrint, onBluetooth, bluetoothLoading
                     </pre>
                     <div className="space-y-4">
                         <div className="rounded-lg border border-stroke bg-page p-4 text-sm text-muted">
-                            <div className="font-semibold text-main">{receipt.party_label}: {receipt.party_name}</div>
-                            <div>Gudang: {receipt.warehouse}</div>
-                            <div>Bayar: {receipt.payment_method} / {receipt.payment_status}</div>
+                        <div className="font-bold text-main">{receipt.party_label}: {receipt.party_name}</div>
+                            <div className="mt-0.5 font-medium">Gudang: {receipt.warehouse}</div>
+                            <div className="mt-0.5 font-medium">Bayar: {receipt.payment_method} / {receipt.payment_status}</div>
                         </div>
 
                         <div className="flex flex-wrap gap-2">

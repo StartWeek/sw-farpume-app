@@ -334,6 +334,23 @@ class BusinessService
         ]);
     }
 
+    public function createManualCash(array $payload): KasMutasi
+    {
+        $lastId = KasMutasi::query()->latest('id')->value('id') ?? 0;
+        $number = sprintf('KAS-%s-%04d', now()->format('Ymd'), $lastId + 1);
+
+        return $this->recordCash(
+            $payload['tanggal'] ?? now()->toDateString(),
+            $number,
+            $payload['jenis_transaksi'],
+            'MANUAL',
+            $payload['pihak'] ?? null,
+            (float) $payload['jumlah'],
+            $payload['keterangan'] ?? null,
+            $payload['created_by'] ?? auth()->user()?->name
+        );
+    }
+
     public function createPembelian(array $payload): Pembelian
     {
         if (in_array($payload['metode_pembayaran'], ['TEMPO', 'DP'], true) && empty($payload['jatuh_tempo'])) {

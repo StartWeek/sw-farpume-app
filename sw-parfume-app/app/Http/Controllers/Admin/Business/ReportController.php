@@ -62,19 +62,24 @@ class ReportController extends Controller
             $columns = $this->getExportColumns($type);
             $title = $this->getExportTitle($type);
             $filename = str($title)->slug();
+            $orientation = in_array($request->query('orientation'), ['portrait', 'landscape'], true)
+                ? $request->query('orientation')
+                : 'landscape';
+            
+            $formattedFilters = $this->formatFiltersForExport($filters);
 
             if ($export === 'pdf') {
                 return \Barryvdh\DomPDF\Facade\Pdf::loadView('exports.report', [
                     'title' => $title,
-                    'filters' => $filters,
+                    'filters' => $formattedFilters,
                     'columns' => $columns,
                     'rows' => $exportRows,
-                ])->setPaper('a4', 'landscape')->download($filename . '.pdf');
+                ])->setPaper('a4', $orientation)->download($filename . '.pdf');
             }
 
             if ($export === 'excel') {
                 return \Maatwebsite\Excel\Facades\Excel::download(
-                    new \App\Exports\ReportExport($title, $filters, $columns, $exportRows),
+                    new \App\Exports\ReportExport($title, $formattedFilters, $columns, $exportRows),
                     $filename . '.xlsx'
                 );
             }
@@ -98,6 +103,59 @@ class ReportController extends Controller
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(['id', 'nama_gudang']),
             'supplier' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
         ];
+    }
+
+    private function formatFiltersForExport(array $filters): array
+    {
+        $formatted = [];
+        
+        if (!empty($filters['tanggal_dari']) || !empty($filters['tanggal_sampai'])) {
+            $dari = !empty($filters['tanggal_dari']) ? date('d-m-Y', strtotime($filters['tanggal_dari'])) : '-';
+            $sampai = !empty($filters['tanggal_sampai']) ? date('d-m-Y', strtotime($filters['tanggal_sampai'])) : '-';
+            $formatted['Periode'] = $dari . ' s/d ' . $sampai;
+        }
+
+        if (!empty($filters['id_supplier'])) {
+            $formatted['Supplier'] = Supplier::find($filters['id_supplier'])?->nama_supplier ?? $filters['id_supplier'];
+        }
+
+        if (!empty($filters['id_customer'])) {
+            $formatted['Customer'] = Customer::find($filters['id_customer'])?->nama_customer ?? $filters['id_customer'];
+        }
+
+        if (!empty($filters['id_gudang'])) {
+            $formatted['Gudang'] = Gudang::find($filters['id_gudang'])?->nama_gudang ?? $filters['id_gudang'];
+        }
+
+        if (!empty($filters['id_barang'])) {
+            $formatted['Barang Bibit'] = BarangBibit::find($filters['id_barang'])?->nama_barang ?? $filters['id_barang'];
+        }
+
+        if (!empty($filters['id_botol'])) {
+            $formatted['Botol'] = Botol::find($filters['id_botol'])?->nama_botol ?? $filters['id_botol'];
+        }
+
+        if (!empty($filters['status'])) {
+            $formatted['Status Pembayaran'] = $filters['status'];
+        }
+
+        if (!empty($filters['tipe_mutasi'])) {
+            $formatted['Tipe Mutasi'] = $filters['tipe_mutasi'];
+        }
+
+        if (!empty($filters['tipe_penjualan'])) {
+            $formatted['Tipe Penjualan'] = $filters['tipe_penjualan'];
+        }
+
+        if (!empty($filters['stok_status'])) {
+            $formatted['Status Stok'] = $filters['stok_status'];
+        }
+
+        if (!empty($filters['jenis_barang'])) {
+            $formatted['Jenis Barang'] = $filters['jenis_barang'];
+        }
+
+        return $formatted;
     }
 
     private function applyPurchaseFilters(Builder $query, array $filters): Builder

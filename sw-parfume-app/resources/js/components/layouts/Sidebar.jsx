@@ -132,7 +132,7 @@ export default function Sidebar() {
                     className="fixed inset-0 bg-black/50 z-40"
                     onClick={() => setSidebarOpen(false)}
                 />
-                <aside className="fixed inset-y-0 left-0 z-50 w-64 flex flex-col border-r border-emerald-950/70 bg-[linear-gradient(165deg,#071f1d_0%,#102d2b_42%,#1f2a24_100%)] text-stone-100 shadow-premium transition-transform duration-300 transform translate-x-0">
+                <aside className="fixed inset-y-0 left-0 z-50 w-64 flex flex-col font-sidebar border-r border-emerald-950/70 bg-[linear-gradient(165deg,#071f1d_0%,#102d2b_42%,#1f2a24_100%)] text-stone-100 shadow-premium transition-transform duration-300 transform translate-x-0">
                     <SidebarContent
                         auth={auth}
                         menuData={menuData}
@@ -159,7 +159,7 @@ export default function Sidebar() {
 
     // Desktop Open
     return (
-        <aside className="w-64 h-screen flex flex-col border-r border-emerald-950/70 bg-[linear-gradient(165deg,#071f1d_0%,#102d2b_42%,#1f2a24_100%)] text-stone-100 transition-all duration-300">
+        <aside className="w-64 h-screen flex flex-col font-sidebar border-r border-emerald-950/70 bg-[linear-gradient(165deg,#071f1d_0%,#102d2b_42%,#1f2a24_100%)] text-stone-100 transition-all duration-300">
             <SidebarContent
                 auth={auth}
                 menuData={menuData}

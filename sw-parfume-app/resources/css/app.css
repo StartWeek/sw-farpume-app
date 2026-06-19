@@ -128,9 +128,12 @@
 
 @theme {
     --font-sans:
-        "Instrument Sans", ui-sans-serif, system-ui, sans-serif,
+        "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif,
         "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
         "Noto Color Emoji";
+    
+    --font-sidebar:
+        "Inter", ui-sans-serif, system-ui, sans-serif;
 
     /* Brand Colors (Theme shades) */
     --color-primary: var(--theme-primary);
@@ -211,7 +214,7 @@
 }
 
 .table-th {
-    @apply uppercase text-xs font-bold tracking-wider;
+    @apply uppercase text-[11px] font-bold tracking-widest;
 }
 
 .row-selected {

@@ -53,7 +53,7 @@ class TransactionController extends Controller
 
     public function storePembelian(Request $request): RedirectResponse
     {
-        $pembelian = $this->business->createPembelian($request->validate($this->pembelianRules()));
+        $pembelian = $this->business->createPembelian($request->validate($this->pembelianRules(), $this->validationMessages()));
 
         return redirect()
             ->route('business.pembelian.index')
@@ -63,7 +63,7 @@ class TransactionController extends Controller
 
     public function storePenjualan(Request $request): RedirectResponse
     {
-        $penjualan = $this->business->createPenjualan($request->validate($this->penjualanRules()));
+        $penjualan = $this->business->createPenjualan($request->validate($this->penjualanRules(), $this->validationMessages()));
 
         return redirect()
             ->route('business.penjualan.index', $penjualan->tipe_penjualan === 'GROSIR' ? 'sales' : 'retail')
@@ -186,6 +186,21 @@ class TransactionController extends Controller
             'items.*.qty_input' => ['required', 'numeric', 'min:0.01'],
             'items.*.satuan_input' => ['required', 'in:ML,LITER,BOTOL,DUS'],
             'items.*.harga' => ['nullable', 'numeric', 'min:0.01'],
+        ];
+    }
+
+    private function validationMessages(): array
+    {
+        return [
+            'required' => 'Kolom ini wajib diisi.',
+            'items.*.item_id.required' => 'Pilih item barang.',
+            'items.*.qty_input.required' => 'Qty wajib diisi.',
+            'items.*.qty_input.min' => 'Qty minimal :min.',
+            'items.*.harga.required' => 'Harga wajib diisi.',
+            'id_supplier.required' => 'Supplier wajib dipilih.',
+            'id_customer.required' => 'Customer wajib dipilih.',
+            'id_gudang.required' => 'Gudang wajib dipilih.',
+            'metode_pembayaran.required' => 'Metode bayar wajib dipilih.',
         ];
     }
 }

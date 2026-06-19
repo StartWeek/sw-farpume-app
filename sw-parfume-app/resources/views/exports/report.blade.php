@@ -5,33 +5,68 @@
     <title>{{ $title }}</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            font-size: 12px;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-size: 11px;
             color: #333;
         }
-        h2 {
+        .header {
             text-align: center;
-            margin-bottom: 20px;
-            font-size: 18px;
+            margin-bottom: 25px;
+            border-bottom: 2px solid #222;
+            padding-bottom: 15px;
         }
-        .filters {
-            margin-bottom: 20px;
+        .header h1 {
+            margin: 0;
+            font-size: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold;
+            color: #111;
+        }
+        .header p {
+            margin: 5px 0 0 0;
             font-size: 11px;
-            color: #555;
+            color: #666;
         }
-        table {
+        .filter-table {
+            width: 100%;
+            margin-bottom: 25px;
+            border: none;
+            border-collapse: collapse;
+        }
+        .filter-table td {
+            padding: 4px 8px;
+            vertical-align: top;
+            border: none;
+        }
+        .filter-label {
+            width: 130px;
+            font-weight: bold;
+            color: #444;
+        }
+        .filter-value {
+            color: #222;
+        }
+        .data-table {
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 20px;
         }
-        th, td {
+        .data-table th, .data-table td {
             border: 1px solid #ddd;
-            padding: 8px;
+            padding: 8px 10px;
             text-align: left;
         }
-        th {
-            background-color: #f4f4f4;
+        .data-table th {
+            background-color: #f8f9fa;
             font-weight: bold;
+            color: #111;
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.5px;
+        }
+        .data-table tr:nth-child(even) {
+            background-color: #fafafa;
         }
         .text-right {
             text-align: right;
@@ -40,22 +75,33 @@
 </head>
 <body>
 
-    <h2>{{ $title }}</h2>
+    <div class="header">
+        <h1>{{ $title }}</h1>
+        <p>Dicetak pada: {{ \Carbon\Carbon::now()->format('d-m-Y H:i') }}</p>
+    </div>
 
     @if(count($filters) > 0)
-    <div class="filters">
-        <strong>Filter Aktif:</strong>
-        <ul>
-            @foreach($filters as $key => $value)
-                @if(!empty($value))
-                    <li>{{ ucwords(str_replace('_', ' ', $key)) }}: {{ $value }}</li>
+    <table class="filter-table">
+        <tbody>
+            @php
+                $chunks = array_chunk($filters, 2, true);
+            @endphp
+            @foreach($chunks as $chunk)
+            <tr>
+                @foreach($chunk as $key => $value)
+                <td class="filter-label">{{ $key }}</td>
+                <td class="filter-value">: {{ is_array($value) ? implode(', ', $value) : $value }}</td>
+                @endforeach
+                @if(count($chunk) == 1)
+                <td colspan="2"></td>
                 @endif
+            </tr>
             @endforeach
-        </ul>
-    </div>
+        </tbody>
+    </table>
     @endif
 
-    <table>
+    <table class="data-table">
         <thead>
             <tr>
                 @foreach($columns as $col)
@@ -82,7 +128,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="{{ count($columns) }}" style="text-align: center;">Data tidak tersedia.</td>
+                    <td colspan="{{ count($columns) }}" style="text-align: center; padding: 20px;">Data tidak tersedia.</td>
                 </tr>
             @endforelse
         </tbody>

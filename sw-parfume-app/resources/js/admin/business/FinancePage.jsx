@@ -85,9 +85,9 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
                 {active ? (
                     <Card>
                         <form onSubmit={pay} className="grid gap-4 md:grid-cols-[1fr_220px_auto] md:items-end">
-                            <div className="text-sm text-muted">
-                                Pembayaran untuk <b className="text-main">{isDebt || isSupplierReceivable ? active.supplier?.nama_supplier : active.customer?.nama_customer}</b>
-                                <div>Sisa: <b className="text-main">{money(isDebt ? active.sisa_hutang : active.sisa_piutang)}</b></div>
+                            <div className="text-[13px] font-medium text-muted">
+                                Pembayaran untuk <b className="font-bold text-main">{isDebt || isSupplierReceivable ? active.supplier?.nama_supplier : active.customer?.nama_customer}</b>
+                                <div className="mt-0.5">Sisa: <b className="font-bold text-main">{money(isDebt ? active.sisa_hutang : active.sisa_piutang)}</b></div>
                             </div>
                             <Field label="Jumlah Bayar"><CurrencyInput value={amount} onChange={(event) => setAmount(event.target.value)} /></Field>
                             <div className="flex gap-2">
@@ -185,8 +185,8 @@ function ReceiptModal({ receipt, onClose, onPrint, onBluetooth, bluetoothLoading
             <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg bg-card shadow-premium">
                 <div className="flex items-center justify-between border-b border-stroke px-5 py-4">
                     <div>
-                        <div className="text-base font-black text-main">{receipt.title}</div>
-                        <div className="text-xs text-muted">{receipt.number}</div>
+                        <div className="text-lg font-extrabold tracking-tight text-main">{receipt.title}</div>
+                        <div className="mt-0.5 text-xs font-medium text-muted">{receipt.number}</div>
                     </div>
                     <Button icon={IconX} iconOnly variant="ghost" onClick={onClose} />
                 </div>
@@ -197,9 +197,9 @@ function ReceiptModal({ receipt, onClose, onPrint, onBluetooth, bluetoothLoading
                     </pre>
                     <div className="space-y-4">
                         <div className="rounded-lg border border-stroke bg-page p-4 text-sm text-muted">
-                            <div className="font-semibold text-main">{receipt.party_label}: {receipt.party_name}</div>
-                            <div>Referensi: {receipt.source_number || "-"}</div>
-                            <div>Status: {receipt.status || "-"}</div>
+                            <div className="font-bold text-main">{receipt.party_label}: {receipt.party_name}</div>
+                            <div className="mt-0.5 font-medium">Referensi: {receipt.source_number || "-"}</div>
+                            <div className="mt-0.5 font-medium">Status: {receipt.status || "-"}</div>
                         </div>
 
                         <div className="flex flex-wrap gap-2">

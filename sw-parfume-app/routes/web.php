@@ -74,36 +74,10 @@ Route::middleware(['auth', 'menu.access'])->prefix('admin')->group(function () {
     Route::post('/piutang-supplier', [FinanceController::class, 'storePiutangSupplier'])->name('business.piutang-supplier.store');
     Route::post('/piutang-supplier/{piutangSupplier}/bayar', [FinanceController::class, 'payPiutangSupplier'])->name('business.piutang-supplier.pay');
 
+    Route::get('/kas', [\App\Http\Controllers\Admin\Business\KasController::class, 'index'])->name('business.kas.index');
+    Route::post('/kas', [\App\Http\Controllers\Admin\Business\KasController::class, 'store'])->name('business.kas.store');
+
     Route::get('/laporan/{type}', [ReportController::class, 'show'])->name('business.report.show');
 
-    Route::get('/examples/components', function () {
-        return Inertia::render('admin/examples/ComponentShowcase');
-    })->name('examples.components');
 
-    Route::middleware(['request.signature', 'sql.injection.guard', 'xss.guard', 'throttle:60,1'])->group(function () {
-        Route::get('/examples/async-options', function () {
-            $search = strtolower((string) request('search', ''));
-
-            $items = collect([
-                ['id' => 1, 'name' => 'John Doe', 'role' => 'Admin'],
-                ['id' => 2, 'name' => 'Jane Smith', 'role' => 'Manager'],
-                ['id' => 3, 'name' => 'Michael Johnson', 'role' => 'Editor'],
-                ['id' => 4, 'name' => 'Sarah Wilson', 'role' => 'Staff'],
-                ['id' => 5, 'name' => 'David Brown', 'role' => 'User'],
-            ])->filter(function ($item) use ($search) {
-                if ($search === '') {
-                    return true;
-                }
-
-                return str_contains(strtolower($item['name']), $search)
-                    || str_contains(strtolower($item['role']), $search);
-            })->values();
-
-            return response()->json($items);
-        })->name('examples.async-options');
-    });
-
-    Route::get('/examples/subscriptions', function () {
-        return Inertia::render('admin/examples/SubscriptionTableExample');
-    })->name('examples.subscriptions');
 });

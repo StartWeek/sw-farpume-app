@@ -21,11 +21,6 @@ export default function ProtectedLayout({ children, title = "Halaman Admin" }) {
         if (flash.error) {
             toast.error(flash.error);
         }
-
-        const firstError = Object.values(errors || {})[0];
-        if (firstError) {
-            toast.error(Array.isArray(firstError) ? firstError[0] : firstError);
-        }
     }, [flash.success, flash.error, errors]);
 
     const isMobile = useIsMobile();

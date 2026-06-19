@@ -42,9 +42,9 @@ export function PageHeader({ title, subtitle, actionLabel, onAction }) {
     return (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-                <h1 className="text-xl font-black text-main">{title}</h1>
+                <h1 className="text-2xl font-extrabold tracking-tight text-main">{title}</h1>
                 {subtitle ? (
-                    <p className="mt-1 text-sm text-muted">{subtitle}</p>
+                    <p className="mt-1.5 text-[13px] font-medium leading-relaxed text-muted">{subtitle}</p>
                 ) : null}
             </div>
             {actionLabel ? (
@@ -59,7 +59,7 @@ export function PageHeader({ title, subtitle, actionLabel, onAction }) {
 export function Card({ children, className = "" }) {
     return (
         <section
-            className={`rounded-lg border border-stroke bg-card p-4 shadow-premium ${className}`}
+            className={`rounded-xl border border-stroke bg-card p-5 shadow-premium ${className}`}
         >
             {children}
         </section>
@@ -68,16 +68,17 @@ export function Card({ children, className = "" }) {
 
 export function Field({ label, children }) {
     return (
-        <label className="space-y-1 text-sm font-semibold text-main">
-            <span>{label}</span>
+        <label className="space-y-1.5 block">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-muted">{label}</span>
             {children}
         </label>
     );
 }
 
-export function Input({ className = "", type = "text", ...props }) {
+export function Input({ className = "", type = "text", error, ...props }) {
+    const errorClass = error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "border-stroke focus:border-primary focus:ring-primary/20";
     const baseClass =
-        "w-full rounded-lg border border-stroke bg-card px-3 py-2 text-sm text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20";
+        `w-full rounded-lg border bg-card px-3.5 py-2.5 text-sm font-medium text-main outline-none transition-all duration-200 placeholder:text-gray-400 placeholder:font-normal focus:ring-2 ${errorClass}`;
 
     if (type === "date") {
         return (
@@ -109,10 +110,11 @@ export function Input({ className = "", type = "text", ...props }) {
     );
 }
 
-export function CurrencyInput({ value, onChange, ...props }) {
+export function CurrencyInput({ value, onChange, error, ...props }) {
     return (
         <Input
             {...props}
+            error={error}
             type="text"
             inputMode="numeric"
             value={formatInputNumber(value)}
@@ -129,11 +131,12 @@ export function CurrencyInput({ value, onChange, ...props }) {
     );
 }
 
-export function Textarea(props) {
+export function Textarea({ error, ...props }) {
+    const errorClass = error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "border-stroke focus:border-primary focus:ring-primary/20";
     return (
         <textarea
             {...props}
-            className="min-h-20 w-full rounded-lg border border-stroke bg-card px-3 py-2 text-sm text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            className={`min-h-20 w-full rounded-lg border bg-card px-3.5 py-2.5 text-sm font-medium text-main outline-none transition-all duration-200 placeholder:text-gray-400 placeholder:font-normal focus:ring-2 ${errorClass}`}
         />
     );
 }
@@ -154,7 +157,7 @@ function optionText(label) {
     return "";
 }
 
-export function Select({ children, value, onChange, placeholder = "Pilih data", disabled = false, searchable = true, ...props }) {
+export function Select({ children, value, onChange, placeholder = "Pilih data", disabled = false, searchable = true, error, ...props }) {
     const [open, setOpen] = React.useState(false);
     const [search, setSearch] = React.useState("");
     const wrapperRef = React.useRef(null);
@@ -191,13 +194,15 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
         setSearch("");
     };
 
+    const errorClass = error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "border-stroke hover:border-primary/60 focus:border-primary focus:ring-primary/20";
+
     return (
         <div ref={wrapperRef} className="relative">
             <button
                 type="button"
                 disabled={disabled}
                 onClick={() => setOpen((current) => !current)}
-                className="flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border border-stroke bg-card px-3 py-2 text-left text-sm text-main shadow-sm outline-none transition hover:border-primary/60 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className={`flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border bg-card px-3.5 py-2.5 text-left text-sm font-medium text-main shadow-sm outline-none transition-all duration-200 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${errorClass}`}
             >
                 <span className={selected?.value ? "" : "text-muted"}>
                     {selected?.label || placeholder}
@@ -209,7 +214,7 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
             </button>
 
             {open ? (
-                <div className="absolute z-40 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-stroke bg-card p-1 text-sm shadow-premium">
+                <div className="absolute z-40 mt-1.5 max-h-64 w-full overflow-auto rounded-xl border border-stroke bg-card p-1.5 text-sm shadow-premium">
                     {searchable ? (
                         <div className="sticky top-0 z-10 bg-card p-1">
                             <div className="relative">
@@ -220,7 +225,7 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
                                     value={search}
                                     onChange={(event) => setSearch(event.target.value)}
                                     placeholder="Cari..."
-                                    className="w-full rounded-md border border-stroke bg-page py-2 pl-8 pr-3 text-sm text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                    className="w-full rounded-lg border border-stroke bg-page py-2 pl-8 pr-3 text-sm font-medium text-main outline-none transition-all duration-200 placeholder:font-normal focus:border-primary focus:ring-2 focus:ring-primary/20"
                                 />
                             </div>
                         </div>
@@ -233,7 +238,7 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
                                 type="button"
                                 disabled={option.disabled}
                                 onClick={() => pick(option)}
-                                className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition ${
+                                className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left font-medium transition-colors duration-150 ${
                                     active
                                         ? "bg-primary text-white"
                                         : "text-main hover:bg-page"
@@ -260,26 +265,26 @@ export function SimpleTable({ columns, rows, renderActions }) {
 
     return (
         <div className="space-y-3">
-            <div className="overflow-x-auto rounded-lg border border-stroke bg-card">
+            <div className="overflow-x-auto rounded-xl border border-stroke bg-card">
                 <table className="min-w-full divide-y divide-stroke text-sm">
-                    <thead className="bg-page text-left text-xs uppercase text-muted">
+                    <thead className="bg-page/80 text-left">
                         <tr>
                             {columns.map((column, columnIndex) => (
-                                <th key={`${column.key || column.label}-${columnIndex}`} className="px-4 py-3">
+                                <th key={`${column.key || column.label}-${columnIndex}`} className="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-muted">
                                     {column.label}
                                 </th>
                             ))}
                             {renderActions ? (
-                                <th className="px-4 py-3 text-right">Aksi</th>
+                                <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-muted">Aksi</th>
                             ) : null}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-stroke">
+                    <tbody className="divide-y divide-stroke/70">
                         {tableRows.length ? (
                             tableRows.map((row, rowIndex) => (
-                                <tr key={tableRowKey(row, rowIndex)} className="hover:bg-page/70">
+                                <tr key={tableRowKey(row, rowIndex)} className="transition-colors duration-150 hover:bg-page/50">
                                     {columns.map((column, columnIndex) => (
-                                        <td key={`${column.key || column.label}-${columnIndex}`} className="px-4 py-3">
+                                        <td key={`${column.key || column.label}-${columnIndex}`} className="px-4 py-3 font-medium text-main">
                                             {column.render
                                                 ? column.render(row)
                                                 : row[column.key] || "-"}
@@ -297,12 +302,13 @@ export function SimpleTable({ columns, rows, renderActions }) {
                         ) : (
                             <tr>
                                 <td
-                                    className="px-4 py-10 text-center text-muted"
+                                    className="px-4 py-14 text-center"
                                     colSpan={
                                         columns.length + (renderActions ? 1 : 0)
                                     }
                                 >
-                                    Data belum tersedia.
+                                    <div className="text-sm font-medium text-muted">Data belum tersedia</div>
+                                    <div className="mt-1 text-xs text-gray-400">Belum ada data untuk ditampilkan saat ini.</div>
                                 </td>
                             </tr>
                         )}
@@ -348,22 +354,23 @@ function PaginationBar({ pagination }) {
     };
 
     return (
-        <div className="flex flex-col gap-3 rounded-lg border border-stroke bg-card px-4 py-3 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-muted sm:text-left sm:tracking-[0.2em]">
-                Showing{" "}
-                <span className="text-main">{from}</span>
-                {" - "}
-                <span className="text-main">{to}</span> of{" "}
-                <span className="text-main">{total}</span> entries
+        <div className="flex flex-col gap-3 rounded-xl border border-stroke bg-card px-5 py-3.5 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-center text-[11px] font-semibold tracking-wide text-muted sm:text-left">
+                Menampilkan{" "}
+                <span className="font-bold text-main">{from}</span>
+                {" – "}
+                <span className="font-bold text-main">{to}</span>{" dari "}
+                <span className="font-bold text-main">{total}</span>{" data"}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold text-muted">
-                    Rows per page
+            <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-[11px] font-semibold tracking-wide text-muted">
+                    Per halaman
                 </span>
-                <div className="w-36">
+                <div className="w-28">
                     <Select
                     value={perPage}
                     onChange={(event) => visit(1, event.target.value)}
+                    searchable={false}
                     >
                         {[10, 25, 50, 100].map((value) => (
                             <option key={value} value={value}>
@@ -380,7 +387,7 @@ function PaginationBar({ pagination }) {
                 >
                     Sebelumnya
                 </Button>
-                <div className="min-w-24 text-center font-semibold text-main">
+                <div className="min-w-20 text-center text-xs font-bold tabular-nums text-main">
                     {page} / {lastPage}
                 </div>
                 <Button

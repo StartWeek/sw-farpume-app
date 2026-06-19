@@ -1,6 +1,7 @@
 import ProtectedLayout from "@/components/layouts/ProtectedLayout";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { router } from "@inertiajs/react";
+import toast from "react-hot-toast";
 import Button from "@/components/common/Button";
 import { Card, Field, Input, PageHeader, Select, SimpleTable, money, number, todayDate, useFlashMessages } from "./_components";
 
@@ -17,8 +18,41 @@ const titles = {
     kas: "Laporan Kas",
 };
 
+/* ── Inline SVG Icons ── */
+
+const PdfIcon = ({ size = 18 }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <path d="M9 15v-2h2a1.5 1.5 0 0 1 0 3H9zm0 0v2" />
+    </svg>
+);
+
+const ExcelIcon = ({ size = 18 }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="8" y1="13" x2="16" y2="13" />
+        <line x1="8" y1="17" x2="16" y2="17" />
+        <line x1="10" y1="9" x2="8" y2="9" />
+    </svg>
+);
+
+const PortraitIcon = ({ size = 14 }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+    </svg>
+);
+
+const LandscapeIcon = ({ size = 14 }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="5" width="20" height="14" rx="2" ry="2" />
+    </svg>
+);
+
 export default function ReportPage({ type, rows = [], filters = {}, refs = {}, searched = false }) {
     useFlashMessages();
+    const [orientation, setOrientation] = useState("landscape");
     const [form, setForm] = useState({
         tanggal_dari: filters.tanggal_dari || todayDate(),
         tanggal_sampai: filters.tanggal_sampai || todayDate(),
@@ -46,6 +80,15 @@ export default function ReportPage({ type, rows = [], filters = {}, refs = {}, s
             preserveScroll: true,
             preserveState: true,
             replace: true,
+            onSuccess: (page) => {
+                const fetchedRows = page.props.rows || [];
+                const dataArray = Array.isArray(fetchedRows) ? fetchedRows : (fetchedRows.data || []);
+                if (dataArray.length > 0) {
+                    toast.success("Laporan tersedia.");
+                } else {
+                    toast.error("Laporan tidak tersedia.");
+                }
+            }
         });
     };
 
@@ -59,13 +102,33 @@ export default function ReportPage({ type, rows = [], filters = {}, refs = {}, s
     const exportUrl = (format) => {
         const params = new URLSearchParams(window.location.search);
         params.set("export", format);
+        params.set("orientation", orientation);
         return `${window.location.pathname}?${params.toString()}`;
     };
+
+    let dynamicSubtitle = "Data laporan mengikuti transaksi dan inventory terbaru.";
+    if (searched) {
+        if (form.id_supplier) {
+            const sup = refs.supplier?.find((s) => String(s.id) === String(form.id_supplier));
+            if (sup) dynamicSubtitle = `Menampilkan laporan untuk Supplier: ${sup.nama_supplier}`;
+        } else if (form.id_customer) {
+            const cus = refs.customer?.find((c) => String(c.id) === String(form.id_customer));
+            if (cus) dynamicSubtitle = `Menampilkan laporan untuk Customer: ${cus.nama_customer}`;
+        } else {
+            dynamicSubtitle = `Menampilkan seluruh data untuk Laporan ${titles[type]?.replace("Laporan ", "") || ""}.`;
+        }
+    }
+
+    useEffect(() => {
+        if (searched) {
+            toast.success("Laporan berhasil dimuat!", { id: "report-toast" });
+        }
+    }, [searched]);
 
     return (
         <ProtectedLayout title={titles[type] || "Laporan"}>
             <div className="space-y-5">
-                <PageHeader title={titles[type] || "Laporan"} subtitle="Data laporan mengikuti transaksi dan inventory terbaru." />
+                <PageHeader title={titles[type] || "Laporan"} subtitle={dynamicSubtitle} />
                 <Card>
                     <form onSubmit={submit} className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-4">
@@ -206,19 +269,60 @@ export default function ReportPage({ type, rows = [], filters = {}, refs = {}, s
 
                 {searched ? (
                     <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                            <a href={exportUrl("pdf")} target="_blank" rel="noreferrer">
-                                <Button type="button" variant="outline">
-                                    Export PDF
-                                </Button>
-                            </a>
-                            <a href={exportUrl("excel")} target="_blank" rel="noreferrer">
-                                <Button type="button" variant="outline">
-                                    Export Excel
-                                </Button>
-                            </a>
-                        </div>
                         <SimpleTable rows={rows} columns={columns(type)} />
+
+                        {/* Export Bar */}
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            {/* Orientation Toggle */}
+                            <div className="inline-flex items-center rounded-xl border-2 border-stroke overflow-hidden text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => setOrientation("portrait")}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-2 font-semibold transition-all ${
+                                        orientation === "portrait"
+                                            ? "bg-primary text-white"
+                                            : "bg-card text-muted hover:text-main hover:bg-page"
+                                    }`}
+                                >
+                                    <PortraitIcon size={14} />
+                                    Portrait
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setOrientation("landscape")}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-2 font-semibold transition-all ${
+                                        orientation === "landscape"
+                                            ? "bg-primary text-white"
+                                            : "bg-card text-muted hover:text-main hover:bg-page"
+                                    }`}
+                                >
+                                    <LandscapeIcon size={14} />
+                                    Landscape
+                                </button>
+                            </div>
+
+                            {/* Export Buttons */}
+                            <div className="flex items-center gap-2">
+                                <a href={exportUrl("pdf")} target="_blank" rel="noreferrer" className="no-underline">
+                                    <button
+                                        type="button"
+                                        className="inline-flex items-center gap-2 rounded-xl border-2 border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-600 transition-all hover:bg-red-100 hover:border-red-300 hover:shadow-md active:scale-[0.97]"
+                                    >
+                                        <PdfIcon size={16} />
+                                        PDF
+                                    </button>
+                                </a>
+                                <a href={exportUrl("excel")} target="_blank" rel="noreferrer" className="no-underline">
+                                    <button
+                                        type="button"
+                                        className="inline-flex items-center gap-2 rounded-xl border-2 border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-600 transition-all hover:bg-green-100 hover:border-green-300 hover:shadow-md active:scale-[0.97]"
+                                    >
+                                        <ExcelIcon size={16} />
+                                        Excel
+                                    </button>
+                                </a>
+                            </div>
+                        </div>
                     </div>
                 ) : (
                     <Card className="py-10 text-center text-sm font-semibold text-muted">
