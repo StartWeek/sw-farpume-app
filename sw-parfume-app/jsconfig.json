@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "jsx": "react-jsx",
+        "module": "esnext",
+        "target": "esnext",
+        "allowJs": true,
+        "checkJs": false,
+        "paths": {
+            "@/*": ["./resources/js/*"]
+        }
+    },
+    "include": ["./resources/js/**/*"]
+}

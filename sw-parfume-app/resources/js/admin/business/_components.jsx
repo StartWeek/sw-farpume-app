@@ -1,0 +1,433 @@
+import React from "react";
+import { router } from "@inertiajs/react";
+import Button from "@/components/common/Button";
+import {
+    IconCalendarEvent,
+    IconCheck,
+    IconChevronDown,
+    IconPencil,
+    IconPlus,
+    IconSearch,
+    IconTrash,
+} from "@tabler/icons-react";
+
+export const money = (value) =>
+    new Intl.NumberFormat("id-ID", {
+        style: "currency",
+        currency: "IDR",
+        maximumFractionDigits: 0,
+    }).format(Number(value || 0));
+
+export const number = (value) =>
+    new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(
+        Number(value || 0),
+    );
+
+export const formatInputNumber = (value) => {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    if (!digits) return "";
+
+    return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Number(digits));
+};
+
+export const rawInputNumber = (value) => String(value ?? "").replace(/\D/g, "");
+
+export const todayDate = () => new Date().toLocaleDateString("en-CA");
+
+export function useFlashMessages() {
+    return null;
+}
+
+export function PageHeader({ title, subtitle, actionLabel, onAction }) {
+    return (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h1 className="text-xl font-black text-main">{title}</h1>
+                {subtitle ? (
+                    <p className="mt-1 text-sm text-muted">{subtitle}</p>
+                ) : null}
+            </div>
+            {actionLabel ? (
+                <Button icon={IconPlus} size="sm" onClick={onAction}>
+                    {actionLabel}
+                </Button>
+            ) : null}
+        </div>
+    );
+}
+
+export function Card({ children, className = "" }) {
+    return (
+        <section
+            className={`rounded-lg border border-stroke bg-card p-4 shadow-premium ${className}`}
+        >
+            {children}
+        </section>
+    );
+}
+
+export function Field({ label, children }) {
+    return (
+        <label className="space-y-1 text-sm font-semibold text-main">
+            <span>{label}</span>
+            {children}
+        </label>
+    );
+}
+
+export function Input({ className = "", type = "text", ...props }) {
+    const baseClass =
+        "w-full rounded-lg border border-stroke bg-card px-3 py-2 text-sm text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20";
+
+    if (type === "date") {
+        return (
+            <div className="relative">
+                <IconCalendarEvent
+                    size={17}
+                    stroke={2}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-primary"
+                />
+                <input
+                    {...props}
+                    type="date"
+                    className={`${baseClass} h-10 cursor-pointer pl-10 pr-9 font-semibold text-main shadow-sm [color-scheme:light] [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 ${className}`}
+                />
+                <IconChevronDown
+                    size={15}
+                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted"
+                />
+            </div>
+        );
+    }
+
+    return (
+        <input
+            {...props}
+            type={type}
+            className={`${baseClass} ${className}`}
+        />
+    );
+}
+
+export function CurrencyInput({ value, onChange, ...props }) {
+    return (
+        <Input
+            {...props}
+            type="text"
+            inputMode="numeric"
+            value={formatInputNumber(value)}
+            onChange={(event) => {
+                onChange?.({
+                    ...event,
+                    target: {
+                        ...event.target,
+                        value: rawInputNumber(event.target.value),
+                    },
+                });
+            }}
+        />
+    );
+}
+
+export function Textarea(props) {
+    return (
+        <textarea
+            {...props}
+            className="min-h-20 w-full rounded-lg border border-stroke bg-card px-3 py-2 text-sm text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+    );
+}
+
+function optionText(label) {
+    if (typeof label === "string" || typeof label === "number") {
+        return String(label);
+    }
+
+    if (Array.isArray(label)) {
+        return label.map(optionText).join(" ");
+    }
+
+    if (React.isValidElement(label)) {
+        return optionText(label.props.children);
+    }
+
+    return "";
+}
+
+export function Select({ children, value, onChange, placeholder = "Pilih data", disabled = false, searchable = true, ...props }) {
+    const [open, setOpen] = React.useState(false);
+    const [search, setSearch] = React.useState("");
+    const wrapperRef = React.useRef(null);
+    const options = React.Children.toArray(children)
+        .filter((child) => React.isValidElement(child))
+        .map((child) => ({
+            value: String(child.props.value ?? child.props.children ?? ""),
+            label: child.props.children,
+            text: optionText(child.props.children).toLowerCase(),
+            disabled: Boolean(child.props.disabled),
+        }));
+    const selected = options.find((option) => option.value === String(value ?? ""));
+    const menuOptions = options.filter((option) => option.value !== "");
+    const filteredOptions = search.trim()
+        ? menuOptions.filter((option) => option.text.includes(search.trim().toLowerCase()))
+        : menuOptions;
+
+    React.useEffect(() => {
+        const close = (event) => {
+            if (!wrapperRef.current?.contains(event.target)) {
+                setOpen(false);
+                setSearch("");
+            }
+        };
+
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+    }, []);
+
+    const pick = (option) => {
+        if (option.disabled) return;
+        onChange?.({ target: { value: option.value, name: props.name } });
+        setOpen(false);
+        setSearch("");
+    };
+
+    return (
+        <div ref={wrapperRef} className="relative">
+            <button
+                type="button"
+                disabled={disabled}
+                onClick={() => setOpen((current) => !current)}
+                className="flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border border-stroke bg-card px-3 py-2 text-left text-sm text-main shadow-sm outline-none transition hover:border-primary/60 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+                <span className={selected?.value ? "" : "text-muted"}>
+                    {selected?.label || placeholder}
+                </span>
+                <IconChevronDown
+                    size={16}
+                    className={`shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`}
+                />
+            </button>
+
+            {open ? (
+                <div className="absolute z-40 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-stroke bg-card p-1 text-sm shadow-premium">
+                    {searchable ? (
+                        <div className="sticky top-0 z-10 bg-card p-1">
+                            <div className="relative">
+                                <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                                <input
+                                    autoFocus
+                                    type="text"
+                                    value={search}
+                                    onChange={(event) => setSearch(event.target.value)}
+                                    placeholder="Cari..."
+                                    className="w-full rounded-md border border-stroke bg-page py-2 pl-8 pr-3 text-sm text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                />
+                            </div>
+                        </div>
+                    ) : null}
+                    {filteredOptions.length ? filteredOptions.map((option) => {
+                        const active = option.value === String(value ?? "");
+                        return (
+                            <button
+                                key={`${option.value}-${option.label}`}
+                                type="button"
+                                disabled={option.disabled}
+                                onClick={() => pick(option)}
+                                className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition ${
+                                    active
+                                        ? "bg-primary text-white"
+                                        : "text-main hover:bg-page"
+                                } ${option.disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                            >
+                                <span>{option.label}</span>
+                                {active ? <IconCheck size={15} /> : null}
+                            </button>
+                        );
+                    }) : (
+                        <div className="px-3 py-4 text-center text-sm text-muted">
+                            Data tidak ditemukan.
+                        </div>
+                    )}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+export function SimpleTable({ columns, rows, renderActions }) {
+    const tableRows = Array.isArray(rows) ? rows : rows?.data || [];
+    const hasPagination = !Array.isArray(rows) && rows;
+
+    return (
+        <div className="space-y-3">
+            <div className="overflow-x-auto rounded-lg border border-stroke bg-card">
+                <table className="min-w-full divide-y divide-stroke text-sm">
+                    <thead className="bg-page text-left text-xs uppercase text-muted">
+                        <tr>
+                            {columns.map((column, columnIndex) => (
+                                <th key={`${column.key || column.label}-${columnIndex}`} className="px-4 py-3">
+                                    {column.label}
+                                </th>
+                            ))}
+                            {renderActions ? (
+                                <th className="px-4 py-3 text-right">Aksi</th>
+                            ) : null}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stroke">
+                        {tableRows.length ? (
+                            tableRows.map((row, rowIndex) => (
+                                <tr key={tableRowKey(row, rowIndex)} className="hover:bg-page/70">
+                                    {columns.map((column, columnIndex) => (
+                                        <td key={`${column.key || column.label}-${columnIndex}`} className="px-4 py-3">
+                                            {column.render
+                                                ? column.render(row)
+                                                : row[column.key] || "-"}
+                                        </td>
+                                    ))}
+                                    {renderActions ? (
+                                        <td className="px-4 py-3 text-right">
+                                            <div className="flex justify-end gap-2">
+                                                {renderActions(row)}
+                                            </div>
+                                        </td>
+                                    ) : null}
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td
+                                    className="px-4 py-10 text-center text-muted"
+                                    colSpan={
+                                        columns.length + (renderActions ? 1 : 0)
+                                    }
+                                >
+                                    Data belum tersedia.
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {hasPagination ? <PaginationBar pagination={rows} /> : null}
+        </div>
+    );
+}
+
+function tableRowKey(row, index) {
+    return row?.id
+        ?? row?.key
+        ?? row?.no_transaksi
+        ?? row?.no_pembelian
+        ?? row?.no_penjualan
+        ?? row?.no_hutang
+        ?? row?.no_piutang
+        ?? row?.no_piutang_supplier
+        ?? `${row?.name || row?.nama_item || row?.kode_barang || "row"}-${index}`;
+}
+
+function PaginationBar({ pagination }) {
+    const page = Number(pagination.current_page || 1);
+    const lastPage = Number(pagination.last_page || 1);
+    const perPage = Number(pagination.per_page || 10);
+    const total = Number(pagination.total || 0);
+    const from = Number(pagination.from || 0);
+    const to = Number(pagination.to || 0);
+
+    const visit = (nextPage, nextPerPage = perPage) => {
+        const params = new URLSearchParams(window.location.search);
+        params.set("page", String(nextPage));
+        params.set("per_page", String(nextPerPage));
+
+        router.get(`${window.location.pathname}?${params.toString()}`, {}, {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    return (
+        <div className="flex flex-col gap-3 rounded-lg border border-stroke bg-card px-4 py-3 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-muted sm:text-left sm:tracking-[0.2em]">
+                Showing{" "}
+                <span className="text-main">{from}</span>
+                {" - "}
+                <span className="text-main">{to}</span> of{" "}
+                <span className="text-main">{total}</span> entries
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-muted">
+                    Rows per page
+                </span>
+                <div className="w-36">
+                    <Select
+                    value={perPage}
+                    onChange={(event) => visit(1, event.target.value)}
+                    >
+                        {[10, 25, 50, 100].map((value) => (
+                            <option key={value} value={value}>
+                                {value}
+                            </option>
+                        ))}
+                    </Select>
+                </div>
+                <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page <= 1}
+                    onClick={() => visit(page - 1)}
+                >
+                    Sebelumnya
+                </Button>
+                <div className="min-w-24 text-center font-semibold text-main">
+                    {page} / {lastPage}
+                </div>
+                <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page >= lastPage}
+                    onClick={() => visit(page + 1)}
+                >
+                    Berikutnya
+                </Button>
+            </div>
+        </div>
+    );
+}
+
+export function RowActions({ onEdit, onDelete }) {
+    return (
+        <>
+            {onEdit ? (
+                <Button
+                    icon={IconPencil}
+                    iconOnly
+                    variant="outline"
+                    size="sm"
+                    onClick={onEdit}
+                    title="Edit"
+                />
+            ) : null}
+            {onDelete ? (
+                <Button
+                    icon={IconTrash}
+                    iconOnly
+                    variant="danger"
+                    size="sm"
+                    onClick={onDelete}
+                    title="Hapus"
+                />
+            ) : null}
+        </>
+    );
+}
+
+export function submitDelete(url, message = "Hapus data ini?") {
+    if (!window.confirm(message)) return;
+    router.delete(url, { preserveScroll: true });
+}
+
+export function optionLabel(row, keys) {
+    return keys.map((key) => row?.[key]).filter(Boolean).join(" - ");
+}

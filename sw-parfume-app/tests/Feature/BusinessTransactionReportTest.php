@@ -1,0 +1,375 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Business\BarangBibit;
+use App\Models\Business\Botol;
+use App\Models\Business\Brand;
+use App\Models\Business\Customer;
+use App\Models\Business\Gudang;
+use App\Models\Business\Hutang;
+use App\Models\Business\KasMutasi;
+use App\Models\Business\MutasiStok;
+use App\Models\Business\Pembelian;
+use App\Models\Business\Penjualan;
+use App\Models\Business\Piutang;
+use App\Models\Business\PiutangSupplier;
+use App\Models\Business\Supplier;
+use App\Models\Business\Wangi;
+use App\Models\User;
+use App\Services\Business\BusinessService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
+use Tests\TestCase;
+
+class BusinessTransactionReportTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_pembelian_is_available_for_purchase_and_stock_reports(): void
+    {
+        [$supplier, $gudang, $barang] = $this->seedPurchaseData();
+
+        $pembelian = app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_input' => 2,
+                'satuan_input' => 'ML',
+                'harga_beli_per_ml' => 1000,
+            ]],
+        ]);
+
+        $reportRow = Pembelian::query()
+            ->with(['supplier', 'gudang', 'details.barang'])
+            ->whereKey($pembelian->id)
+            ->first();
+
+        $this->assertNotNull($reportRow);
+        $this->assertSame('Supplier Test', $reportRow->supplier->nama_supplier);
+        $this->assertSame('Gudang Test', $reportRow->gudang->nama_gudang);
+        $this->assertCount(1, $reportRow->details);
+        $this->assertDatabaseHas('tt_mutasi_stok', [
+            'sumber_transaksi' => 'PEMBELIAN',
+            'no_transaksi' => $pembelian->no_pembelian,
+        ]);
+        $this->assertSame(1, MutasiStok::query()->where('no_transaksi', $pembelian->no_pembelian)->count());
+    }
+
+    public function test_penjualan_is_available_for_sales_and_stock_reports(): void
+    {
+        [$supplier, $gudang, $barang] = $this->seedPurchaseData();
+        $customer = Customer::query()->create([
+            'kode_customer' => 'CUS-0001',
+            'nama_customer' => 'Customer Test',
+            'tipe_customer' => 'RETAIL',
+            'status' => 'AKTIF',
+        ]);
+
+        app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_input' => 10,
+                'satuan_input' => 'ML',
+                'harga_beli_per_ml' => 1000,
+            ]],
+        ]);
+
+        $penjualan = app(BusinessService::class)->createPenjualan([
+            'id_customer' => $customer->id,
+            'tipe_penjualan' => 'RETAIL',
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_ml' => 3,
+            ]],
+        ]);
+
+        $reportRow = Penjualan::query()
+            ->with(['customer', 'gudang', 'details.barang'])
+            ->whereKey($penjualan->id)
+            ->first();
+
+        $this->assertNotNull($reportRow);
+        $this->assertSame('Customer Test', $reportRow->customer->nama_customer);
+        $this->assertSame('Gudang Test', $reportRow->gudang->nama_gudang);
+        $this->assertCount(1, $reportRow->details);
+        $this->assertDatabaseHas('tt_mutasi_stok', [
+            'sumber_transaksi' => 'PENJUALAN',
+            'no_transaksi' => $penjualan->no_penjualan,
+        ]);
+    }
+
+    public function test_supplier_debt_and_receivable_are_available_for_reports(): void
+    {
+        [$supplier] = $this->seedPurchaseData();
+
+        $hutang = app(BusinessService::class)->createHutangSupplier([
+            'id_supplier' => $supplier->id,
+            'total_hutang' => 50000,
+            'jatuh_tempo' => now()->addWeek()->toDateString(),
+            'keterangan' => 'Hutang supplier manual',
+        ]);
+        $piutangSupplier = app(BusinessService::class)->createPiutangSupplier([
+            'id_supplier' => $supplier->id,
+            'total_piutang' => 25000,
+            'jatuh_tempo' => now()->addWeek()->toDateString(),
+            'keterangan' => 'Piutang supplier manual',
+        ]);
+
+        $hutangReportRow = Hutang::query()->with('supplier')->whereKey($hutang->id)->first();
+        $piutangReportRow = PiutangSupplier::query()->with('supplier')->whereKey($piutangSupplier->id)->first();
+
+        $this->assertNotNull($hutangReportRow);
+        $this->assertNull($hutangReportRow->id_pembelian);
+        $this->assertSame('Supplier Test', $hutangReportRow->supplier->nama_supplier);
+        $this->assertSame('50000.00', $hutangReportRow->sisa_hutang);
+        $this->assertNotNull($piutangReportRow);
+        $this->assertSame('Supplier Test', $piutangReportRow->supplier->nama_supplier);
+        $this->assertSame('25000.00', $piutangReportRow->sisa_piutang);
+    }
+
+    public function test_tempo_payments_update_source_transaction_status(): void
+    {
+        [$supplier, $gudang, $barang] = $this->seedPurchaseData();
+        $customer = Customer::query()->create([
+            'kode_customer' => 'CUS-0001',
+            'nama_customer' => 'Customer Test',
+            'tipe_customer' => 'RETAIL',
+            'status' => 'AKTIF',
+        ]);
+
+        app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_input' => 10,
+                'satuan_input' => 'ML',
+                'harga_beli_per_ml' => 1000,
+            ]],
+        ]);
+
+        $tempoPembelian = app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'TEMPO',
+            'jatuh_tempo' => now()->addWeek()->toDateString(),
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_input' => 2,
+                'satuan_input' => 'ML',
+                'harga_beli_per_ml' => 1000,
+            ]],
+        ]);
+        $tempoPenjualan = app(BusinessService::class)->createPenjualan([
+            'id_customer' => $customer->id,
+            'tipe_penjualan' => 'RETAIL',
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'TEMPO',
+            'jatuh_tempo' => now()->addWeek()->toDateString(),
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_ml' => 2,
+            ]],
+        ]);
+
+        app(BusinessService::class)->payHutang($tempoPembelian->hutang, 2000);
+        app(BusinessService::class)->payPiutang($tempoPenjualan->piutang, 3000);
+
+        $this->assertSame('LUNAS', $tempoPembelian->refresh()->status_pembayaran);
+        $this->assertSame('LUNAS', $tempoPenjualan->refresh()->status_pembayaran);
+    }
+
+    public function test_barang_summary_report_tracks_stock_in_and_out(): void
+    {
+        [$supplier, $gudang, $barang] = $this->seedPurchaseData();
+        $customer = Customer::query()->create([
+            'kode_customer' => 'CUS-0001',
+            'nama_customer' => 'Customer Test',
+            'tipe_customer' => 'RETAIL',
+            'status' => 'AKTIF',
+        ]);
+        $user = User::query()->create([
+            'username' => 'super',
+            'name' => 'Super User',
+            'email' => 'super@example.test',
+            'password' => 'secret',
+            'role' => 'superadmin',
+        ]);
+
+        app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_input' => 10,
+                'satuan_input' => 'ML',
+                'harga_beli_per_ml' => 1000,
+            ]],
+        ]);
+        app(BusinessService::class)->createPenjualan([
+            'id_customer' => $customer->id,
+            'tipe_penjualan' => 'RETAIL',
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_ml' => 3,
+            ]],
+        ]);
+
+        $this->actingAs($user)
+            ->get('/admin/laporan/barang-summary?search=1')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/business/ReportPage', false)
+                ->where('type', 'barang-summary')
+                ->where('searched', true)
+                ->has('rows.data', 1)
+                ->where('rows.data.0.total_masuk_ml', 10)
+                ->where('rows.data.0.total_keluar_ml', 3)
+                ->where('rows.data.0.selisih_ml', 7)
+            );
+    }
+
+    public function test_mixed_perfume_and_bottle_transactions_convert_stock_cash_and_receivables(): void
+    {
+        [$supplier, $gudang, $barang] = $this->seedPurchaseData();
+        $botol = Botol::query()->create([
+            'kode_botol' => 'BTL-0001',
+            'varian_ml' => 100,
+            'nama_botol' => 'Botol 100ml',
+            'isi_per_dus' => 100,
+            'harga_beli_per_botol' => 1000,
+            'harga_jual_per_botol' => 1500,
+            'harga_jual_per_dus' => 140000,
+            'status' => 'AKTIF',
+        ]);
+        $customer = Customer::query()->create([
+            'kode_customer' => 'CUS-0001',
+            'nama_customer' => 'Customer Sales',
+            'tipe_customer' => 'GROSIR',
+            'status' => 'AKTIF',
+        ]);
+
+        app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'DP',
+            'jumlah_bayar' => 50000,
+            'jatuh_tempo' => now()->addWeek()->toDateString(),
+            'items' => [
+                ['tipe_item' => 'BIBIT', 'item_id' => $barang->id, 'qty_input' => 1, 'satuan_input' => 'LITER', 'harga' => 1000],
+                ['tipe_item' => 'BOTOL', 'item_id' => $botol->id, 'qty_input' => 2, 'satuan_input' => 'DUS', 'harga' => 100000],
+            ],
+        ]);
+
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_barang' => $barang->id, 'stok_ml' => 1000]);
+        $this->assertSame('200.00', $botol->refresh()->stock_botol);
+        $this->assertSame(1, Hutang::query()->count());
+        $this->assertSame('KELUAR', KasMutasi::query()->first()->jenis_transaksi);
+
+        app(BusinessService::class)->createPenjualan([
+            'id_customer' => $customer->id,
+            'tipe_penjualan' => 'SALES',
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'TEMPO',
+            'jatuh_tempo' => now()->addWeek()->toDateString(),
+            'items' => [
+                ['tipe_item' => 'BIBIT', 'item_id' => $barang->id, 'qty_input' => 0.5, 'satuan_input' => 'LITER'],
+                ['tipe_item' => 'BOTOL', 'item_id' => $botol->id, 'qty_input' => 1, 'satuan_input' => 'DUS'],
+            ],
+        ]);
+
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_barang' => $barang->id, 'stok_ml' => 500]);
+        $this->assertSame('100.00', $botol->refresh()->stock_botol);
+        $this->assertSame(1, Piutang::query()->count());
+    }
+
+    public function test_transaction_and_report_pages_open_for_superadmin(): void
+    {
+        $this->seedPurchaseData();
+        Botol::query()->create([
+            'kode_botol' => 'BTL-0001',
+            'varian_ml' => 100,
+            'nama_botol' => 'Botol 100ml',
+            'isi_per_dus' => 100,
+            'harga_beli_per_botol' => 1000,
+            'harga_jual_per_botol' => 1500,
+            'harga_jual_per_dus' => 140000,
+            'status' => 'AKTIF',
+        ]);
+        $user = User::query()->create([
+            'username' => 'super-pages',
+            'name' => 'Super Pages',
+            'email' => 'super-pages@example.test',
+            'password' => 'secret',
+            'role' => 'superadmin',
+        ]);
+
+        foreach ([
+            '/admin/pembelian',
+            '/admin/penjualan/retail',
+            '/admin/penjualan/sales',
+            '/admin/laporan/pembelian',
+            '/admin/laporan/penjualan',
+            '/admin/laporan/stok',
+            '/admin/laporan/mutasi-stok',
+            '/admin/laporan/barang-summary',
+            '/admin/laporan/hutang',
+            '/admin/laporan/piutang',
+            '/admin/laporan/piutang-supplier',
+            '/admin/laporan/laba-kotor',
+            '/admin/laporan/kas',
+        ] as $url) {
+            $this->actingAs($user)->get($url)->assertOk();
+        }
+    }
+
+    private function seedPurchaseData(): array
+    {
+        $supplier = Supplier::query()->create([
+            'kode_supplier' => 'SUP-0001',
+            'nama_supplier' => 'Supplier Test',
+            'status' => 'AKTIF',
+        ]);
+        $gudang = Gudang::query()->create([
+            'kode_gudang' => 'GDG-0001',
+            'nama_gudang' => 'Gudang Test',
+            'status' => 'AKTIF',
+        ]);
+        $wangi = Wangi::query()->create([
+            'kode_wangi' => 'WNG-0001',
+            'nama_wangi' => 'Vanilla',
+            'status' => 'AKTIF',
+        ]);
+        $brand = Brand::query()->create([
+            'kode_brand' => 'BRD-0001',
+            'nama_brand' => 'Brand Test',
+            'status' => 'AKTIF',
+        ]);
+        $barang = BarangBibit::query()->create([
+            'kode_barang' => 'BRG-0001',
+            'id_wangi' => $wangi->id,
+            'id_brand' => $brand->id,
+            'nama_barang' => 'Vanilla - Brand Test',
+            'harga_beli_per_ml' => 1000,
+            'harga_jual_retail_per_ml' => 1500,
+            'harga_jual_grosir_per_ml' => 1250,
+            'minimum_stok_ml' => 10,
+            'satuan_dasar' => 'ML',
+            'status' => 'AKTIF',
+        ]);
+
+        return [$supplier, $gudang, $barang];
+    }
+}

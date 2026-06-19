@@ -1,0 +1,35 @@
+{
+    "$schema": "https://www.schemastore.org/package.json",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "vite build",
+        "dev": "concurrently -c \"#93c5fd,#c4b5fd\" \"php artisan serve --host=127.0.0.1 --port=8000\" \"npm run vite\" --names=backend,frontend --kill-others",
+        "vite": "vite --host 127.0.0.1 --port 5173",
+        "dev:full": "npm run dev",
+        "migrate:fresh": "php artisan migrate:fresh --seed"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.3.0",
+        "@vitejs/plugin-react": "^5.2.0",
+        "axios": "^1.16.1",
+        "concurrently": "^9.2.1",
+        "laravel-vite-plugin": "^2.1.0",
+        "tailwindcss": "^4.3.0",
+        "vite": "^7.3.3"
+    },
+    "dependencies": {
+        "@headlessui/react": "^2.2.10",
+        "@inertiajs/react": "^2.3.24",
+        "@tabler/icons-react": "^3.44.0",
+        "@tanstack/react-table": "^8.21.3",
+        "clsx": "^2.1.1",
+        "framer-motion": "^12.40.0",
+        "react": "^19.2.6",
+        "react-dom": "^19.2.6",
+        "react-hot-toast": "^2.6.0",
+        "react-select": "^5.10.2",
+        "ziggy-js": "^2.6.2",
+        "zustand": "^5.0.13"
+    }
+}
