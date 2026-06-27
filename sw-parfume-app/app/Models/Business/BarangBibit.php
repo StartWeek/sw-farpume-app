@@ -19,8 +19,6 @@ class BarangBibit extends Model
         'harga_beli_per_ml',
         'harga_jual_retail_per_ml',
         'harga_jual_grosir_per_ml',
-        'harga_beli_per_botol',
-        'harga_jual_per_botol',
         'minimum_stok_ml',
         'satuan_dasar',
         'status',
@@ -30,8 +28,6 @@ class BarangBibit extends Model
         'harga_beli_per_ml' => 'decimal:2',
         'harga_jual_retail_per_ml' => 'decimal:2',
         'harga_jual_grosir_per_ml' => 'decimal:2',
-        'harga_beli_per_botol' => 'decimal:2',
-        'harga_jual_per_botol' => 'decimal:2',
         'minimum_stok_ml' => 'decimal:2',
     ];
 

@@ -4,12 +4,6 @@ window.axios = axios;
 
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
-// CSRF token untuk request non-Inertia (upload, dll)
-const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-if (csrfToken) {
-    window.axios.defaults.headers.common['X-CSRF-TOKEN'] = csrfToken;
-}
-
 async function sha256Hex(input) {
     const encoder = new TextEncoder();
     const data = encoder.encode(input);
@@ -57,10 +51,12 @@ window.axios.interceptors.request.use(async (config) => {
         : rawSignature;
 
     config.headers = config.headers ?? {};
+    if (csrf) {
+        config.headers["X-CSRF-TOKEN"] = csrf;
+    }
     config.headers["X-Timestamp"] = timestamp;
     config.headers["X-Nonce"] = nonce;
     config.headers["X-Signature"] = signature;
 
     return config;
 });
-

@@ -7,10 +7,12 @@ import toast from "react-hot-toast";
 import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, formatInputNumber, money, number, todayDate, useFlashMessages } from "./_components";
 import {
     renderReceiptTemplate,
+    renderItemTemplate,
     withReceiptSettings,
 } from "./receiptSettings";
 
 const liquidUnits = ["ML", "LITER"];
+const purchaseLiquidUnits = ["ML", "LITER", "BOTOL"];
 const bottleUnits = ["BOTOL", "DUS"];
 const payments = ["CASH", "TRANSFER", "TEMPO", "DP"];
 const retailPayments = ["CASH", "TRANSFER"];
@@ -20,11 +22,12 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     const { flash = {}, errors = {}, appSettings = {} } = usePage().props;
     const isHistory = mode === "history";
     const isBuy = type === "pembelian";
+    const isBottleSale = type === "botol-kosong";
     const isWholesale = type === "sales" || type === "grosir";
     const title = isHistory
         ? (isBuy ? "Riwayat Pembelian Supplier" : isWholesale ? "Riwayat Penjualan Sales" : "Riwayat Penjualan Retail")
-        : (isBuy ? "Pembelian Supplier" : isWholesale ? "Penjualan Sales" : "Penjualan Retail");
-    const emptyItem = { tipe_item: "BIBIT", item_id: "", qty_input: 1, satuan_input: "ML", harga: "", discount: "" };
+        : (isBuy ? "Pembelian Supplier" : isBottleSale ? "Penjualan Botol Kosong" : isWholesale ? "Penjualan Sales" : "Penjualan Retail");
+    const emptyItem = { tipe_item: isBottleSale ? "BOTOL" : "BIBIT", item_id: "", qty_input: 1, satuan_input: isBottleSale ? "BOTOL" : "ML", harga: "", discount: "" };
     const initial = {
         tanggal: operationalDate,
         id_supplier: "",
@@ -36,7 +39,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         jumlah_bayar: "",
         discount: "",
         jatuh_tempo: operationalDate,
-        tipe_penjualan: isWholesale ? "SALES" : "RETAIL",
+        tipe_penjualan: isBottleSale ? "BOTOL_KOSONG" : isWholesale ? "SALES" : "RETAIL",
         keterangan: "",
         items: [],
     };
@@ -92,11 +95,17 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
             };
         }),
     }));
-    const openAddModal = () => { setEditingIndex(null); setModalForm(emptyItem); setModalOpen(true); };
+    const openAddModal = () => {
+        if (!form.id_gudang) { toast.error("Pilih gudang terlebih dahulu."); return; }
+        setEditingIndex(null);
+        setModalForm(emptyItem);
+        setModalOpen(true);
+    };
     const openEditModal = (index) => { setEditingIndex(index); setModalForm({ ...form.items[index] }); setModalOpen(true); };
     const saveModalItem = () => {
         const selected = findSelectedItem(refs, modalForm);
         if (!modalForm.item_id) { toast.error("Pilih barang terlebih dahulu."); return; }
+        if (isBuy && modalForm.tipe_item !== "BOTOL" && modalForm.satuan_input === "BOTOL" && !modalForm.id_botol) { toast.error("Pilih varian botol terlebih dahulu."); return; }
         if (!modalForm.qty_input || Number(modalForm.qty_input) <= 0) { toast.error("Jumlah harus lebih dari 0."); return; }
         if (editingIndex !== null) {
             setForm((prev) => ({ ...prev, items: prev.items.map((item, i) => i === editingIndex ? modalForm : item) }));
@@ -111,7 +120,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     const submit = (event) => {
         event.preventDefault();
         if (!checkStock()) return;
-        router.post(isBuy ? "/admin/pembelian" : "/admin/penjualan", {
+        router.post(isBuy ? "/admin/pembelian" : isBottleSale ? "/admin/penjualan-botol-kosong" : "/admin/penjualan", {
             ...form,
             jatuh_tempo: ["TEMPO", "DP"].includes(form.metode_pembayaran) ? form.jatuh_tempo : null,
             id_sales: form.id_sales || null,
@@ -121,15 +130,28 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     const checkStock = () => {
         if (isBuy) return true;
         const insufficientStock = form.items.filter((item) => {
-            if (!item.item_id || item.tipe_item === "BOTOL") return false;
+            if (!item.item_id) return false;
+            if (item.tipe_item === "BOTOL") {
+                const selected = findSelectedItem(refs, item);
+                return selected && Number(selected.stock || 0) < Number(convertQty(item, selected, refs));
+            }
             const selected = findSelectedItem(refs, item);
             if (!selected) return false;
-            const convertedQty = convertQty(item, selected);
-            const stock = refs.stok_gudang?.find((s) => s.id_barang === selected.id && s.id_gudang === Number(form.id_gudang));
-            return !stock || stock.stok_ml < convertedQty;
+            const convertedQty = Number(convertQty(item, selected, refs));
+            const stock = refs.stok_gudang?.filter((s) => Number(s.id_barang) === Number(selected.id) && Number(s.id_gudang) === Number(form.id_gudang)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0) || 0;
+            return stock < convertedQty;
         });
         if (insufficientStock.length > 0) {
-            toast.error("Stok tidak mencukupi untuk beberapa item. Silakan periksa kembali.");
+            const names = insufficientStock.map((item) => {
+                const selected = findSelectedItem(refs, item);
+                if (item.tipe_item === "BOTOL") {
+                    return `${selected?.nama_botol || "Botol kosong"} (stok: ${number(selected?.stock || 0)} BOTOL)`;
+                }
+                const stock = refs.stok_gudang?.filter((s) => Number(s.id_barang) === Number(selected?.id) && Number(s.id_gudang) === Number(form.id_gudang)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0) || 0;
+                const available = stock ? Number(stock.stok_ml) : 0;
+                return `${selected?.nama_barang || "?"} (stok: ${number(available)} ML)`;
+            }).join(", ");
+            toast.error(`Stok tidak mencukupi: ${names}`);
             return false;
         }
         return true;
@@ -172,7 +194,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                 <Field label="Supplier">
                                     <Select error={!!errors.id_supplier} value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}>
                                         <option value="">Pilih supplier</option>
-                                        {(refs.supplier || []).map((row) => <option key={row.id} value={row.id}>{row.nama_supplier}{row.no_hp ? ` — ${row.no_hp}` : ""}</option>)}
+                                        {(refs.supplier || []).map((row) => <option key={row.id} value={row.id}>{row.kode_supplier} — {row.nama_supplier}</option>)}
                                     </Select>
                                     {errors.id_supplier && <div className="mt-1 text-xs text-red-500">{errors.id_supplier}</div>}
                                 </Field>
@@ -181,7 +203,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                     <Field label="Customer">
                                         <Select error={!!errors.id_customer} value={form.id_customer} onChange={(event) => set("id_customer", event.target.value)}>
                                             <option value="">Pilih customer</option>
-                                            {customers.map((row) => <option key={row.id} value={row.id}>{row.nama_customer} [{row.tipe_customer}]{row.limit_piutang > 0 ? ` — Limit ${money(row.limit_piutang)}` : ""}</option>)}
+                                            {customers.map((row) => <option key={row.id} value={row.id}>{row.kode_customer} - {row.nama_customer}</option>)}
                                         </Select>
                                         {errors.id_customer && <div className="mt-1 text-xs text-red-500">{errors.id_customer}</div>}
                                     </Field>
@@ -235,7 +257,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                             return form.items.map((item, index) => {
                                                 const selected = findSelectedItem(refs, item);
                                                 const price = Number(item.harga || defaultItemPrice(selected, item, isBuy, isWholesale) || 0);
-                                                const convertedQty = convertQty(item, selected);
+                                                const convertedQty = convertQty(item, selected, refs);
                                                 const subtotal = item.tipe_item === "BOTOL" && item.satuan_input === "DUS"
                                                     ? Number(item.qty_input || 0) * price
                                                     : convertedQty * price;
@@ -245,17 +267,22 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                                     : (selected?.kode_barang || "-");
                                                 const namaBarang = item.tipe_item === "BOTOL"
                                                     ? (selected?.nama_botol || "-")
-                                                    : `${selected?.brand?.nama_brand ? `[${selected.brand.nama_brand}] ` : ""}${selected?.nama_barang || "-"}`;
-                                                const botolInfo = selected?.botol ? ` ${selected.botol.nama_botol} ${selected.botol.varian_ml}ML` : "";
+                                                    : (selected?.nama_barang || "-");
+                                                const itemBotolVariant = item.id_botol
+                                                    ? (refs.botol || []).find((b) => Number(b.id) === Number(item.id_botol))
+                                                    : null;
+                                                const botolInfo = item.satuan_input === "BOTOL" && itemBotolVariant
+                                                    ? ` (${itemBotolVariant.nama_botol} ${itemBotolVariant.varian_ml} ML)`
+                                                    : selected?.botol ? ` ${selected.botol.varian_ml} ML` : "";
                                                 const qtyDisplay = item.tipe_item === "BOTOL"
                                                     ? `${number(convertedQty)} Botol`
-                                                    : `${number(item.qty_input)} ${item.satuan_input}${botolInfo}`;
+                                                    : `${number(item.qty_input)} ${item.satuan_input === "BOTOL" ? "BOTOL ISI" : item.satuan_input}${botolInfo}`;
                                                 const no = runningNo++;
                                                 return (
                                                     <tr key={index} className="transition-colors duration-150 hover:bg-page/50">
                                                         <td className="px-3 py-2.5 text-center font-medium text-muted">{no}</td>
                                                         <td className="px-3 py-2.5 font-mono text-[11px] font-bold text-main">{kode}</td>
-                                                        <td className="px-3 py-2.5 font-medium text-main">{namaBarang}{botolInfo ? <span className="text-muted font-normal"> —{botolInfo}</span> : ""}</td>
+                                                        <td className="px-3 py-2.5 font-medium text-main">{namaBarang}{botolInfo ? <span className="text-muted font-normal"> - {botolInfo}</span> : ""}</td>
                                                         <td className="px-3 py-2.5 font-medium text-main">{qtyDisplay}</td>
                                                         <td className="px-3 py-2.5 text-right font-medium text-main">{money(price)}</td>
                                                         <td className="px-3 py-2.5 text-right font-medium text-red-500">{Number(item.discount) > 0 ? money(Number(item.discount)) : "-"}</td>
@@ -279,7 +306,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                             <td className="px-3 py-2.5 text-right text-sm font-extrabold text-main">{money(form.items.reduce((sum, item) => {
                                                 const selected = findSelectedItem(refs, item);
                                                 const price = Number(item.harga || defaultItemPrice(selected, item, isBuy, isWholesale) || 0);
-                                                const convertedQty = convertQty(item, selected);
+                                                const convertedQty = convertQty(item, selected, refs);
                                                 const subtotal = item.tipe_item === "BOTOL" && item.satuan_input === "DUS"
                                                     ? Number(item.qty_input || 0) * price
                                                     : convertedQty * price;
@@ -339,7 +366,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                 <Field label="Supplier">
                                     <Select value={filterForm.id_supplier} onChange={(e) => setFilter("id_supplier", e.target.value)}>
                                         <option value="">Semua</option>
-                                        {(refs.supplier || []).map((s) => <option key={s.id} value={s.id}>{s.nama_supplier}</option>)}
+                                        {(refs.supplier || []).map((s) => <option key={s.id} value={s.id}>{s.kode_supplier} — {s.nama_supplier}</option>)}
                                     </Select>
                                 </Field>
                             )}
@@ -356,7 +383,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                     rows={rows}
                     columns={isBuy ? [
                         { key: "no_pembelian", label: "No Pembelian" },
-                        { key: "supplier", label: "Supplier", render: (row) => row.supplier?.nama_supplier || "-" },
+                        { key: "supplier", label: "Supplier", render: (row) => row.supplier ? `${row.supplier.kode_supplier} — ${row.supplier.nama_supplier}` : "-" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
                         { key: "total_qty_ml", label: "Qty ML", render: (row) => number(row.total_qty_ml) },
                         { key: "total_qty_botol", label: "Qty Botol", render: (row) => number(row.total_qty_botol) },
@@ -417,6 +444,8 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                         isBuy={isBuy}
                         isWholesale={isWholesale}
                         refs={refs}
+                        gudangId={form.id_gudang}
+                        isBottleSale={isBottleSale}
                     />
                 )}
             </div>
@@ -425,29 +454,42 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
 }
 
 function itemOptions(refs, type) {
-    if (type === "BOTOL") return refs.botol || [];
+    if (type === "BOTOL") return refs.botol_kosong || [];
 
     return (refs.barang || []).filter((row) => (type === "ABSOLUTE" ? row.jenis_barang === "ABSOLUTE" : row.jenis_barang !== "ABSOLUTE"));
 }
 
-function itemOptionLabel(row, type, isBuy, isWholesale) {
+function availableItemOptions(refs, type, isBuy, gudangId) {
+    const options = itemOptions(refs, type);
     if (type === "BOTOL") {
-        const buyPrice = Number(row.harga_beli_per_botol || 0);
-        const sellPrice = Number(row.harga_jual_per_botol || 0);
-        return `${row.nama_botol} (${row.varian_ml} ML)${buyPrice > 0 ? ` — Beli ${money(buyPrice)}` : ""}${sellPrice > 0 ? ` / Jual ${money(sellPrice)}` : ""}`;
+        if (!gudangId) return [];
+        return options.filter((row) => Number(row.id_gudang) === Number(gudangId) && (isBuy || Number(row.stock || 0) > 0));
     }
 
-    const brand = row.brand?.nama_brand || "";
-    const botol = row.botol?.nama_botol ? ` — ${row.botol.nama_botol} ${row.botol.varian_ml}ML` : " — Botol belum dipilih";
-    let price = "";
-    if (isBuy) {
-        price = ` — Beli ${money(row.harga_beli_per_ml)}/ML`;
-    } else if (isWholesale && Number(row.harga_jual_grosir_per_ml || 0) > 0) {
-        price = ` — Jual ${money(row.harga_jual_grosir_per_ml)}/ML`;
-    } else {
-        price = ` — Jual ${money(row.harga_jual_retail_per_ml)}/ML`;
+    if (isBuy) return options;
+
+    if (!gudangId) return [];
+
+    return options.filter((row) => refs.stok_gudang?.some((stock) => Number(stock.id_barang) === Number(row.id) && Number(stock.id_gudang) === Number(gudangId) && Number(stock.stok_ml) > 0));
+}
+
+function itemOptionLabel(row, type, isBuy, isWholesale, refs, gudangId) {
+    if (type === "BOTOL") {
+        const stockInfo = gudangId ? ` — Stok: ${number(row.stock || 0)} Botol` : "";
+        return `${row.kode_botol || "-"} - ${row.nama_botol}${stockInfo}`;
     }
-    return `${brand ? `[${brand}] ` : ""}${row.nama_barang}${botol}${price}`;
+
+    // Pembelian: hanya tampilkan kode_barang dan nama_barang
+    if (isBuy) {
+        return `${row.kode_barang || "-"} - ${row.nama_barang}`;
+    }
+
+    const botol = row.botol?.varian_ml ? ` - ${row.botol.varian_ml} ML` : " - Botol belum dipilih";
+    const stock = gudangId
+        ? refs?.stok_gudang?.filter((s) => Number(s.id_barang) === Number(row.id) && Number(s.id_gudang) === Number(gudangId)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0)
+        : null;
+    const stockInfo = stock ? ` — Stok: ${number(stock.stok_ml)} ML` : (gudangId ? " — Stok: 0 ML" : "");
+    return `${row.kode_barang || "-"} - ${row.nama_barang}${botol}${stockInfo}`;
 }
 
 function findSelectedItem(refs, item) {
@@ -457,9 +499,8 @@ function findSelectedItem(refs, item) {
 function defaultItemPrice(selected, item, isBuy, isWholesale) {
     if (!selected) return 0;
     if (item.tipe_item === "BOTOL") {
-        if (isBuy) return selected.harga_beli_per_botol || 0;
-        if (item.satuan_input === "DUS" && Number(selected.harga_jual_per_dus || 0) > 0) return selected.harga_jual_per_dus;
-        return selected.harga_jual_per_botol || 0;
+        if (isBuy) return selected.harga_beli || 0;
+        return selected.harga_jual || 0;
     }
 
     if (isBuy) return selected.harga_beli_per_ml || 0;
@@ -467,10 +508,17 @@ function defaultItemPrice(selected, item, isBuy, isWholesale) {
     return selected.harga_jual_retail_per_ml || 0;
 }
 
-function convertQty(item, selected) {
+function convertQty(item, selected, refs) {
     const qty = Number(item.qty_input || 0);
     if (item.tipe_item === "BOTOL") {
-        return item.satuan_input === "DUS" ? qty * Number(selected?.isi_per_dus || 0) : qty;
+        return item.satuan_input === "DUS" ? qty : qty;
+    }
+
+    if (item.satuan_input === "BOTOL") {
+        const botolVariant = item.id_botol
+            ? (refs?.botol || []).find((b) => Number(b.id) === Number(item.id_botol))
+            : null;
+        return qty * Number(botolVariant?.varian_ml || selected?.botol?.varian_ml || 0);
     }
 
     return item.satuan_input === "LITER" ? qty * 1000 : qty;
@@ -515,9 +563,12 @@ function KebabMenu({ row, isBuy, onPrint, onPayTempo }) {
     );
 }
 
-function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale, refs }) {
+function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale, refs, gudangId, isBottleSale }) {
     const selected = findSelectedItem(refs, form);
-    const unitOptions = form.tipe_item === "BOTOL" ? bottleUnits : liquidUnits;
+    const options = availableItemOptions(refs, form.tipe_item, isBuy, gudangId);
+    const unitOptions = form.tipe_item === "BOTOL"
+        ? bottleUnits
+        : (isBuy ? purchaseLiquidUnits : liquidUnits);
     const defaultPrice = defaultItemPrice(selected, form, isBuy, isWholesale);
     const price = Number(form.harga || defaultPrice || 0);
     const convertedQty = convertQty(form, selected);
@@ -525,6 +576,10 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
         ? Number(form.qty_input || 0) * price
         : convertedQty * price;
     const totalAfterDisc = Math.max(0, subtotal - (Number(form.discount) || 0));
+
+    const selectedBotolVariant = form.id_botol
+        ? (refs.botol || []).find((b) => Number(b.id) === Number(form.id_botol))
+        : null;
 
     const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -535,6 +590,19 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
             qty_input: value,
             harga: !isBuy && value !== "" && !prev.harga ? defPrice : prev.harga,
         }));
+    };
+
+    const handleSelectItem = (itemId) => {
+        set("item_id", itemId);
+        set("harga", "");
+        // Cek stok saat pilih barang — hanya untuk penjualan (bukan pembelian)
+        if (!isBuy && itemId && form.tipe_item !== "BOTOL" && gudangId) {
+            const stock = refs.stok_gudang?.filter((s) => Number(s.id_barang) === Number(itemId) && Number(s.id_gudang) === Number(gudangId)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0) || 0;
+            if (!stock || Number(stock.stok_ml) <= 0) {
+                const item = itemOptions(refs, form.tipe_item).find((row) => String(row.id) === String(itemId));
+                toast.error(`Stok ${item?.nama_barang || "barang"} kosong atau tidak tersedia di gudang yang dipilih.`);
+            }
+        }
     };
 
     return (
@@ -548,7 +616,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                 </div>
                 <div className="space-y-4 p-5">
                     <Field label="Tipe Barang">
-                        <Select value={form.tipe_item} onChange={(event) => {
+                        <Select value={form.tipe_item} disabled={isBottleSale} onChange={(event) => {
                             const nextType = event.target.value;
                             set("tipe_item", nextType);
                             set("item_id", "");
@@ -557,22 +625,46 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                         }}>
                             <option value="BIBIT">Bibit</option>
                             <option value="ABSOLUTE">Absolute</option>
-                            <option value="BOTOL">Botol</option>
+                            {(isBuy || isBottleSale) && <option value="BOTOL">Botol Kosong</option>}
                         </Select>
                     </Field>
                     <Field label="Pilih Barang">
-                        <Select value={form.item_id} onChange={(event) => { set("item_id", event.target.value); set("harga", ""); }}>
+                        <Select value={form.item_id} onChange={(event) => handleSelectItem(event.target.value)}>
                             <option value="">Pilih barang...</option>
-                            {itemOptions(refs, form.tipe_item).map((row) => <option key={row.id} value={row.id}>{itemOptionLabel(row, form.tipe_item, isBuy, isWholesale)}</option>)}
+                            {options.map((row) => <option key={row.id} value={row.id}>{itemOptionLabel(row, form.tipe_item, isBuy, isWholesale, refs, gudangId)}</option>)}
                         </Select>
+                        {!isBuy && !gudangId && <p className="mt-1 text-[11px] font-medium text-amber-600">Pilih gudang terlebih dahulu.</p>}
+                        {!isBuy && gudangId && options.length === 0 && <p className="mt-1 text-[11px] font-medium text-amber-600">Tidak ada stok untuk tipe barang ini di gudang yang dipilih.</p>}
                     </Field>
+                    {isBuy && form.tipe_item !== "BOTOL" && form.satuan_input === "BOTOL" && (
+                        <Field label="Varian Botol">
+                            <Select
+                                value={form.id_botol || ""}
+                                onChange={(e) => {
+                                    set("id_botol", e.target.value);
+                                    set("harga", "");
+                                }}
+                            >
+                                <option value="">Pilih varian botol</option>
+                                {(refs.botol || []).map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                        {b.nama_botol}
+                                    </option>
+                                ))}
+                            </Select>
+                        </Field>
+                    )}
                     <div className="grid grid-cols-3 gap-3">
                         <Field label="Jumlah">
                             <Input type="number" value={form.qty_input} onChange={(event) => updateQty(event.target.value)} />
                         </Field>
                         <Field label="Satuan">
-                            <Select value={form.satuan_input} onChange={(event) => { set("satuan_input", event.target.value); set("harga", ""); }}>
-                                {unitOptions.map((unit) => <option key={unit}>{unit}</option>)}
+                            <Select value={form.satuan_input} onChange={(event) => { set("satuan_input", event.target.value); set("harga", ""); if (event.target.value !== "BOTOL") set("id_botol", ""); }}>
+                                {unitOptions.map((unit) => (
+                                    <option key={unit} value={unit}>
+                                        {unit === "BOTOL" && form.tipe_item !== "BOTOL" ? "BOTOL ISI" : unit}
+                                    </option>
+                                ))}
                             </Select>
                         </Field>
                         <Field label={isBuy ? "Harga Beli" : "Harga Jual"}>
@@ -667,16 +759,27 @@ function buildReceiptFromRow(row, isBuy) {
             payment_method: row.metode_pembayaran,
             payment_status: row.status_pembayaran,
             discount: Number(row.discount || 0),
-            items: (row.details || []).map((detail) => ({
-                name: detail.nama_item || detail.barang?.nama_barang || detail.botol?.nama_botol || "-",
-                qty: Number(detail.qty_input || detail.konversi_qty_dasar || detail.qty_ml || 0),
-                unit: detail.satuan_input || "ML",
-                price: Number(detail.harga || detail.harga_beli_per_ml || 0),
-                subtotal: Number(detail.subtotal || 0),
-                discount: Number(detail.discount || 0),
-                capacity_ml: detail.satuan_dasar === "BOTOL" ? Number(detail.qty_ml || 0) : null,
-                price_per_ml: Number(detail.harga_beli_per_ml || 0),
-            })),
+            items: (row.details || []).map((detail) => {
+                const variant = detail.botol_variant;
+                const capacity = detail.satuan_dasar === "BOTOL"
+                    ? Number(detail.qty_ml || 0)
+                    : (variant ? Number(variant.varian_ml || 0) : null);
+                const unitLabel = detail.satuan_input === "BOTOL" && detail.satuan_dasar === "ML"
+                    ? "BOTOL ISI"
+                    : (detail.satuan_input || "ML");
+                const variantLabel = variant ? variant.nama_botol : null;
+                return {
+                    name: detail.nama_item || detail.barang?.nama_barang || detail.botol?.nama_botol || "-",
+                    qty: Number(detail.qty_input || detail.konversi_qty_dasar || detail.qty_ml || 0),
+                    unit: unitLabel,
+                    variant: variantLabel,
+                    price: Number(detail.harga || detail.harga_beli_per_ml || 0),
+                    subtotal: Number(detail.subtotal || 0),
+                    discount: Number(detail.discount || 0),
+                    capacity_ml: capacity,
+                    price_per_ml: Number(detail.harga_beli_per_ml || 0),
+                };
+            }),
             total_qty: Number(row.total_qty_ml || 0),
             total_bottle: Number(row.total_qty_botol || 0),
             total: Number(row.total_pembelian || 0),
@@ -696,16 +799,21 @@ function buildReceiptFromRow(row, isBuy) {
         payment_status: row.status_pembayaran,
         discount: Number(row.discount || 0),
         jatuh_tempo: row.jatuh_tempo ? formatDate(row.jatuh_tempo) : null,
-        items: (row.details || []).map((detail) => ({
-            name: detail.nama_item || detail.barang?.nama_barang || detail.botol?.nama_botol || "-",
-            qty: Number(detail.qty_input || detail.konversi_qty_dasar || detail.qty_ml || 0),
-            unit: detail.satuan_input || "ML",
-            price: Number(detail.harga || detail.harga_jual_per_ml || 0),
-            subtotal: Number(detail.subtotal_jual || 0),
-            discount: Number(detail.discount || 0),
-            capacity_ml: detail.satuan_dasar === "BOTOL" ? Number(detail.qty_ml || 0) : null,
-            price_per_ml: Number(detail.harga_jual_per_ml || 0),
-        })),
+        items: (row.details || []).map((detail) => {
+            const variant = detail.botol_variant;
+            const variantLabel = variant ? variant.nama_botol : null;
+            return {
+                name: detail.nama_item || detail.barang?.nama_barang || detail.botol?.nama_botol || "-",
+                qty: Number(detail.qty_input || detail.konversi_qty_dasar || detail.qty_ml || 0),
+                unit: detail.satuan_input || "ML",
+                variant: variantLabel,
+                price: Number(detail.harga || detail.harga_jual_per_ml || 0),
+                subtotal: Number(detail.subtotal_jual || 0),
+                discount: Number(detail.discount || 0),
+                capacity_ml: detail.satuan_dasar === "BOTOL" ? Number(detail.qty_ml || 0) : null,
+                price_per_ml: Number(detail.harga_jual_per_ml || 0),
+            };
+        }),
         total_qty: Number(row.total_qty_ml || 0),
         total_bottle: Number(row.total_qty_botol || 0),
         total: Number(row.total_penjualan || 0),
@@ -718,12 +826,17 @@ function receiptText(receipt) {
     }
 
     const line = "-".repeat(32);
-    const itemLines = receipt.items.flatMap((item) => [
-        truncate(item.name, 32),
-        `${number(item.qty)} ${item.unit} x ${money(item.price).replace("Rp", "").trim()}`,
-        item.capacity_ml ? `${number(item.capacity_ml)} ML @ ${money(item.price_per_ml)}/ML` : null,
-        right(money(item.subtotal), 32),
-    ].filter(Boolean));
+    const itemTemplate = receipt.item_template || "";
+    const itemLines = receipt.items.flatMap((item) => {
+        const rendered = renderItemTemplate(itemTemplate, {
+            name: item.name,
+            qty: `${number(item.qty)} ${item.unit}`,
+            price: money(item.price).replace("Rp", "").trim(),
+            unit: item.unit,
+            variant: item.variant ? `BOTOL : ${item.variant}` : "",
+        });
+        return rendered.split("\n").filter(Boolean);
+    });
     const templateValues = {
         store_name: receipt.store_name || "PARIS PARFUM",
         store_name_center: center(receipt.store_name || "PARIS PARFUM"),
@@ -774,16 +887,12 @@ function receiptText(receipt) {
         ...itemLines,
         line,
         `Total Qty  : ${number(receipt.total_qty)} ML`,
-        receipt.total_bottle > 0 ? `Total Botol : ${number(receipt.total_bottle)} BOTOL` : null,
-        receipt.discount > 0 ? `Subtotal   : ${money(receipt.total + receipt.discount)}` : null,
-        receipt.discount > 0 ? `Discount   : ${money(receipt.discount)}` : null,
         `Grand Total : ${money(receipt.total)}`,
         receipt.type !== "penjualan" ? `Bayar      : ${receipt.payment_method}` : null,
         `Status     : ${receipt.payment_status}`,
-        receipt.jatuh_tempo ? `Jatuh Tempo : ${receipt.jatuh_tempo}` : null,
-        dline,
+        line,
         center(receipt.receipt_footer || "Terima kasih"),
-        dline,
+        line,
         "",
     ].filter(Boolean);
 
@@ -845,9 +954,9 @@ function paymentReceiptText(receipt) {
         `Terbayar : ${money(receipt.paid)}`,
         `Sisa     : ${money(receipt.remaining)}`,
         `Status   : ${receipt.status || "-"}`,
-        dline,
+        line,
         center(receipt.receipt_footer || "Terima kasih"),
-        dline,
+        line,
         "",
     ].filter(Boolean);
 
@@ -860,8 +969,8 @@ function paymentReceiptItemLines(items = []) {
     return [
         "Barang:",
         ...items.flatMap((item) => [
-            truncate(item.name, 32),
-            `${number(item.qty)} ${item.unit}`,
+            ...wrapLabeledLine("  NAMA", item.name),
+            `  QTY     : ${number(item.qty)} ${item.unit}`,
         ]),
         "-".repeat(32),
     ];
@@ -947,6 +1056,47 @@ function right(text, width = 32) {
 function truncate(text, width) {
     const value = String(text || "");
     return value.length > width ? value.slice(0, width - 1) : value;
+}
+
+function wrapLabeledLine(label, value, width = 32) {
+    const prefix = `${label} : `;
+    const maxLen = width - prefix.length;
+    if (maxLen <= 0) return [`${prefix}${value}`];
+
+    const words = String(value || "-").split(" ");
+    const lines = [];
+    let currentLine = "";
+    let isFirst = true;
+
+    for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (testLine.length <= maxLen) {
+            currentLine = testLine;
+        } else {
+            if (currentLine) {
+                lines.push(isFirst ? `${prefix}${currentLine}` : `${" ".repeat(prefix.length)}${currentLine}`);
+                isFirst = false;
+            }
+            // If single word exceeds maxLen, force-break it
+            if (word.length > maxLen) {
+                let chunk = word;
+                while (chunk.length > 0) {
+                    const part = chunk.slice(0, maxLen);
+                    chunk = chunk.slice(maxLen);
+                    lines.push(isFirst ? `${prefix}${part}` : `${" ".repeat(prefix.length)}${part}`);
+                    isFirst = false;
+                }
+            } else {
+                currentLine = word;
+            }
+        }
+    }
+
+    if (currentLine) {
+        lines.push(isFirst ? `${prefix}${currentLine}` : `${" ".repeat(prefix.length)}${currentLine}`);
+    }
+
+    return lines.length > 0 ? lines : [`${prefix}-`];
 }
 
 function formatDate(value) {

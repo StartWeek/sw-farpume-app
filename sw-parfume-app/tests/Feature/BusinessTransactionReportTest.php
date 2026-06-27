@@ -415,7 +415,6 @@ class BusinessTransactionReportTest extends TestCase
         $stock = StokGudang::query()->with('barang.botol')->firstOrFail();
         $this->assertSame('90.00', $stock->stok_ml);
         $this->assertSame(1, $stock->stok_botol_isi);
-        $this->assertSame(90.0, $stock->sisa_botol_ml);
 
         $user = User::query()->create([
             'username' => 'stock-report',
@@ -430,7 +429,6 @@ class BusinessTransactionReportTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('rows.per_page', 50)
                 ->where('rows.data.0.stok_botol_isi', 1)
-                ->where('rows.data.0.sisa_botol_ml', 90)
             );
     }
 

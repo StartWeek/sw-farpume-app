@@ -9,7 +9,7 @@ class StokGudang extends Model
 {
     protected $table = 'tt_stok_gudang';
 
-    protected $fillable = ['id_gudang', 'id_barang', 'stok_ml', 'stok_reserved_ml', 'minimum_stok_ml', 'last_update'];
+    protected $fillable = ['id_gudang', 'id_barang', 'id_botol', 'stok_ml', 'stok_reserved_ml', 'minimum_stok_ml', 'last_update'];
 
     protected $casts = [
         'stok_ml' => 'decimal:2',
@@ -18,7 +18,7 @@ class StokGudang extends Model
         'last_update' => 'datetime',
     ];
 
-    protected $appends = ['stok_botol_isi', 'sisa_botol_ml'];
+    protected $appends = ['stok_botol_isi'];
 
     public function gudang(): BelongsTo
     {
@@ -30,23 +30,18 @@ class StokGudang extends Model
         return $this->belongsTo(BarangBibit::class, 'id_barang');
     }
 
+    public function botolVariant(): BelongsTo
+    {
+        return $this->belongsTo(Botol::class, 'id_botol');
+    }
+
     public function getStokBotolIsiAttribute(): int
     {
-        $capacity = (float) ($this->barang?->botol?->varian_ml ?? 0);
+        $capacity = (float) ($this->botolVariant?->varian_ml
+            ?? $this->barang?->botol?->varian_ml
+            ?? 0);
 
         return $capacity > 0 ? (int) ceil((float) $this->stok_ml / $capacity) : 0;
     }
 
-    public function getSisaBotolMlAttribute(): float
-    {
-        $stock = (float) $this->stok_ml;
-        $capacity = (float) ($this->barang?->botol?->varian_ml ?? 0);
-        if ($stock <= 0 || $capacity <= 0) {
-            return 0;
-        }
-
-        $remainder = fmod($stock, $capacity);
-
-        return $remainder > 0 ? $remainder : $capacity;
-    }
 }

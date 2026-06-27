@@ -15,6 +15,7 @@ class PembelianDetail extends Model
         'item_id',
         'nama_item',
         'id_barang',
+        'id_botol',
         'qty_input',
         'satuan_input',
         'qty_ml',
@@ -44,5 +45,15 @@ class PembelianDetail extends Model
     public function botol(): BelongsTo
     {
         return $this->belongsTo(Botol::class, 'item_id');
+    }
+
+    public function botolKosong(): BelongsTo
+    {
+        return $this->belongsTo(BotolKosong::class, 'item_id');
+    }
+
+    public function botolVariant(): BelongsTo
+    {
+        return $this->belongsTo(Botol::class, 'id_botol');
     }
 }

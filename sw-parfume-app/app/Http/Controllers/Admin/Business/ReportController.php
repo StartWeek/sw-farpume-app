@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Business;
 use App\Http\Controllers\Controller;
 use App\Models\Business\BarangBibit;
 use App\Models\Business\Botol;
+use App\Models\Business\BotolKosong;
 use App\Models\Business\Customer;
 use App\Models\Business\Gudang;
 use App\Models\Business\Hutang;
@@ -46,10 +47,10 @@ class ReportController extends Controller
         ]);
 
         $rows = match ($type) {
-            'pembelian' => $this->applyPurchaseFilters(Pembelian::query()->with(['supplier', 'gudang', 'details.barang', 'details.botol']), $filters)->latest('id'),
-            'penjualan', 'laba-kotor' => $this->applySalesFilters(Penjualan::query()->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol']), $filters)->latest('id'),
+            'pembelian' => $this->applyPurchaseFilters(Pembelian::query()->with(['supplier', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong']), $filters)->latest('id'),
+            'penjualan', 'laba-kotor' => $this->applySalesFilters(Penjualan::query()->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong']), $filters)->latest('id'),
             'stok' => null,
-            'mutasi-stok' => $this->applyMutationFilters(MutasiStok::query()->with(['gudang', 'barang.brand', 'barang.botol']), $filters)->latest('id'),
+            'mutasi-stok' => $this->applyMutationFilters(MutasiStok::query()->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant']), $filters)->latest('id'),
             'barang-summary' => $this->stockSummaryQuery($filters),
             'hutang' => $this->applyDebtFilters(Hutang::query()->with('supplier'), $filters)->latest('id'),
             'piutang' => $this->applyReceivableFilters(Piutang::query()->with('customer'), $filters)->latest('id'),
@@ -66,13 +67,19 @@ class ReportController extends Controller
 
         if ($searched && in_array($export, ['pdf', 'excel'], true)) {
             $exportRows = $allRows;
+            $botolStockExport = $type === 'stok' ? $this->botolStockRows($filters) : [];
+            $botolStockColumns = $type === 'stok' ? [
+                ['key' => 'nama_item', 'label' => 'Botol'],
+                ['label' => 'Gudang', 'format' => fn($row) => data_get($row, 'gudang', '-')],
+                ['label' => 'Stok Botol', 'format' => fn($row) => $this->fmt((float) data_get($row, 'stok_botol'))],
+            ] : [];
             $columns = $this->getExportColumns($type);
             $title = $this->getExportTitle($type);
             $filename = str($title)->slug();
             $orientation = in_array($request->query('orientation'), ['portrait', 'landscape'], true)
                 ? $request->query('orientation')
                 : 'landscape';
-            
+
             $formattedFilters = $this->formatFiltersForExport($filters);
 
             if ($export === 'pdf') {
@@ -83,12 +90,14 @@ class ReportController extends Controller
                     'rows' => $exportRows,
                     'summary' => $summary,
                     'groups' => $groups,
+                    'botolStock' => $botolStockExport,
+                    'botolStockColumns' => $botolStockColumns,
                 ])->setPaper('a4', $orientation)->download($filename . '.pdf');
             }
 
             if ($export === 'excel') {
                 return \Maatwebsite\Excel\Facades\Excel::download(
-                    new \App\Exports\ReportExport($title, $formattedFilters, $columns, $exportRows, $summary, $groups),
+                    new \App\Exports\ReportExport($title, $formattedFilters, $columns, $exportRows, $summary, $groups, $botolStockExport, $botolStockColumns),
                     $filename . '.xlsx'
                 );
             }
@@ -116,7 +125,7 @@ class ReportController extends Controller
             'kas' => $this->cashSummary($rows),
             'mutasi-stok' => ['Total ML' => $rows->sum('qty_ml')],
             'barang-summary' => ['Total Masuk ML' => $rows->sum('total_masuk_ml'), 'Total Keluar ML' => $rows->sum('total_keluar_ml'), 'Total Stok Akhir ML' => $rows->sum('stok_akhir_ml')],
-            'stok' => ['Total Stok ML' => $rows->sum('stok_ml'), 'Total Botol Isi' => $rows->sum('stok_botol_isi')],
+            'stok' => ['Total Stok Cairan (ML)' => $rows->sum('stok_ml'), 'Total Botol Isi/Terpakai' => $rows->sum('stok_botol_isi')],
             default => [],
         };
     }
@@ -151,6 +160,7 @@ class ReportController extends Controller
         return [
             'barang' => BarangBibit::query()->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'id_botol', 'nama_barang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(['id', 'nama_botol', 'varian_ml']),
+            'botol_kosong' => BotolKosong::query()->where('status', 'AKTIF')->orderBy('nama_botol')->get(['id', 'nama_botol', 'kapasitas']),
             'customer' => Customer::query()->where('status', 'AKTIF')->orderBy('nama_customer')->get(['id', 'nama_customer', 'tipe_customer']),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(['id', 'nama_gudang']),
             'supplier' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
@@ -216,11 +226,12 @@ class ReportController extends Controller
             ->when($filters['id_supplier'] ?? null, fn (Builder $query, string $value) => $query->where('id_supplier', $value))
             ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('id_gudang', $value))
             ->when($filters['status'] ?? null, fn (Builder $query, string $value) => $query->where('status_pembayaran', $value))
+            ->when(in_array($filters['jenis_barang'] ?? null, ['BIBIT', 'ABSOLUTE'], true), fn (Builder $query) => $query->whereHas('details.barang', fn (Builder $barang) => $barang->where('jenis_barang', $filters['jenis_barang'])))
+            ->when(($filters['jenis_barang'] ?? null) === 'BOTOL', fn (Builder $query) => $query->whereHas('details', fn (Builder $detail) => $detail->where('tipe_item', 'BOTOL')))
             ->when($filters['id_barang'] ?? null, fn (Builder $query, string $value) => $query->whereHas('details', fn (Builder $detail) => $detail->where('id_barang', $value)))
-            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->whereHas('details', fn (Builder $detail) => $detail
-                ->where(fn (Builder $item) => $item
-                    ->where(fn (Builder $botolItem) => $botolItem->where('tipe_item', 'BOTOL')->where('item_id', $value))
-                    ->orWhereHas('barang', fn (Builder $barang) => $barang->where('id_botol', $value)))));
+            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->whereHas('details', fn (Builder $detail) => ($filters['jenis_barang'] ?? null) === 'BOTOL'
+                ? $detail->where('tipe_item', 'BOTOL')->where('item_id', $value)
+                : $detail->where('id_botol', $value)));
     }
 
     private function applySalesFilters(Builder $query, array $filters): Builder
@@ -230,11 +241,12 @@ class ReportController extends Controller
             ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('id_gudang', $value))
             ->when($filters['status'] ?? null, fn (Builder $query, string $value) => $query->where('status_pembayaran', $value))
             ->when($filters['tipe_penjualan'] ?? null, fn (Builder $query, string $value) => $query->where('tipe_penjualan', $value))
+            ->when(in_array($filters['jenis_barang'] ?? null, ['BIBIT', 'ABSOLUTE'], true), fn (Builder $query) => $query->whereHas('details.barang', fn (Builder $barang) => $barang->where('jenis_barang', $filters['jenis_barang'])))
+            ->when(($filters['jenis_barang'] ?? null) === 'BOTOL', fn (Builder $query) => $query->whereHas('details', fn (Builder $detail) => $detail->where('tipe_item', 'BOTOL')))
             ->when($filters['id_barang'] ?? null, fn (Builder $query, string $value) => $query->whereHas('details', fn (Builder $detail) => $detail->where('id_barang', $value)))
-            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->whereHas('details', fn (Builder $detail) => $detail
-                ->where(fn (Builder $item) => $item
-                    ->where(fn (Builder $botolItem) => $botolItem->where('tipe_item', 'BOTOL')->where('item_id', $value))
-                    ->orWhereHas('barang', fn (Builder $barang) => $barang->where('id_botol', $value)))));
+            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->whereHas('details', fn (Builder $detail) => ($filters['jenis_barang'] ?? null) === 'BOTOL'
+                ? $detail->where('tipe_item', 'BOTOL')->where('item_id', $value)
+                : $detail->where('id_botol', $value)));
     }
 
     private function applyStockFilters(Builder $query, array $filters): Builder
@@ -242,7 +254,7 @@ class ReportController extends Controller
         return $query
             ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('id_gudang', $value))
             ->when($filters['id_barang'] ?? null, fn (Builder $query, string $value) => $query->where('id_barang', $value))
-            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->whereHas('barang', fn (Builder $barang) => $barang->where('id_botol', $value)))
+            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->where('tt_stok_gudang.id_botol', $value))
             ->when(in_array($filters['jenis_barang'] ?? null, ['BIBIT', 'ABSOLUTE'], true), fn (Builder $query) => $query->whereHas('barang', fn (Builder $barang) => $barang->where('jenis_barang', $filters['jenis_barang'])))
             ->when(($filters['stok_status'] ?? null) === 'MENIPIS', fn (Builder $query) => $query->whereColumn('stok_ml', '<=', 'minimum_stok_ml'))
             ->when(($filters['stok_status'] ?? null) === 'TERSEDIA', fn (Builder $query) => $query->whereColumn('stok_ml', '>', 'minimum_stok_ml'));
@@ -253,10 +265,10 @@ class ReportController extends Controller
         $rows = [];
 
         $stocks = $this->applyStockFilters(
-            StokGudang::query()->with(['gudang', 'barang.brand', 'barang.botol']), $filters
+            StokGudang::query()->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant']), $filters
         )
             ->join('tm_barang_bibit', 'tt_stok_gudang.id_barang', '=', 'tm_barang_bibit.id')
-            ->leftJoin('tm_botol', 'tm_barang_bibit.id_botol', '=', 'tm_botol.id')
+            ->leftJoin('tm_botol', 'tt_stok_gudang.id_botol', '=', 'tm_botol.id')
             ->orderBy('tm_botol.varian_ml')
             ->orderBy('tm_barang_bibit.nama_barang')
             ->select('tt_stok_gudang.*')
@@ -268,10 +280,9 @@ class ReportController extends Controller
                 'id' => 'cairan-'.$stock->id,
                 'nama_item' => $stock->barang?->nama_barang ?? '-',
                 'gudang' => $stock->gudang,
-                'botol' => $stock->barang?->botol,
+                'botol' => $stock->botolVariant ?? $stock->barang?->botol,
                 'stok_ml' => $totalMl,
                 'stok_botol_isi' => $stock->stok_botol_isi,
-                'sisa_botol_ml' => $stock->sisa_botol_ml,
                 'minimum_stok_ml' => (float) $stock->minimum_stok_ml,
             ];
         }
@@ -281,17 +292,22 @@ class ReportController extends Controller
 
     private function botolStockRows(array $filters): array
     {
-        return Botol::query()
-            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->whereKey($value))
-            ->orderBy('varian_ml')
-            ->get()
-            ->map(fn (Botol $botol) => [
-                'id' => 'botol-'.$botol->id,
+        $query = BotolKosong::query()->with('gudang')->orderBy('nama_botol');
+
+        if (!empty($filters['id_botol'])) {
+            $query->whereKey($filters['id_botol']);
+        }
+
+        if (!empty($filters['id_gudang'])) {
+            $query->where('id_gudang', $filters['id_gudang']);
+        }
+
+        return $query->get()
+            ->map(fn (BotolKosong $botol) => [
+                'id' => 'botol-' . $botol->id,
                 'nama_item' => $botol->nama_botol,
-                'stok_botol' => (float) $botol->stock_botol,
-                'isi_per_dus' => max(1, (int) $botol->isi_per_dus),
-                'dus' => (int) floor((float) $botol->stock_botol / max(1, (int) $botol->isi_per_dus)),
-                'sisa_botol' => (float) fmod((float) $botol->stock_botol, max(1, (int) $botol->isi_per_dus)),
+                'gudang' => $botol->gudang?->nama_gudang ?? '-',
+                'stok_botol' => (float) $botol->stock,
             ])
             ->all();
     }
@@ -301,21 +317,23 @@ class ReportController extends Controller
         return $this->applyDateRange($query, $filters)
             ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('id_gudang', $value))
             ->when($filters['id_barang'] ?? null, fn (Builder $query, string $value) => $query->where('id_barang', $value))
-            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->whereHas('barang', fn (Builder $barang) => $barang->where('id_botol', $value)))
+            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.id_botol', $value))
             ->when($filters['tipe_mutasi'] ?? null, fn (Builder $query, string $value) => $query->where('tipe_mutasi', $value));
     }
 
     private function stockSummaryQuery(array $filters): Builder
     {
         return MutasiStok::query()
-                ->with(['gudang', 'barang.brand', 'barang.botol'])
+                ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
                 ->leftJoin('tt_stok_gudang', function ($join) {
                     $join->on('tt_stok_gudang.id_gudang', '=', 'tt_mutasi_stok.id_gudang')
-                        ->on('tt_stok_gudang.id_barang', '=', 'tt_mutasi_stok.id_barang');
+                        ->on('tt_stok_gudang.id_barang', '=', 'tt_mutasi_stok.id_barang')
+                        ->on(DB::raw('COALESCE(tt_stok_gudang.id_botol, 0)'), '=', DB::raw('COALESCE(tt_mutasi_stok.id_botol, 0)'));
                 })
                 ->select([
                     'tt_mutasi_stok.id_barang',
                     'tt_mutasi_stok.id_gudang',
+                    'tt_mutasi_stok.id_botol',
                 ])
                 ->selectRaw('MIN(tt_mutasi_stok.id) as id')
                 ->selectRaw("SUM(CASE WHEN tt_mutasi_stok.tipe_mutasi = 'MASUK' THEN tt_mutasi_stok.qty_ml ELSE 0 END) as total_masuk_ml")
@@ -329,9 +347,9 @@ class ReportController extends Controller
             ->when($filters['tanggal_sampai'] ?? null, fn (Builder $query, string $value) => $query->whereDate('tt_mutasi_stok.tanggal', '<=', $value))
             ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.id_gudang', $value))
             ->when($filters['id_barang'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.id_barang', $value))
-            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->whereHas('barang', fn (Builder $barang) => $barang->where('id_botol', $value)))
+            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.id_botol', $value))
             ->when($filters['tipe_mutasi'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.tipe_mutasi', $value))
-            ->groupBy('tt_mutasi_stok.id_barang', 'tt_mutasi_stok.id_gudang')
+            ->groupBy('tt_mutasi_stok.id_barang', 'tt_mutasi_stok.id_gudang', 'tt_mutasi_stok.id_botol')
             ->orderByDesc(DB::raw('MAX(tt_mutasi_stok.tanggal)'))
             ->orderBy('tt_mutasi_stok.id_barang');
     }
@@ -416,11 +434,11 @@ class ReportController extends Controller
             ['key' => 'no_pembelian', 'label' => 'No Pembelian'],
             ['label' => 'Supplier', 'format' => fn($row) => $row->supplier?->nama_supplier ?? '-'],
             ['label' => 'Gudang', 'format' => fn($row) => $row->gudang?->nama_gudang ?? '-'],
-            ['label' => 'Qty ML', 'format' => fn($row) => number_format((float) $row->total_qty_ml, 2, ',', '.')],
-            ['label' => 'Qty Botol', 'format' => fn($row) => number_format((float) $row->total_qty_botol, 2, ',', '.')],
+            ['label' => 'Qty ML', 'format' => fn($row) => $this->fmt((float) $row->total_qty_ml)],
+            ['label' => 'Qty Botol', 'format' => fn($row) => $this->fmt((float) $row->total_qty_botol)],
             ['label' => 'Detail Barang', 'format' => fn($row) => $this->detailText($row)],
-            ['label' => 'Diskon', 'format' => fn($row) => 'Rp ' . number_format((float) $row->discount, 0, ',', '.')],
-            ['label' => 'Total', 'format' => fn($row) => 'Rp ' . number_format((float) $row->total_pembelian, 0, ',', '.')],
+            ['label' => 'Diskon', 'format' => fn($row) => $this->fmt((float) $row->discount, true)],
+            ['label' => 'Total', 'format' => fn($row) => $this->fmt((float) $row->total_pembelian, true)],
             ['key' => 'status_pembayaran', 'label' => 'Status'],
         ];
         
@@ -429,20 +447,19 @@ class ReportController extends Controller
             ['label' => 'Customer', 'format' => fn($row) => $row->customer?->nama_customer ?? '-'],
             ['label' => 'Gudang', 'format' => fn($row) => $row->gudang?->nama_gudang ?? '-'],
             ['label' => 'Detail Barang', 'format' => fn($row) => $this->detailText($row)],
-            ['label' => 'Diskon', 'format' => fn($row) => 'Rp ' . number_format((float) $row->discount, 0, ',', '.')],
-            ['label' => 'Penjualan', 'format' => fn($row) => 'Rp ' . number_format((float) $row->total_penjualan, 0, ',', '.')],
-            ['label' => 'Modal', 'format' => fn($row) => 'Rp ' . number_format((float) $row->total_modal, 0, ',', '.')],
-            ['label' => 'Laba', 'format' => fn($row) => 'Rp ' . number_format((float) $row->laba_kotor, 0, ',', '.')],
+            ['label' => 'Diskon', 'format' => fn($row) => $this->fmt((float) $row->discount, true)],
+            ['label' => 'Penjualan', 'format' => fn($row) => $this->fmt((float) $row->total_penjualan, true)],
+            ['label' => 'Modal', 'format' => fn($row) => $this->fmt((float) $row->total_modal, true)],
+            ['label' => 'Laba', 'format' => fn($row) => $this->fmt((float) $row->laba_kotor, true)],
         ];
         
         if ($type === 'stok') return [
             ['key' => 'nama_item', 'label' => 'Barang'],
             ['label' => 'Gudang', 'format' => fn($row) => data_get($row, 'gudang.nama_gudang', '-')],
-            ['label' => 'Botol', 'format' => fn($row) => data_get($row, 'botol.nama_botol', '-')],
-            ['label' => 'Stok ML', 'format' => fn($row) => number_format((float) data_get($row, 'stok_ml'), 2, ',', '.')],
-            ['label' => 'Botol Isi', 'format' => fn($row) => number_format((int) data_get($row, 'stok_botol_isi'), 0, ',', '.')],
-            ['label' => 'Sisa ML', 'format' => fn($row) => number_format((float) data_get($row, 'sisa_botol_ml'), 2, ',', '.')],
-            ['label' => 'Minimum', 'format' => fn($row) => data_get($row, 'minimum_stok_ml') ? number_format((float) data_get($row, 'minimum_stok_ml'), 2, ',', '.') : '-'],
+            ['label' => 'Varian Botol', 'format' => fn($row) => data_get($row, 'botol.nama_botol', '-')],
+            ['label' => 'Stok Cairan (ML)', 'format' => fn($row) => $this->fmt((float) data_get($row, 'stok_ml'))],
+            ['label' => 'Botol Isi/Terpakai', 'format' => fn($row) => $this->fmt((float) data_get($row, 'stok_botol_isi'))],
+            ['label' => 'Minimum', 'format' => fn($row) => data_get($row, 'minimum_stok_ml') ? $this->fmt((float) data_get($row, 'minimum_stok_ml')) : '-'],
         ];
 
         if ($type === 'mutasi-stok') return [
@@ -450,35 +467,35 @@ class ReportController extends Controller
             ['key' => 'no_transaksi', 'label' => 'No Transaksi'],
             ['label' => 'Barang', 'format' => fn($row) => $row->barang?->nama_barang ?? '-'],
             ['key' => 'tipe_mutasi', 'label' => 'Tipe'],
-            ['label' => 'Qty ML', 'format' => fn($row) => number_format((float) $row->qty_ml, 2, ',', '.')],
+            ['label' => 'Qty ML', 'format' => fn($row) => $this->fmt((float) $row->qty_ml)],
         ];
 
         if ($type === 'barang-summary') return [
-            ['label' => 'Botol', 'format' => fn($row) => $row->barang?->botol?->nama_botol ?? '-'],
+            ['label' => 'Varian Botol', 'format' => fn($row) => $row->botolVariant?->nama_botol ?? $row->barang?->botol?->nama_botol ?? '-'],
             ['label' => 'Barang', 'format' => fn($row) => $row->barang?->nama_barang ?? '-'],
             ['label' => 'Gudang', 'format' => fn($row) => $row->gudang?->nama_gudang ?? '-'],
-            ['label' => 'Masuk ML', 'format' => fn($row) => number_format((float) $row->total_masuk_ml, 2, ',', '.')],
-            ['label' => 'Keluar ML', 'format' => fn($row) => number_format((float) $row->total_keluar_ml, 2, ',', '.')],
-            ['label' => 'Net ML', 'format' => fn($row) => number_format((float) $row->selisih_ml, 2, ',', '.')],
-            ['label' => 'Stok Akhir', 'format' => fn($row) => number_format((float) $row->stok_akhir_ml, 2, ',', '.')],
-            ['label' => 'Minimum', 'format' => fn($row) => number_format((float) $row->minimum_stok_ml, 2, ',', '.')],
-            ['label' => 'Transaksi', 'format' => fn($row) => number_format((float) $row->total_mutasi, 0, ',', '.')],
+            ['label' => 'Masuk ML', 'format' => fn($row) => $this->fmt((float) $row->total_masuk_ml)],
+            ['label' => 'Keluar ML', 'format' => fn($row) => $this->fmt((float) $row->total_keluar_ml)],
+            ['label' => 'Net ML', 'format' => fn($row) => $this->fmt((float) $row->selisih_ml)],
+            ['label' => 'Stok Akhir', 'format' => fn($row) => $this->fmt((float) $row->stok_akhir_ml)],
+            ['label' => 'Minimum', 'format' => fn($row) => $this->fmt((float) $row->minimum_stok_ml)],
+            ['label' => 'Transaksi', 'format' => fn($row) => $this->fmt((float) $row->total_mutasi)],
             ['key' => 'terakhir_mutasi', 'label' => 'Terakhir'],
         ];
 
         if ($type === 'hutang') return [
             ['key' => 'no_hutang', 'label' => 'No Hutang'],
             ['label' => 'Supplier', 'format' => fn($row) => $row->supplier?->nama_supplier ?? '-'],
-            ['label' => 'Total', 'format' => fn($row) => 'Rp ' . number_format((float) $row->total_hutang, 0, ',', '.')],
-            ['label' => 'Sisa', 'format' => fn($row) => 'Rp ' . number_format((float) $row->sisa_hutang, 0, ',', '.')],
+            ['label' => 'Total', 'format' => fn($row) => $this->fmt((float) $row->total_hutang, true)],
+            ['label' => 'Sisa', 'format' => fn($row) => $this->fmt((float) $row->sisa_hutang, true)],
             ['key' => 'status_hutang', 'label' => 'Status'],
         ];
 
         if ($type === 'piutang-supplier') return [
             ['key' => 'no_piutang_supplier', 'label' => 'No Piutang'],
             ['label' => 'Supplier', 'format' => fn($row) => $row->supplier?->nama_supplier ?? '-'],
-            ['label' => 'Total', 'format' => fn($row) => 'Rp ' . number_format((float) $row->total_piutang, 0, ',', '.')],
-            ['label' => 'Sisa', 'format' => fn($row) => 'Rp ' . number_format((float) $row->sisa_piutang, 0, ',', '.')],
+            ['label' => 'Total', 'format' => fn($row) => $this->fmt((float) $row->total_piutang, true)],
+            ['label' => 'Sisa', 'format' => fn($row) => $this->fmt((float) $row->sisa_piutang, true)],
             ['key' => 'status_piutang', 'label' => 'Status'],
         ];
 
@@ -488,30 +505,40 @@ class ReportController extends Controller
             ['key' => 'jenis_transaksi', 'label' => 'Jenis'],
             ['key' => 'sumber_transaksi', 'label' => 'Sumber'],
             ['key' => 'pihak', 'label' => 'Customer/Sales/Supplier'],
-            ['label' => 'Kas Masuk', 'format' => fn($row) => 'Rp ' . number_format((float) $row->kas_masuk, 0, ',', '.')],
-            ['label' => 'Kas Keluar', 'format' => fn($row) => 'Rp ' . number_format((float) $row->kas_keluar, 0, ',', '.')],
-            ['label' => 'Saldo Akhir', 'format' => fn($row) => 'Rp ' . number_format((float) $row->saldo_akhir, 0, ',', '.')],
+            ['label' => 'Kas Masuk', 'format' => fn($row) => $this->fmt((float) $row->kas_masuk, true)],
+            ['label' => 'Kas Keluar', 'format' => fn($row) => $this->fmt((float) $row->kas_keluar, true)],
+            ['label' => 'Saldo Akhir', 'format' => fn($row) => $this->fmt((float) $row->saldo_akhir, true)],
             ['key' => 'keterangan', 'label' => 'Keterangan'],
         ];
 
         return [
             ['key' => 'no_piutang', 'label' => 'No Piutang'],
             ['label' => 'Customer', 'format' => fn($row) => $row->customer?->nama_customer ?? '-'],
-            ['label' => 'Total', 'format' => fn($row) => 'Rp ' . number_format((float) $row->total_piutang, 0, ',', '.')],
-            ['label' => 'Sisa', 'format' => fn($row) => 'Rp ' . number_format((float) $row->sisa_piutang, 0, ',', '.')],
+            ['label' => 'Total', 'format' => fn($row) => $this->fmt((float) $row->total_piutang, true)],
+            ['label' => 'Sisa', 'format' => fn($row) => $this->fmt((float) $row->sisa_piutang, true)],
             ['key' => 'status_piutang', 'label' => 'Status'],
         ];
+    }
+
+    /**
+     * Format angka sesuai Intl.NumberFormat("id-ID", {maximumFractionDigits:2})
+     * Cocok dengan fungsi number() di frontend _components.jsx
+     */
+    private function fmt(float $value, bool $money = false): string
+    {
+        $formatted = preg_replace('/,00$/', '', number_format($value, 2, ',', '.'));
+        return $money ? 'Rp ' . $formatted : $formatted;
     }
 
     private function detailText($row): string
     {
         return $row->details->map(function ($detail): string {
             $name = strtoupper($detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botol?->nama_botol ?? '-');
-            $qty = number_format((float) ($detail->konversi_qty_dasar ?: $detail->qty_ml), 2, ',', '.');
+            $qty = $this->fmt((float) ($detail->konversi_qty_dasar ?: $detail->qty_ml));
             $unit = $detail->satuan_dasar ?? 'ML';
             $ml = (float) $detail->qty_ml;
             $perMl = (float) ($detail->harga_jual_per_ml ?: $detail->harga_beli_per_ml);
-            return "{$name}: {$qty} {$unit}" . ($unit === 'BOTOL' ? ' / ' . number_format($ml, 2, ',', '.') . ' ML' : '') . ($perMl > 0 ? ' @ Rp ' . number_format($perMl, 2, ',', '.') . '/ML' : '');
+            return "{$name}: {$qty} {$unit}" . ($unit === 'BOTOL' ? ' / ' . $this->fmt($ml) . ' ML' : '') . ($perMl > 0 ? ' @ Rp ' . $this->fmt($perMl) . '/ML' : '');
         })->implode('; ');
     }
 }

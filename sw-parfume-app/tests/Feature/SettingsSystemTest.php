@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\System\AppSetting;
 use App\Models\User;
 use App\Services\SettingsService;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
@@ -15,6 +16,8 @@ class SettingsSystemTest extends TestCase
 
     public function test_system_settings_preserve_theme_keys_and_asset_paths(): void
     {
+        $this->withoutMiddleware(ValidateCsrfToken::class);
+
         $user = User::query()->create([
             'username' => 'settings-admin',
             'name' => 'Settings Admin',
@@ -27,7 +30,7 @@ class SettingsSystemTest extends TestCase
             'logo_path' => '/storage/settings/AppLogo.svg',
             'login_logo_path' => '/storage/settings/LoginLogo.svg',
             'app_name' => 'Paris Parfum Baru',
-            'primary_color' => 'blue',
+            'primary_color' => '#3b82f6',
             'light_theme' => 'neutral',
             'dark_theme' => 'cinder',
             'is_dark_mode' => true,
@@ -39,7 +42,7 @@ class SettingsSystemTest extends TestCase
             'logo_path' => '/storage/settings/AppLogo.svg',
             'login_logo_path' => '/storage/settings/LoginLogo.svg',
             'app_name' => 'PARIS PARFUM BARU',
-            'primary_color' => 'blue',
+            'primary_color' => '#3B82F6',
             'light_theme' => 'neutral',
             'dark_theme' => 'cinder',
             'is_dark_mode' => true,

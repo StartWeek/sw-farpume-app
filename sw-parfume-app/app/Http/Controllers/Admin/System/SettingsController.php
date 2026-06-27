@@ -26,13 +26,14 @@ class SettingsController extends Controller
             'logo_path' => ['nullable', 'string', 'max:255'],
             'login_logo_path' => ['nullable', 'string', 'max:255'],
             'app_name' => ['required', 'string', 'max:100'],
-            'primary_color' => ['required', 'string', 'in:indigo,blue,green,amber,purple,rose'],
+            'primary_color' => ['required', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'light_theme' => ['required', 'string', 'in:slate,gray,neutral'],
             'dark_theme' => ['required', 'string', 'in:navy,mirage,mint,black,cinder'],
             'is_dark_mode' => ['boolean'],
         ], $this->validationMessages());
 
         $validated['app_name'] = mb_strtoupper($validated['app_name']);
+        $validated['primary_color'] = mb_strtoupper($validated['primary_color']);
 
         $this->settings->updateSystem($validated);
 
@@ -57,6 +58,7 @@ class SettingsController extends Controller
             'receipt_footer' => ['nullable', 'string', 'max:200'],
             'receipt_template' => ['nullable', 'string', 'max:10000'],
             'payment_receipt_template' => ['nullable', 'string', 'max:10000'],
+            'item_template' => ['nullable', 'string', 'max:2000'],
         ], $this->validationMessages());
 
         foreach (['store_name', 'store_address', 'store_phone', 'receipt_footer'] as $key) {
@@ -76,6 +78,7 @@ class SettingsController extends Controller
     {
         return [
             'required' => 'Kolom ini wajib diisi.',
+            'primary_color.regex' => 'Warna utama harus menggunakan format HEX, contoh #3B82F6.',
         ];
     }
 }

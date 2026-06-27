@@ -8,10 +8,12 @@ import {
     CurrencyInput,
     Field,
     Input,
+    PageHeader,
     RowActions,
     Select,
     SimpleTable,
     money,
+    number,
     submitDelete,
     useFlashMessages,
 } from "./_components";
@@ -19,18 +21,15 @@ import {
 const emptyForm = {
     nama_barang: "",
     id_brand: "",
-    id_botol: "",
     jenis_barang: "",
     harga_beli_per_ml: "",
     harga_jual_retail_per_ml: "",
     harga_jual_grosir_per_ml: "",
-    harga_beli_per_botol: "",
-    harga_jual_per_botol: "",
     minimum_stok_ml: "",
     status: "AKTIF",
 };
 
-export default function BarangBibitPage({ rows = [], brand = [], botol = [] }) {
+export default function BarangBibitPage({ rows = [], brand = [] }) {
     useFlashMessages();
     const { errors: pageErrors } = usePage().props;
     const errors = pageErrors || {};
@@ -61,7 +60,7 @@ export default function BarangBibitPage({ rows = [], brand = [], botol = [] }) {
         event.preventDefault();
         // Konversi empty string ke null untuk numeric fields — cegah error server
         const payload = { ...form };
-        ["harga_beli_per_ml", "harga_jual_retail_per_ml", "harga_jual_grosir_per_ml", "harga_beli_per_botol", "harga_jual_per_botol", "minimum_stok_ml"].forEach((key) => {
+        ["harga_beli_per_ml", "harga_jual_retail_per_ml", "harga_jual_grosir_per_ml", "minimum_stok_ml"].forEach((key) => {
             if (payload[key] === "") payload[key] = null;
         });
         const options = {
@@ -75,10 +74,8 @@ export default function BarangBibitPage({ rows = [], brand = [], botol = [] }) {
     return (
         <ProtectedLayout title="Barang Bibit">
             <div className="space-y-5">
+                <PageHeader title="Barang Bibit" />
                 <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium" style={{ backgroundColor: "var(--color-card)" }}>
-                    <div className="flex items-center px-6 py-4" style={{ backgroundColor: "var(--color-card-header, #1e293b)" }}>
-                        <h2 className="text-base font-bold text-white">Barang Bibit</h2>
-                    </div>
                     <div className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between border-b border-stroke">
                         <div className="relative">
                             <IconSearch size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
@@ -125,18 +122,10 @@ export default function BarangBibitPage({ rows = [], brand = [], botol = [] }) {
                                     <option value="ABSOLUTE">Absolute</option>
                                 </Select>
                             </Field>
-                            <Field label="Botol Stok">
-                                <Select value={form.id_botol || ""} onChange={(event) => set("id_botol", event.target.value)} error={errors.id_botol}>
-                                    <option value="">Pilih botol</option>
-                                    {botol.map((item) => <option key={item.id} value={item.id}>{item.nama_botol} - {item.varian_ml} ML</option>)}
-                                </Select>
-                            </Field>
                             <Field label="Harga Beli / ML"><CurrencyInput value={form.harga_beli_per_ml || ""} onChange={(event) => set("harga_beli_per_ml", event.target.value)} error={errors.harga_beli_per_ml} /></Field>
                             <Field label="Harga Retail / ML"><CurrencyInput value={form.harga_jual_retail_per_ml || ""} onChange={(event) => set("harga_jual_retail_per_ml", event.target.value)} error={errors.harga_jual_retail_per_ml} /></Field>
                             <Field label="Harga Sales / ML"><CurrencyInput value={form.harga_jual_grosir_per_ml || ""} onChange={(event) => set("harga_jual_grosir_per_ml", event.target.value)} error={errors.harga_jual_grosir_per_ml} /></Field>
-                            <Field label="Harga Beli / Botol"><CurrencyInput value={form.harga_beli_per_botol || ""} onChange={(event) => set("harga_beli_per_botol", event.target.value)} error={errors.harga_beli_per_botol} /></Field>
-                            <Field label="Harga Jual / Botol"><CurrencyInput value={form.harga_jual_per_botol || ""} onChange={(event) => set("harga_jual_per_botol", event.target.value)} error={errors.harga_jual_per_botol} /></Field>
-                            <Field label="Minimum Stok ML"><Input type="number" value={form.minimum_stok_ml ?? ""} onChange={(event) => set("minimum_stok_ml", event.target.value)} error={errors.minimum_stok_ml} /></Field>
+                            <Field label="Minimum Stok ML"><CurrencyInput value={form.minimum_stok_ml ?? ""} onChange={(event) => set("minimum_stok_ml", event.target.value)} error={errors.minimum_stok_ml} /></Field>
                             <div className="flex justify-end gap-2 border-t border-stroke pt-4 md:col-span-3">
                                 <Button variant="outline" size="sm" onClick={() => setEditing(null)}>Batal</Button>
                                 <Button type="submit" size="sm">Simpan Data</Button>
@@ -150,13 +139,10 @@ export default function BarangBibitPage({ rows = [], brand = [], botol = [] }) {
                         { key: "kode_barang", label: "Kode" },
                         { key: "nama_barang", label: "Barang" },
                         { key: "jenis_barang", label: "Jenis" },
-                        { key: "botol", label: "Botol Stok", render: (row) => row.botol ? `${row.botol.nama_botol} - ${row.botol.varian_ml} ML` : "-" },
                         { key: "harga_beli_per_ml", label: "Beli/ML", render: (row) => money(row.harga_beli_per_ml) },
                         { key: "harga_jual_retail_per_ml", label: "Retail/ML", render: (row) => money(row.harga_jual_retail_per_ml) },
                         { key: "harga_jual_grosir_per_ml", label: "Sales/ML", render: (row) => money(row.harga_jual_grosir_per_ml) },
-                        { key: "harga_beli_per_botol", label: "Beli/Botol", render: (row) => money(row.harga_beli_per_botol) },
-                        { key: "harga_jual_per_botol", label: "Jual/Botol", render: (row) => money(row.harga_jual_per_botol) },
-                        { key: "minimum_stok_ml", label: "Min Stok" },
+                        { key: "minimum_stok_ml", label: "Min Stok", render: (row) => number(row.minimum_stok_ml) },
                         { key: "status", label: "Status" },
                     ]}
                     renderActions={(row) => (

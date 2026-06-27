@@ -9,7 +9,7 @@ class MutasiStok extends Model
 {
     protected $table = 'tt_mutasi_stok';
 
-    protected $fillable = ['tanggal', 'tipe_mutasi', 'sumber_transaksi', 'no_transaksi', 'id_gudang', 'id_barang', 'qty_ml', 'stok_sebelum_ml', 'stok_sesudah_ml', 'keterangan', 'created_by'];
+    protected $fillable = ['tanggal', 'tipe_mutasi', 'sumber_transaksi', 'no_transaksi', 'id_gudang', 'id_barang', 'id_botol', 'qty_ml', 'stok_sebelum_ml', 'stok_sesudah_ml', 'keterangan', 'created_by'];
 
     protected $casts = ['tanggal' => 'date', 'qty_ml' => 'decimal:2', 'stok_sebelum_ml' => 'decimal:2', 'stok_sesudah_ml' => 'decimal:2'];
 
@@ -21,5 +21,10 @@ class MutasiStok extends Model
     public function barang(): BelongsTo
     {
         return $this->belongsTo(BarangBibit::class, 'id_barang');
+    }
+
+    public function botolVariant(): BelongsTo
+    {
+        return $this->belongsTo(Botol::class, 'id_botol');
     }
 }

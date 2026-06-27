@@ -3,10 +3,13 @@ import React, { useMemo, useState } from "react";
 import { router, usePage } from "@inertiajs/react";
 import {
     Card,
+    CurrencyInput,
     Field,
     Input,
+    PageHeader,
     Select,
     Textarea,
+    number,
     submitDelete,
     useFlashMessages,
 } from "./_components";
@@ -21,15 +24,17 @@ const codeByResource = {
     customer: "kode_customer",
     sales: "kode_sales",
     botol: "kode_botol",
+    "botol-kosong": "kode_botol",
 };
 
-export default function MasterPage({ resource, title, rows = [], fields = [] }) {
+export default function MasterPage({ resource, title, rows = [], fields = [], refs = {} }) {
     useFlashMessages();
     const { errors = {} } = usePage().props;
     const [editing, setEditing] = useState(null);
     const [form, setForm] = useState({});
     const [search, setSearch] = useState("");
     const [perPage, setPerPage] = useState(10);
+    const isBotolKosong = resource === "botol-kosong";
 
     const tableRows = Array.isArray(rows) ? rows : rows?.data || [];
     const pagination = !Array.isArray(rows) ? rows : null;
@@ -64,12 +69,29 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
         () => [
             { key: codeByResource[resource], label: "Kode" },
             ...fields
-                .filter((f) => f.name !== "status")
-                .slice(0, 4)
-                .map((f) => ({ key: f.name, label: f.label })),
+                .filter((f) => f.name !== "status" && f.name !== "limit_piutang")
+                .filter((f, index) => index < 4)
+                .map((f) => ({
+                    key: f.name,
+                    label: f.label,
+                    ...(f.optionsRef ? { render: (row) => row.gudang ? `${row.gudang.kode_gudang} - ${row.gudang.nama_gudang}` : "-" } : {}),
+                    ...(f.type === "number" ? { render: (row) => number(row[f.name]) } : {}),
+                })),
             { key: "status", label: "Status" },
         ],
         [fields, resource],
+    );
+
+    // Sembunyikan limit_piutang untuk tipe RETAIL
+    const visibleFields = useMemo(
+        () => {
+            if (resource !== "customer") return fields;
+            const isRetail = (form.tipe_customer || "").toUpperCase() === "RETAIL";
+            return isRetail
+                ? fields.filter((f) => f.name !== "limit_piutang")
+                : fields;
+        },
+        [fields, resource, form.tipe_customer],
     );
 
     const emptyForm = () =>
@@ -108,7 +130,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
 
     const renderForm = (insideModal = false) => (
         <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
-            {fields.map((f, index) => (
+            {visibleFields.map((f, index) => (
                 <div
                     key={f.name}
                     className={f.type === "textarea" ? "md:col-span-2" : ""}
@@ -117,15 +139,25 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
                         {f.type === "select" ? (
                             <Select
                                 value={form[f.name] || ""}
-                                onChange={(e) =>
-                                    setForm({
-                                        ...form,
-                                        [f.name]: e.target.value.toUpperCase(),
-                                    })
-                                }
+                                onChange={(e) => {
+                                    const val = f.optionsRef ? e.target.value : e.target.value.toUpperCase();
+                                    const updates = { ...form, [f.name]: val };
+                                    // Sembunyikan limit_piutang saat tipe RETAIL
+                                    if (f.name === "tipe_customer" && val === "RETAIL") {
+                                        updates.limit_piutang = "";
+                                    }
+                                    setForm(updates);
+                                }}
                                 error={errors[f.name]}
+                                placeholder={`Pilih ${f.label}`}
                             >
-                                {f.options.map((o) => (
+                                {f.optionsRef ? (
+                                    (refs[f.optionsRef] || []).map((o) => (
+                                        <option key={o[f.optionValue || "id"]} value={o[f.optionValue || "id"]}>
+                                            {o[f.optionLabel]}{f.optionDescription ? ` - ${o[f.optionDescription]}` : ""}
+                                        </option>
+                                    ))
+                                ) : f.options.map((o) => (
                                     <option key={o} value={o}>{o}</option>
                                 ))}
                             </Select>
@@ -137,6 +169,17 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
                                     setForm({
                                         ...form,
                                         [f.name]: e.target.value.toUpperCase(),
+                                    })
+                                }
+                                error={errors[f.name]}
+                            />
+                        ) : f.type === "number" ? (
+                            <CurrencyInput
+                                value={form[f.name] ?? ""}
+                                onChange={(e) =>
+                                    setForm({
+                                        ...form,
+                                        [f.name]: e.target.value,
                                     })
                                 }
                                 error={errors[f.name]}
@@ -184,28 +227,24 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
                     </Modal>
                 )}
 
+                <PageHeader title={title} />
+
                 {/* Table Card */}
                 <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium"
                     style={{ backgroundColor: "var(--color-card)" }}>
-                    {/* Header */}
-                    <div
-                        className="flex items-center px-6 py-4"
-                        style={{ backgroundColor: "var(--color-card-header, #1e293b)" }}
-                    >
-                        <h2 className="text-base font-bold text-white">{title}</h2>
-                    </div>
-
                     {/* Toolbar */}
                     <div className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between border-b border-stroke">
-                        <div className="relative">
-                            <IconSearch size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-                            <input
-                                type="text"
-                                placeholder="CARI DATA"
-                                value={search}
-                                onChange={(e) => doSearch(e.target.value)}
-                                className="h-9 w-full rounded-lg border border-stroke bg-page pl-9 pr-3 text-sm font-medium text-main placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 sm:w-64"
-                            />
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="relative">
+                                <IconSearch size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                                <input
+                                    type="text"
+                                    placeholder="CARI DATA"
+                                    value={search}
+                                    onChange={(e) => doSearch(e.target.value)}
+                                    className="h-9 w-full rounded-lg border border-stroke bg-page pl-9 pr-3 text-sm font-medium text-main placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 sm:w-64"
+                                />
+                            </div>
                         </div>
                         <button
                             type="button"
@@ -249,7 +288,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
                                                     key={`${c.key}-${j}`}
                                                     className="px-4 py-2.5 font-medium text-main"
                                                 >
-                                                    {row[c.key] ?? "-"}
+                                                    {c.render ? c.render(row) : (row[c.key] ?? "-")}
                                                 </td>
                                             ))}
                                             <td className="px-4 py-2.5">

@@ -14,15 +14,27 @@ class ReportExport implements FromView, ShouldAutoSize
     protected $rows;
     protected array $summary;
     protected array $groups;
+    protected array $botolStock;
+    protected array $botolStockColumns;
 
-    public function __construct(string $title, array $filters, array $columns, $rows, array $summary = [], array $groups = [])
-    {
+    public function __construct(
+        string $title,
+        array $filters,
+        array $columns,
+        $rows,
+        array $summary = [],
+        array $groups = [],
+        array $botolStock = [],
+        array $botolStockColumns = []
+    ) {
         $this->title = $title;
         $this->filters = $filters;
         $this->columns = $columns;
         $this->rows = $rows;
         $this->summary = $summary;
         $this->groups = $groups;
+        $this->botolStock = $botolStock;
+        $this->botolStockColumns = $botolStockColumns;
     }
 
     public function view(): View
@@ -34,6 +46,8 @@ class ReportExport implements FromView, ShouldAutoSize
             'rows' => $this->rows,
             'summary' => $this->summary,
             'groups' => $this->groups,
+            'botolStock' => $this->botolStock,
+            'botolStockColumns' => $this->botolStockColumns,
         ]);
     }
 }

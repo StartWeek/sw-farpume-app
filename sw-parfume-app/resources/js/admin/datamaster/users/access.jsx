@@ -1,6 +1,6 @@
 import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import Button from "@/components/common/Button";
-import { Select } from "@/admin/business/_components";
+import { PageHeader, Select } from "@/admin/business/_components";
 import { router } from "@inertiajs/react";
 import React, { useMemo, useState } from "react";
 
@@ -55,14 +55,10 @@ export default function UserAccess({ users = [], accessOptions = [] }) {
     return (
         <ProtectedLayout title="Hak Akses User">
             <div className="space-y-5">
-                <div>
-                    <h1 className="text-xl font-black text-main">
-                        Hak Akses User
-                    </h1>
-                    <p className="mt-1 text-sm text-muted">
-                        Atur menu yang boleh tampil di sidebar setiap user.
-                    </p>
-                </div>
+                <PageHeader
+                    title="Hak Akses User"
+                    subtitle="Atur menu yang boleh tampil di sidebar setiap user."
+                />
 
                 <form
                     onSubmit={submit}

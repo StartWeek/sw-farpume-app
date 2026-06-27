@@ -4,7 +4,7 @@ import TableUsers from "./table";
 import ModalGlobal from "@/components/common/GlobalModal";
 import FormUsers from "./form";
 import { usePage } from "@inertiajs/react";
-import { IconUsers } from "@tabler/icons-react";
+import { PageHeader } from "@/admin/business/_components";
 
 const Users = () => {
     const { users, filters = {} } = usePage().props;
@@ -12,11 +12,8 @@ const Users = () => {
     return (
         <ProtectedLayout title={"Data Users"}>
             <div className="space-y-5">
+                <PageHeader title="Data Users" />
                 <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium" style={{ backgroundColor: "var(--color-card)" }}>
-                    <div className="flex items-center px-6 py-4" style={{ backgroundColor: "var(--color-card-header, #1e293b)" }}>
-                        <IconUsers size={18} className="text-white mr-3" />
-                        <h2 className="text-base font-bold text-white">Data Users</h2>
-                    </div>
                     <TableUsers users={users} filters={filters} />
                 </div>
             </div>

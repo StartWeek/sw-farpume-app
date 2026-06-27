@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { router } from "@inertiajs/react";
 import toast from "react-hot-toast";
 import Button from "@/components/common/Button";
-import { Card, Field, Input, PageHeader, Select, SimpleTable, money, number, todayDate, useFlashMessages } from "./_components";
+import { Card, Field, Input, PageHeader, PaginationBar, Select, SimpleTable, money, number, todayDate, useFlashMessages } from "./_components";
 
 const titles = {
     pembelian: "Laporan Pembelian",
@@ -165,13 +165,13 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
                                     </Select>
                                 </Field>
                             ) : null}
-                            {type === "stok" ? (
+                            {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
                                 <Field label="Jenis Barang">
                                     <Select value={form.jenis_barang} onChange={(event) => set("jenis_barang", event.target.value)}>
                                         <option value="">Semua jenis</option>
                                         <option value="BIBIT">Cairan/Bibit</option>
                                         <option value="ABSOLUTE">Absolute</option>
-                                        <option value="BOTOL">Botol</option>
+                                        <option value="BOTOL">Botol Kosong</option>
                                     </Select>
                                 </Field>
                             ) : null}
@@ -179,7 +179,7 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
                                 <Field label="Varian Botol">
                                     <Select value={form.id_botol} onChange={(event) => set("id_botol", event.target.value)}>
                                         <option value="">Semua botol</option>
-                                        {(refs.botol || []).map((row) => <option key={row.id} value={row.id}>{row.nama_botol}</option>)}
+                                        {((form.jenis_barang === "BOTOL" ? refs.botol_kosong : refs.botol) || []).map((row) => <option key={row.id} value={row.id}>{row.nama_botol}</option>)}
                                     </Select>
                                 </Field>
                             ) : null}
@@ -269,15 +269,13 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
 
                 {searched ? (
                     <div className="space-y-3">
-                        <div className="uppercase"><SimpleTable rows={rows} columns={columns(type)} /></div>
-
                         {type === "stok" && botolStock.length > 0 && (
                             <Card>
                                 <div className="mb-3 text-sm font-bold">Stok Botol Kosong</div>
                                 <SimpleTable rows={botolStock} columns={[
                                     { key: "nama_item", label: "Botol" },
+                                    { key: "gudang", label: "Gudang" },
                                     { key: "stok_botol", label: "Stok Botol", render: (row) => number(row.stok_botol) },
-                                    { key: "dus", label: "Dus/Sisa", render: (row) => `${number(row.dus)} dus ${number(row.sisa_botol)} botol` },
                                 ]} />
                             </Card>
                         )}
@@ -293,7 +291,10 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
                             </Card>
                         )}
 
-                        {/* Export Bar */}
+                        {/* Main data table — tanpa pagination, pagination render manual di paling bawah */}
+                        <div className="uppercase"><SimpleTable rows={rows} columns={columns(type)} hidePagination /></div>
+
+                        {/* Export Bar — posisi kedua terakhir */}
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             {/* Orientation Toggle */}
                             <div className="inline-flex items-center rounded-xl border-2 border-stroke overflow-hidden text-xs">
@@ -345,6 +346,9 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
                                 </a>
                             </div>
                         </div>
+
+                        {/* Pagination — posisi paling bawah */}
+                        {!Array.isArray(rows) && rows ? <PaginationBar pagination={rows} /> : null}
                     </div>
                 ) : (
                     <Card className="py-10 text-center text-sm font-semibold text-muted">
@@ -396,10 +400,9 @@ function columns(type) {
     if (type === "stok") return [
         { key: "nama_item", label: "Barang" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
-        { key: "botol", label: "Botol", render: (row) => row.botol?.nama_botol || "-" },
-        { key: "stok_ml", label: "Stok ML", render: (row) => number(row.stok_ml) },
-        { key: "stok_botol_isi", label: "Botol Isi", render: (row) => number(row.stok_botol_isi) },
-        { key: "sisa_botol_ml", label: "Sisa ML", render: (row) => number(row.sisa_botol_ml) },
+        { key: "botol", label: "Varian Botol", render: (row) => row.botol?.nama_botol || "-" },
+        { key: "stok_ml", label: "Stok Cairan (ML)", render: (row) => number(row.stok_ml) },
+        { key: "stok_botol_isi", label: "Botol Isi/Terpakai", render: (row) => number(row.stok_botol_isi) },
         { key: "minimum_stok_ml", label: "Minimum", render: (row) => row.minimum_stok_ml ? number(row.minimum_stok_ml) : "-" },
     ];
     if (type === "mutasi-stok") return [
@@ -410,7 +413,7 @@ function columns(type) {
         { key: "qty_ml", label: "Qty ML", render: (row) => number(row.qty_ml) },
     ];
     if (type === "barang-summary") return [
-        { key: "botol", label: "Botol", render: (row) => row.barang?.botol?.nama_botol || "-" },
+        { key: "varian", label: "Varian Botol", render: (row) => row.botol_variant?.nama_botol || row.barang?.botol?.nama_botol || "-" },
         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
         { key: "total_masuk_ml", label: "Masuk ML", render: (row) => number(row.total_masuk_ml) },

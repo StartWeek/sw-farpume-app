@@ -275,9 +275,9 @@ function receiptText(receipt) {
         `Terbayar : ${money(receipt.paid)}`,
         `Sisa     : ${money(receipt.remaining)}`,
         `Status   : ${receipt.status || "-"}`,
-        dline,
+        line,
         center(receipt.receipt_footer || "Terima kasih"),
-        dline,
+        line,
         "",
     ].filter(Boolean);
 
@@ -290,8 +290,8 @@ function receiptItemLines(items = []) {
     return [
         "Barang:",
         ...items.flatMap((item) => [
-            truncate(item.name, 32),
-            `${number(item.qty)} ${item.unit}`,
+            ...wrapLabeledLine("  NAMA", item.name),
+            `  QTY     : ${number(item.qty)} ${item.unit}`,
         ]),
         "-".repeat(32),
     ];
@@ -372,6 +372,46 @@ function center(text, width = 32) {
 function truncate(text, width) {
     const value = String(text || "");
     return value.length > width ? value.slice(0, width - 1) : value;
+}
+
+function wrapLabeledLine(label, value, width = 32) {
+    const prefix = `${label} : `;
+    const maxLen = width - prefix.length;
+    if (maxLen <= 0) return [`${prefix}${value}`];
+
+    const words = String(value || "-").split(" ");
+    const lines = [];
+    let currentLine = "";
+    let isFirst = true;
+
+    for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (testLine.length <= maxLen) {
+            currentLine = testLine;
+        } else {
+            if (currentLine) {
+                lines.push(isFirst ? `${prefix}${currentLine}` : `${" ".repeat(prefix.length)}${currentLine}`);
+                isFirst = false;
+            }
+            if (word.length > maxLen) {
+                let chunk = word;
+                while (chunk.length > 0) {
+                    const part = chunk.slice(0, maxLen);
+                    chunk = chunk.slice(maxLen);
+                    lines.push(isFirst ? `${prefix}${part}` : `${" ".repeat(prefix.length)}${part}`);
+                    isFirst = false;
+                }
+            } else {
+                currentLine = word;
+            }
+        }
+    }
+
+    if (currentLine) {
+        lines.push(isFirst ? `${prefix}${currentLine}` : `${" ".repeat(prefix.length)}${currentLine}`);
+    }
+
+    return lines.length > 0 ? lines : [`${prefix}-`];
 }
 
 function formatDate(value) {

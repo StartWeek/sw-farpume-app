@@ -98,7 +98,7 @@ class DatabaseSeeder extends Seeder
 
         Gudang::query()->firstOrCreate(
             ['kode_gudang' => 'GDG-0001'],
-            ['nama_gudang' => 'Gudang Utama', 'alamat' => 'Pusat', 'status' => 'AKTIF']
+            ['nama_gudang' => 'Gudang Utama', 'tipe_gudang' => 'BIBIT', 'alamat' => 'Pusat', 'status' => 'AKTIF']
         );
 
         Supplier::query()->firstOrCreate(

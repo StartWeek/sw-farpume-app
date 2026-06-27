@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Business;
 use App\Http\Controllers\Controller;
 use App\Models\Business\BarangBibit;
 use App\Models\Business\Botol;
+use App\Models\Business\BotolKosong;
 use App\Models\Business\Customer;
 use App\Models\Business\Gudang;
 use App\Models\Business\Pembelian;
@@ -27,7 +28,7 @@ class TransactionController extends Controller
         return Inertia::render('admin/business/TransactionPage', [
             'type' => 'pembelian',
             'rows' => Pembelian::query()
-                ->with(['supplier', 'gudang', 'details.barang', 'details.botol', 'hutang'])
+                ->with(['supplier', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'hutang'])
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
@@ -44,7 +45,7 @@ class TransactionController extends Controller
         return Inertia::render('admin/business/TransactionPage', [
             'type' => $type === 'grosir' ? 'sales' : $type,
             'rows' => Penjualan::query()
-                ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'piutang'])
+                ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
                 ->where('tipe_penjualan', $salesType)
                 ->latest('id')
                 ->paginate($this->perPage())
@@ -54,10 +55,25 @@ class TransactionController extends Controller
         ]);
     }
 
+    public function penjualanBotolKosong(): Response
+    {
+        return Inertia::render('admin/business/TransactionPage', [
+            'type' => 'botol-kosong',
+            'rows' => Penjualan::query()
+                ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
+                ->where('tipe_penjualan', 'BOTOL_KOSONG')
+                ->latest('id')
+                ->paginate($this->perPage())
+                ->withQueryString(),
+            'refs' => $this->refs('BOTOL'),
+            'operationalDate' => $this->business->operationalDate()->toDateString(),
+        ]);
+    }
+
     public function riwayatPembelian(Request $request): Response
     {
         $rows = Pembelian::query()
-            ->with(['supplier', 'gudang', 'details.barang', 'details.botol', 'hutang'])
+            ->with(['supplier', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'hutang'])
             ->when($request->tanggal_dari, fn ($q) => $q->whereDate('tanggal', '>=', $request->tanggal_dari))
             ->when($request->tanggal_sampai, fn ($q) => $q->whereDate('tanggal', '<=', $request->tanggal_sampai))
             ->when($request->id_supplier, fn ($q) => $q->where('id_supplier', $request->id_supplier))
@@ -81,7 +97,7 @@ class TransactionController extends Controller
         $salesType = $type === 'retail' ? 'RETAIL' : 'GROSIR';
 
         $rows = Penjualan::query()
-            ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'piutang'])
+            ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
             ->where('tipe_penjualan', $salesType)
             ->when($request->tanggal_dari, fn ($q) => $q->whereDate('tanggal', '>=', $request->tanggal_dari))
             ->when($request->tanggal_sampai, fn ($q) => $q->whereDate('tanggal', '<=', $request->tanggal_sampai))
@@ -123,12 +139,34 @@ class TransactionController extends Controller
             ->with('receipt', $this->receiptPayload($penjualan, 'penjualan'));
     }
 
-    private function refs(): array
+    public function storePenjualanBotolKosong(Request $request): RedirectResponse
     {
+        $validated = $this->uppercase($request->validate($this->penjualanBotolKosongRules(), $this->validationMessages()));
+        $validated['tipe_penjualan'] = 'BOTOL_KOSONG';
+        $validated['items'] = collect($validated['items'])
+            ->map(fn (array $item) => [...$item, 'tipe_item' => 'BOTOL'])
+            ->all();
+
+        $penjualan = $this->business->createPenjualan($validated);
+
+        return redirect()
+            ->route('business.penjualan-botol-kosong.index')
+            ->with('success', 'Penjualan botol kosong berhasil disimpan.')
+            ->with('receipt', $this->receiptPayload($penjualan, 'penjualan'));
+    }
+
+    private function refs(string $gudangTipe = ''): array
+    {
+        $gudangQuery = Gudang::query()->where('status', 'AKTIF');
+        if ($gudangTipe !== '') {
+            $gudangQuery->where('tipe_gudang', $gudangTipe);
+        }
+
         return [
             'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
-            'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
+            'botol_kosong' => BotolKosong::query()->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
+            'gudang' => $gudangQuery->orderBy('nama_gudang')->get(),
             'supplier' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(),
             'customer' => Customer::query()->where('status', 'AKTIF')->orderBy('nama_customer')->get(),
             'sales' => Sales::query()->where('status', 'AKTIF')->orderBy('nama_sales')->get(),
@@ -149,6 +187,8 @@ class TransactionController extends Controller
             'gudang',
             'details.barang',
             'details.botol',
+            'details.botolKosong',
+            'details.botolVariant',
             $type === 'pembelian' ? 'supplier' : 'customer',
             ...($type === 'penjualan' ? ['sales'] : []),
         ]);
@@ -164,16 +204,29 @@ class TransactionController extends Controller
                 'warehouse' => $transaction->gudang?->nama_gudang ?? '-',
                 'payment_method' => $transaction->metode_pembayaran,
                 'payment_status' => $transaction->status_pembayaran,
-                'items' => $transaction->details->map(fn ($detail) => [
-                    'name' => $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botol?->nama_botol ?? '-',
-                    'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
-                    'unit' => $detail->satuan_input ?? 'ML',
-                    'price' => (float) ($detail->harga ?: $detail->harga_beli_per_ml),
-                    'subtotal' => (float) $detail->subtotal,
-                    'discount' => (float) $detail->discount,
-                    'capacity_ml' => $detail->satuan_dasar === 'BOTOL' ? (float) $detail->qty_ml : null,
-                    'price_per_ml' => (float) $detail->harga_beli_per_ml,
-                ])->values()->all(),
+                'items' => $transaction->details->map(function ($detail) {
+                    $variant = $detail->botolVariant;
+                    $isBotolUnit = $detail->satuan_input === 'BOTOL';
+                    $capacityMl = $detail->satuan_dasar === 'BOTOL'
+                        ? (float) $detail->qty_ml
+                        : ($variant ? (float) $variant->varian_ml : null);
+                    $unitLabel = $isBotolUnit && $detail->satuan_dasar === 'ML'
+                        ? 'BOTOL ISI'
+                        : ($detail->satuan_input ?? 'ML');
+                    $variantLabel = $variant ? $variant->nama_botol : null;
+
+                    return [
+                        'name' => $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botolKosong?->nama_botol ?? $detail->botol?->nama_botol ?? '-',
+                        'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
+                        'unit' => $unitLabel,
+                        'variant' => $variantLabel,
+                        'price' => (float) ($detail->harga ?: $detail->harga_beli_per_ml),
+                        'subtotal' => (float) $detail->subtotal,
+                        'discount' => (float) $detail->discount,
+                        'capacity_ml' => $capacityMl,
+                        'price_per_ml' => (float) $detail->harga_beli_per_ml,
+                    ];
+                })->values()->all(),
                 'total_qty' => (float) $transaction->total_qty_ml,
                 'total_bottle' => (float) $transaction->total_qty_botol,
                 'discount' => (float) $transaction->discount,
@@ -193,16 +246,20 @@ class TransactionController extends Controller
             'warehouse' => $transaction->gudang?->nama_gudang ?? '-',
             'payment_method' => $transaction->metode_pembayaran,
             'payment_status' => $transaction->status_pembayaran,
-            'items' => $transaction->details->map(fn ($detail) => [
-                'name' => $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botol?->nama_botol ?? '-',
-                'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
-                'unit' => $detail->satuan_input ?? 'ML',
-                'price' => (float) ($detail->harga ?: $detail->harga_jual_per_ml),
-                    'subtotal' => (float) $detail->subtotal_jual,
-                    'discount' => (float) $detail->discount,
-                    'capacity_ml' => $detail->satuan_dasar === 'BOTOL' ? (float) $detail->qty_ml : null,
-                    'price_per_ml' => (float) $detail->harga_jual_per_ml,
-                ])->values()->all(),
+            'items' => $transaction->details->map(function ($detail) {
+                    $variant = $detail->botolVariant;
+                    return [
+                        'name' => $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botolKosong?->nama_botol ?? $detail->botol?->nama_botol ?? '-',
+                        'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
+                        'unit' => $detail->satuan_input ?? 'ML',
+                        'variant' => $variant ? $variant->nama_botol : null,
+                        'price' => (float) ($detail->harga ?: $detail->harga_jual_per_ml),
+                        'subtotal' => (float) $detail->subtotal_jual,
+                        'discount' => (float) $detail->discount,
+                        'capacity_ml' => $detail->satuan_dasar === 'BOTOL' ? (float) $detail->qty_ml : null,
+                        'price_per_ml' => (float) $detail->harga_jual_per_ml,
+                    ];
+                })->values()->all(),
                 'total_qty' => (float) $transaction->total_qty_ml,
                 'total_bottle' => (float) $transaction->total_qty_botol,
                 'discount' => (float) $transaction->discount,
@@ -227,10 +284,33 @@ class TransactionController extends Controller
             'items.*.tipe_item' => ['required', 'in:BIBIT,ABSOLUTE,BOTOL'],
             'items.*.item_id' => ['required', 'integer'],
             'items.*.id_barang' => ['nullable', 'exists:tm_barang_bibit,id'],
+            'items.*.id_botol' => ['nullable', 'exists:tm_botol,id'],
             'items.*.qty_input' => ['required', 'numeric', 'min:0.01'],
             'items.*.satuan_input' => ['required', 'in:ML,LITER,BOTOL,DUS'],
             'items.*.harga' => ['nullable', 'numeric', 'min:0.01'],
             'items.*.harga_beli_per_ml' => ['nullable', 'numeric', 'min:0.01'],
+        ];
+    }
+
+    private function penjualanBotolKosongRules(): array
+    {
+        return [
+            'tanggal' => ['nullable', 'date'],
+            'id_customer' => ['required', 'exists:tm_customer,id'],
+            'manual_customer_name' => ['nullable', 'string', 'max:255'],
+            'id_sales' => ['nullable', 'exists:tm_sales,id'],
+            'id_gudang' => ['required', 'exists:tm_gudang,id'],
+            'metode_pembayaran' => ['required', 'in:CASH,TRANSFER,TEMPO,DP'],
+            'jumlah_bayar' => ['nullable', 'numeric', 'min:0'],
+            'discount' => ['nullable', 'numeric', 'min:0'],
+            'jatuh_tempo' => ['nullable', 'date'],
+            'keterangan' => ['nullable', 'string'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.item_id' => ['required', 'exists:tm_botol_kosong,id'],
+            'items.*.qty_input' => ['required', 'numeric', 'min:0.01'],
+            'items.*.satuan_input' => ['required', 'in:BOTOL,DUS'],
+            'items.*.harga' => ['nullable', 'numeric', 'min:0.01'],
+            'items.*.discount' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 
@@ -249,7 +329,7 @@ class TransactionController extends Controller
             'jatuh_tempo' => ['nullable', 'date'],
             'keterangan' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.tipe_item' => ['required', 'in:BIBIT,ABSOLUTE,BOTOL'],
+            'items.*.tipe_item' => ['required', 'in:BIBIT,ABSOLUTE'],
             'items.*.item_id' => ['required', 'integer'],
             'items.*.id_barang' => ['nullable', 'exists:tm_barang_bibit,id'],
             'items.*.qty_input' => ['required', 'numeric', 'min:0.01'],
@@ -270,7 +350,7 @@ class TransactionController extends Controller
             'id_supplier.required' => 'Supplier wajib dipilih.',
             'id_customer.required_without' => 'Customer wajib dipilih atau isi nama customer manual.',
             'manual_customer_name.required_without' => 'Nama customer manual wajib diisi jika tidak memilih customer.',
-            'id_gudang.required' => 'Gudang wajib dipilih.',
+            'id_gudang.required' => 'Kode Gudang wajib dipilih.',
             'metode_pembayaran.required' => 'Metode bayar wajib dipilih.',
         ];
     }

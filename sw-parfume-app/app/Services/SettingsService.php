@@ -51,7 +51,7 @@ class SettingsService
             'logo_path' => null,
             'login_logo_path' => null,
             'app_name' => 'Paris Parfum Admin',
-            'primary_color' => 'amber',
+            'primary_color' => '#D97706',
             'light_theme' => 'slate',
             'dark_theme' => 'navy',
             'is_dark_mode' => false,

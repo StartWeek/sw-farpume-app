@@ -24,7 +24,7 @@ Route::middleware('guest')->group(function () {
         ->middleware(['sql.injection.guard', 'xss.guard', 'throttle:5,1']);
 });
 
-Route::middleware(['auth', 'menu.access'])->prefix('admin')->group(function () {
+Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group(function () {
 
     Route::get('/data-users', function () {
         return redirect()->route('users.index');
@@ -64,6 +64,8 @@ Route::middleware(['auth', 'menu.access'])->prefix('admin')->group(function () {
 
     Route::get('/pembelian', [TransactionController::class, 'pembelian'])->name('business.pembelian.index');
     Route::post('/pembelian', [TransactionController::class, 'storePembelian'])->name('business.pembelian.store');
+    Route::get('/penjualan-botol-kosong', [TransactionController::class, 'penjualanBotolKosong'])->name('business.penjualan-botol-kosong.index');
+    Route::post('/penjualan-botol-kosong', [TransactionController::class, 'storePenjualanBotolKosong'])->name('business.penjualan-botol-kosong.store');
     Route::get('/penjualan/{type}', [TransactionController::class, 'penjualan'])->name('business.penjualan.index');
     Route::post('/penjualan', [TransactionController::class, 'storePenjualan'])->name('business.penjualan.store');
 

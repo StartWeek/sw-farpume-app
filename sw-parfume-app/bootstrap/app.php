@@ -21,6 +21,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'sql.injection.guard' => \App\Http\Middleware\PreventSqlInjection::class,
             'xss.guard' => \App\Http\Middleware\PreventXss::class,
             'menu.access' => \App\Http\Middleware\EnsureUserHasMenuAccess::class,
+            'store.open' => \App\Http\Middleware\EnsureStoreIsOpen::class,
         ]);
 
         $middleware->web(append: [

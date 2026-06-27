@@ -1,10 +1,13 @@
-import { Head, useForm, usePage } from "@inertiajs/react";
+import { useForm, usePage } from "@inertiajs/react";
 import { useState } from "react";
 import { IconDeviceFloppy, IconReceipt2 } from "@tabler/icons-react";
-import { Card, Field, Input } from "./_components";
+import { Card, Field, Input, PageHeader } from "./_components";
+import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import {
+    defaultItemTemplate,
     defaultPaymentReceiptTemplate,
     defaultReceiptTemplate,
+    renderItemTemplate,
     renderReceiptTemplate,
 } from "./receiptSettings";
 
@@ -30,6 +33,7 @@ export default function SettingNotaPage() {
         receipt_template: settings.receipt_template || defaultReceiptTemplate,
         payment_receipt_template:
             settings.payment_receipt_template || defaultPaymentReceiptTemplate,
+        item_template: settings.item_template || defaultItemTemplate,
     });
 
     const handleSubmit = (e) => {
@@ -57,7 +61,13 @@ export default function SettingNotaPage() {
         party_label: "Supplier",
         party_name: "MAJU JAYA",
         warehouse: "TOKO",
-        items: "Fresh Citrus - Maison A\n1 ML x 1.200\n                        Rp 1.200",
+        items: renderItemTemplate(data.item_template, {
+            name: "Fresh Citrus - Maison A",
+            qty: "1",
+            price: "1.200",
+            unit: "ML",
+            variant: "BOTOL : Botol 200ml",
+        }),
         total_qty: "1",
         total_bottle_line: "",
         subtotal_line: "",
@@ -97,12 +107,9 @@ export default function SettingNotaPage() {
     const previewText = isTransaction ? transactionPreview : paymentPreview;
 
     return (
-        <>
-            <Head title="Setting Nota Slip" />
+        <ProtectedLayout title="Setting Nota Slip">
             <div className="space-y-5">
-                <h1 className="text-3xl font-light tracking-tight text-main">
-                    Setting Nota Slip
-                </h1>
+                <PageHeader title="Setting Nota Slip" />
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
@@ -205,10 +212,51 @@ export default function SettingNotaPage() {
                                     </div>
                                 </div>
                             </div>
+
+                            {isTransaction && (
+                                <div className="mt-6 border-t border-stroke pt-5">
+                                    <h3 className="mb-3 text-sm font-black uppercase tracking-widest text-muted">
+                                        Template Per Item
+                                    </h3>
+                                    <div className="grid gap-4 xl:grid-cols-2">
+                                        <div>
+                                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted">
+                                                Editor Item
+                                            </div>
+                                            <textarea
+                                                spellCheck={false}
+                                                value={data.item_template}
+                                                onChange={(e) => setData("item_template", e.target.value)}
+                                                rows={6}
+                                                className="w-full rounded-xl border border-stroke bg-page px-4 py-3 font-mono text-[11px] leading-5 text-main outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
+                                            />
+                                            <div className="mt-2 text-[10px] text-muted leading-relaxed">
+                                                Placeholder: {"{{name}}"}, {"{{qty}}"}, {"{{price}}"}, {"{{unit}}"}, {"{{variant}}"}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted">
+                                                Preview Item
+                                            </div>
+                                            <div className="overflow-hidden rounded-lg border border-stroke bg-white shadow-sm">
+                                                <pre className="overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-[11px] leading-[1.5] text-gray-800">
+                                                    {renderItemTemplate(data.item_template, {
+                                                        name: "Fresh Citrus - Maison A",
+                                                        qty: "1",
+                                                        price: "1.200",
+                                                        unit: "ML",
+                                                        variant: "BOTOL : Botol 200ml",
+                                                    })}
+                                                </pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </Card>
                     </div>
                 </form>
             </div>
-        </>
+        </ProtectedLayout>
     );
 }

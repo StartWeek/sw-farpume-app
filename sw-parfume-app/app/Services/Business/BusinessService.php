@@ -4,6 +4,7 @@ namespace App\Services\Business;
 
 use App\Models\Business\BarangBibit;
 use App\Models\Business\Botol;
+use App\Models\Business\BotolKosong;
 use App\Models\Business\Brand;
 use App\Models\Business\Customer;
 use App\Models\Business\Gudang;
@@ -33,6 +34,7 @@ class BusinessService
         'customer' => ['model' => Customer::class, 'code' => 'kode_customer', 'prefix' => 'CUS', 'label' => 'Data Customer'],
         'sales' => ['model' => Sales::class, 'code' => 'kode_sales', 'prefix' => 'SLS', 'label' => 'Data Sales'],
         'botol' => ['model' => Botol::class, 'code' => 'kode_botol', 'prefix' => 'BTL', 'label' => 'Master Botol'],
+        'botol-kosong' => ['model' => BotolKosong::class, 'code' => 'kode_botol', 'prefix' => 'BTK', 'label' => 'Master Botol Kosong'],
     ];
 
     public function nextCode(string $modelClass, string $field, string $prefix): string
@@ -91,15 +93,6 @@ class BusinessService
                 throw ValidationException::withMessages(['id_botol' => 'Botol stok tidak dapat diganti selama stok barang masih tersedia.']);
             }
 
-            if ($currentBottleId === 0 && $existingStocks->isNotEmpty()) {
-                $botol = Botol::query()->lockForUpdate()->findOrFail($newBottleId);
-                $required = $existingStocks->sum(fn (StokGudang $stock) => $this->filledBottleCount((float) $stock->stok_ml, (float) $botol->varian_ml));
-                if ((float) $botol->stock_botol < $required) {
-                    throw ValidationException::withMessages(['id_botol' => "Stok {$botol->nama_botol} membutuhkan {$required} botol kosong."]);
-                }
-                $botol->decrement('stock_botol', $required);
-            }
-
             $barang->update([
                 ...$payload,
                 'jenis_barang' => $payload['jenis_barang'] ?? 'BIBIT',
@@ -110,14 +103,14 @@ class BusinessService
         });
     }
 
-    public function replaceStock(int $gudangId, int $barangId, float $qtyMl, array $meta, bool $skipBottleCheck = false): StokGudang
+    public function replaceStock(int $gudangId, int $barangId, float $qtyMl, array $meta, bool $skipBottleCheck = false, ?int $idBotol = 0): StokGudang
     {
         $barang = BarangBibit::query()->with('botol')->findOrFail($barangId);
-        if (! $skipBottleCheck && ! $barang->botol) {
-            throw ValidationException::withMessages(['items' => "Botol stok untuk {$barang->nama_barang} belum dipilih di master barang."]);
+        if (! $skipBottleCheck && ! $idBotol && $barang->jenis_barang !== 'ABSOLUTE' && ! $barang->botol) {
+            throw ValidationException::withMessages(['items' => "Botol stok untuk {$barang->nama_barang} belum dipilih — pilih varian botol atau atur botol default di master barang."]);
         }
         $stock = StokGudang::query()->firstOrCreate(
-            ['id_gudang' => $gudangId, 'id_barang' => $barangId],
+            ['id_gudang' => $gudangId, 'id_barang' => $barangId, 'id_botol' => $idBotol],
             ['stok_ml' => 0, 'stok_reserved_ml' => 0, 'minimum_stok_ml' => $barang->minimum_stok_ml]
         );
 
@@ -126,19 +119,6 @@ class BusinessService
 
         if ($after < 0) {
             throw ValidationException::withMessages(['items' => 'Stok barang tidak mencukupi.']);
-        }
-
-        if (! $skipBottleCheck && $barang->botol) {
-            $beforeBottles = $this->filledBottleCount($before, (float) $barang->botol->varian_ml);
-            $afterBottles = $this->filledBottleCount($after, (float) $barang->botol->varian_ml);
-            $neededBottles = max(0, $afterBottles - $beforeBottles);
-            if ($neededBottles > 0) {
-                $botol = Botol::query()->lockForUpdate()->findOrFail($barang->botol->id);
-                if ((float) $botol->stock_botol < $neededBottles) {
-                    throw ValidationException::withMessages(['items' => "Stok {$botol->nama_botol} tidak cukup. Dibutuhkan {$neededBottles} botol kosong."]);
-                }
-                $botol->decrement('stock_botol', $neededBottles);
-            }
         }
 
         $stock->update([
@@ -154,6 +134,7 @@ class BusinessService
             'no_transaksi' => $meta['no_transaksi'] ?? 'MANUAL',
             'id_gudang' => $gudangId,
             'id_barang' => $barangId,
+            'id_botol' => $idBotol,
             'qty_ml' => abs($qtyMl),
             'stok_sebelum_ml' => $before,
             'stok_sesudah_ml' => $after,
@@ -169,12 +150,23 @@ class BusinessService
         $multiplier = ($payload['tipe_mutasi'] ?? 'MASUK') === 'KELUAR' ? -1 : 1;
 
         $qtyMl = (float) ($payload['qty_ml'] ?? 0);
+        $idBotol = isset($payload['id_botol']) ? (int) $payload['id_botol'] : null;
+
         if ($multiplier === 1 && isset($payload['jumlah_botol'])) {
             $barang = BarangBibit::query()->with('botol')->findOrFail($payload['id_barang']);
-            if (! $barang->botol) {
-                throw ValidationException::withMessages(['id_barang' => 'Pilih botol stok pada master barang terlebih dahulu.']);
+            if ($barang->jenis_barang === 'ABSOLUTE') {
+                $qtyMl = (float) $payload['jumlah_botol'];
+            } else {
+                // Gunakan varian_ml dari botol yang dipilih, fallback ke default barang
+                $varianMl = $idBotol
+                    ? (float) (Botol::query()->find($idBotol)?->varian_ml ?? 0)
+                    : (float) ($barang->botol->varian_ml ?? 0);
+
+                if ($varianMl <= 0) {
+                    throw ValidationException::withMessages(['id_botol' => 'Pilih varian botol terlebih dahulu.']);
+                }
+                $qtyMl = (float) $payload['jumlah_botol'] * $varianMl;
             }
-            $qtyMl = (float) $payload['jumlah_botol'] * (float) $barang->botol->varian_ml;
         }
 
         return DB::transaction(fn () => $this->replaceStock(
@@ -187,7 +179,8 @@ class BusinessService
                 'keterangan' => $payload['keterangan'] ?? 'Input manual inventory',
                 'created_by' => $payload['created_by'] ?? auth()->user()?->name,
             ],
-            skipBottleCheck: true
+            skipBottleCheck: true,
+            idBotol: $idBotol,
         ));
     }
 
@@ -205,14 +198,13 @@ class BusinessService
 
         if ($type === 'BOTOL') {
             $this->ensureUnit($unit, ['BOTOL', 'DUS'], 'botol');
-            $botol = Botol::query()->findOrFail($item['item_id'] ?? $item['id_botol'] ?? null);
+            $botol = BotolKosong::query()->findOrFail($item['item_id'] ?? $item['id_botol'] ?? null);
             $barang = isset($item['id_barang']) ? BarangBibit::query()->find($item['id_barang']) : null;
 
-            $qtyBotol = $unit === 'DUS' ? $this->dusToBotol($qtyInput, (int) $botol->isi_per_dus) : $qtyInput;
+            $qtyBotol = $unit === 'DUS' ? $this->dusToBotol($qtyInput, 1) : $qtyInput;
 
-            // Harga beli: prioritaskan dari master barang, fallback ke master botol
             $barangBeliPerBotol = (float) ($barang?->harga_beli_per_botol ?? 0);
-            $defaultPrice = $barangBeliPerBotol > 0 ? $barangBeliPerBotol : (float) $botol->harga_beli_per_botol;
+            $defaultPrice = $barangBeliPerBotol > 0 ? $barangBeliPerBotol : (float) $botol->harga_beli;
             $price = (float) ($item['harga'] ?? $item['harga_beli_per_botol'] ?? $defaultPrice);
 
             $subtotal = $unit === 'DUS' ? $qtyInput * $price : $qtyBotol * $price;
@@ -225,19 +217,42 @@ class BusinessService
                 'id_barang' => $barang?->id ?? null,
                 'qty_input' => $qtyInput,
                 'satuan_input' => $unit,
-                'qty_ml' => $qtyBotol * (int) $botol->varian_ml,
+                'qty_ml' => $qtyBotol * (int) $botol->kapasitas,
                 'konversi_qty_dasar' => $qtyBotol,
                 'satuan_dasar' => 'BOTOL',
                 'harga' => $price,
-                'harga_beli_per_ml' => (float) $botol->varian_ml > 0 ? $price / (float) $botol->varian_ml : 0,
+                'harga_beli_per_ml' => (float) $botol->kapasitas > 0 ? $price / (float) $botol->kapasitas : 0,
                 'subtotal' => $subtotalAfterDiscount,
                 'discount' => $discount,
             ];
         }
 
-        $this->ensureUnit($unit, ['ML', 'LITER'], 'cairan');
-        $barang = BarangBibit::query()->findOrFail($item['item_id'] ?? $item['id_barang'] ?? null);
-        $qtyMl = $this->convertToMl($qtyInput, $unit);
+        $this->ensureUnit($unit, ['ML', 'LITER', 'BOTOL'], 'cairan');
+        $barang = BarangBibit::query()
+            ->with('botol')
+            ->findOrFail($item['item_id'] ?? $item['id_barang'] ?? null);
+
+        // Botol varian: prioritaskan id_botol dari user (pilih varian botol saat pembelian),
+        // fallback ke botol yang terikat di master barang.
+        $botolVarian = null;
+        if ($unit === 'BOTOL') {
+            $idBotol = $item['id_botol'] ?? null;
+            if ($idBotol) {
+                $botolVarian = Botol::query()->find($idBotol);
+            }
+            if (! $botolVarian && ! $barang->botol) {
+                throw ValidationException::withMessages([
+                    'items' => "Botol stok untuk {$barang->nama_barang} belum dipilih.",
+                ]);
+            }
+        }
+        $varianMl = $botolVarian
+            ? (float) $botolVarian->varian_ml
+            : (float) ($barang->botol->varian_ml ?? 0);
+
+        $qtyMl = $unit === 'BOTOL'
+            ? $qtyInput * $varianMl
+            : $this->convertToMl($qtyInput, $unit);
         $price = (float) ($item['harga'] ?? $item['harga_beli_per_ml'] ?? $barang->harga_beli_per_ml);
         $subtotal = $qtyMl * $price;
         $subtotalAfterDiscount = $subtotal - $discount;
@@ -247,6 +262,7 @@ class BusinessService
             'item_id' => $barang->id,
             'nama_item' => $barang->nama_barang,
             'id_barang' => $barang->id,
+            'id_botol' => $botolVarian?->id ?? $barang->botol?->id,
             'qty_input' => $qtyInput,
             'satuan_input' => $unit,
             'qty_ml' => $qtyMl,
@@ -268,21 +284,17 @@ class BusinessService
 
         if ($type === 'BOTOL') {
             $this->ensureUnit($unit, ['BOTOL', 'DUS'], 'botol');
-            $botol = Botol::query()->findOrFail($item['item_id'] ?? $item['id_botol'] ?? null);
+            $botol = BotolKosong::query()->findOrFail($item['item_id'] ?? $item['id_botol'] ?? null);
             $barang = isset($item['id_barang']) ? BarangBibit::query()->find($item['id_barang']) : null;
 
-            $qtyBotol = $unit === 'DUS' ? $this->dusToBotol($qtyInput, (int) $botol->isi_per_dus) : $qtyInput;
+            $qtyBotol = $unit === 'DUS' ? $this->dusToBotol($qtyInput, 1) : $qtyInput;
 
-            // Harga jual: prioritaskan dari master barang, fallback ke master botol
             $barangJualPerBotol = (float) ($barang?->harga_jual_per_botol ?? 0);
-            $defaultPrice = $unit === 'DUS' && (float) $botol->harga_jual_per_dus > 0
-                ? (float) $botol->harga_jual_per_dus
-                : ($barangJualPerBotol > 0 ? $barangJualPerBotol : (float) $botol->harga_jual_per_botol);
+            $defaultPrice = $barangJualPerBotol > 0 ? $barangJualPerBotol : (float) $botol->harga_jual;
             $price = (float) ($item['harga'] ?? $defaultPrice);
 
-            // Harga beli (modal): prioritaskan dari master barang, fallback ke master botol
             $barangBeliPerBotol = (float) ($barang?->harga_beli_per_botol ?? 0);
-            $beliPerBotol = $barangBeliPerBotol > 0 ? $barangBeliPerBotol : (float) $botol->harga_beli_per_botol;
+            $beliPerBotol = $barangBeliPerBotol > 0 ? $barangBeliPerBotol : (float) $botol->harga_beli;
             $modal = $qtyBotol * $beliPerBotol;
 
             $jual = $unit === 'DUS' ? $qtyInput * $price : $qtyBotol * $price;
@@ -295,12 +307,12 @@ class BusinessService
                 'id_barang' => $barang?->id ?? null,
                 'qty_input' => $qtyInput,
                 'satuan_input' => $unit,
-                'qty_ml' => $qtyBotol * (int) $botol->varian_ml,
+                'qty_ml' => $qtyBotol * (int) $botol->kapasitas,
                 'konversi_qty_dasar' => $qtyBotol,
                 'satuan_dasar' => 'BOTOL',
                 'harga' => $price,
-                'harga_beli_per_ml' => (float) $botol->varian_ml > 0 ? $beliPerBotol / (float) $botol->varian_ml : 0,
-                'harga_jual_per_ml' => (float) $botol->varian_ml > 0 ? ($unit === 'DUS' ? $jual / max(1, $qtyBotol) : $price) / (float) $botol->varian_ml : 0,
+                'harga_beli_per_ml' => (float) $botol->kapasitas > 0 ? $beliPerBotol / (float) $botol->kapasitas : 0,
+                'harga_jual_per_ml' => (float) $botol->kapasitas > 0 ? ($unit === 'DUS' ? $jual / max(1, $qtyBotol) : $price) / (float) $botol->kapasitas : 0,
                 'subtotal_modal' => $modal,
                 'subtotal_jual' => $jualAfterDiscount,
                 'laba_kotor' => $jualAfterDiscount - $modal,
@@ -343,24 +355,77 @@ class BusinessService
     private function applyStockMovement(int $gudangId, array $detail, int $direction, string $number, string $source, array $payload): void
     {
         if ($detail['satuan_dasar'] === 'ML') {
-            $this->replaceStock($gudangId, (int) $detail['id_barang'], $direction * (float) $detail['konversi_qty_dasar'], [
-                'sumber_transaksi' => $source,
-                'no_transaksi' => $number,
-                'keterangan' => $source === 'PEMBELIAN' ? 'Pembelian supplier' : 'POS penjualan',
-                'created_by' => $payload['created_by'] ?? auth()->user()?->name,
-            ]);
+            $idBotol = isset($detail['id_botol']) ? (int) $detail['id_botol'] : null;
+
+            // Penjualan (KELUAR) tanpa varian spesifik: cari stok dari baris varian manapun (FIFO)
+            if ($direction === -1 && $idBotol === null) {
+                $stokTersedia = StokGudang::query()
+                    ->where('id_gudang', $gudangId)
+                    ->where('id_barang', (int) $detail['id_barang'])
+                    ->where('stok_ml', '>', 0)
+                    ->orderBy('id')
+                    ->get();
+
+                if ($stokTersedia->isEmpty()) {
+                    throw ValidationException::withMessages(['items' => 'Stok barang tidak mencukupi.']);
+                }
+
+                $sisaDikurangi = abs($direction * (float) $detail['konversi_qty_dasar']);
+                foreach ($stokTersedia as $stock) {
+                    $kurangi = min($sisaDikurangi, (float) $stock->stok_ml);
+                    $this->replaceStock(
+                        $gudangId,
+                        (int) $detail['id_barang'],
+                        -$kurangi,
+                        [
+                            'sumber_transaksi' => $source,
+                            'no_transaksi' => $number,
+                            'keterangan' => $source === 'PEMBELIAN' ? 'Pembelian supplier' : 'POS penjualan',
+                            'created_by' => $payload['created_by'] ?? auth()->user()?->name,
+                        ],
+                        idBotol: (int) $stock->id_botol,
+                    );
+                    $sisaDikurangi -= $kurangi;
+                    if ($sisaDikurangi <= 0) {
+                        break;
+                    }
+                }
+
+                if ($sisaDikurangi > 0) {
+                    throw ValidationException::withMessages(['items' => 'Stok barang tidak mencukupi.']);
+                }
+
+                return;
+            }
+
+            $this->replaceStock(
+                $gudangId,
+                (int) $detail['id_barang'],
+                $direction * (float) $detail['konversi_qty_dasar'],
+                [
+                    'sumber_transaksi' => $source,
+                    'no_transaksi' => $number,
+                    'keterangan' => $source === 'PEMBELIAN' ? 'Pembelian supplier' : 'POS penjualan',
+                    'created_by' => $payload['created_by'] ?? auth()->user()?->name,
+                ],
+                idBotol: $idBotol,
+            );
 
             return;
         }
 
-        $botol = Botol::query()->findOrFail($detail['item_id']);
-        $after = (float) $botol->stock_botol + ($direction * (float) $detail['konversi_qty_dasar']);
+        $botol = BotolKosong::query()->findOrFail($detail['item_id']);
+        if ((int) ($botol->id_gudang ?? 0) !== $gudangId) {
+            throw ValidationException::withMessages(['items' => "Stok {$botol->nama_botol} tidak tersedia di gudang yang dipilih."]);
+        }
+
+        $after = (float) $botol->stock + ($direction * (float) $detail['konversi_qty_dasar']);
 
         if ($after < 0) {
             throw ValidationException::withMessages(['items' => "Stok {$botol->nama_botol} tidak mencukupi."]);
         }
 
-        $botol->update(['stock_botol' => $after]);
+        $botol->update(['stock' => $after]);
     }
 
     private function ensureUnit(string $unit, array $allowed, string $label): void
@@ -492,7 +557,7 @@ class BusinessService
                 ]);
             }
 
-            return $pembelian->load(['supplier', 'gudang', 'details.barang', 'details.botol', 'hutang']);
+            return $pembelian->load(['supplier', 'gudang', 'details.barang', 'details.botol', 'details.botolVariant', 'hutang']);
         });
     }
 
@@ -782,6 +847,10 @@ class BusinessService
 
     private function normalizeSalesType(string $type): string
     {
+        if ($type === 'BOTOL_KOSONG') {
+            return 'BOTOL_KOSONG';
+        }
+
         return in_array($type, ['GROSIR', 'SALES', 'TOKO'], true) ? 'GROSIR' : 'RETAIL';
     }
 

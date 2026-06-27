@@ -1,5 +1,4 @@
-import { Head, Link, useForm, usePage } from "@inertiajs/react";
-import { useState } from "react";
+import { Link, useForm, usePage } from "@inertiajs/react";
 import {
     IconCheck,
     IconArrowLeft,
@@ -10,15 +9,27 @@ import {
 import { PageHeader, Card, Field, Input } from "./_components";
 import ImageUpload from "@/components/input/ImageUpload";
 import { useThemeStore } from "@/store/themeStore";
+import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 
 const primaryColors = [
-    { name: "indigo", color: "#4f46e5" },
-    { name: "blue", color: "#2563eb" },
-    { name: "green", color: "#16a34a" },
-    { name: "amber", color: "#d97706" },
-    { name: "purple", color: "#9333ea" },
-    { name: "rose", color: "#e11d48" },
+    { name: "Indigo", color: "#4F46E5" },
+    { name: "Blue", color: "#2563EB" },
+    { name: "Green", color: "#16A34A" },
+    { name: "Amber", color: "#D97706" },
+    { name: "Purple", color: "#9333EA" },
+    { name: "Rose", color: "#E11D48" },
 ];
+
+const legacyPrimaryColors = Object.fromEntries(
+    primaryColors.map(({ name, color }) => [name.toLowerCase(), color]),
+);
+
+const normalizePrimaryColor = (color) => {
+    const value = String(color || "").trim();
+
+    return legacyPrimaryColors[value.toLowerCase()]
+        || (/^#[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : "#D97706");
+};
 
 const lightThemes = [
     { name: "slate", label: "Slate" },
@@ -41,11 +52,14 @@ export default function SettingSystemPage() {
         logo_path: settings.logo_path || "",
         login_logo_path: settings.login_logo_path || "",
         app_name: settings.app_name || "",
-        primary_color: settings.primary_color || "amber",
+        primary_color: normalizePrimaryColor(settings.primary_color),
         light_theme: settings.light_theme || "slate",
         dark_theme: settings.dark_theme || "navy",
         is_dark_mode: settings.is_dark_mode || false,
     });
+    const isCustomPrimary = !primaryColors.some(
+        ({ color }) => color === data.primary_color,
+    );
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -57,9 +71,13 @@ export default function SettingSystemPage() {
     };
 
     return (
-        <>
-            <Head title="Setting System" />
+        <ProtectedLayout title="Setting System">
             <div className="space-y-6">
+                <PageHeader
+                    title="Setting System"
+                    subtitle="Atur logo, nama aplikasi, dan tema warna"
+                />
+
                 <Link
                     href="/admin/dashboard"
                     className="inline-flex items-center gap-2 rounded-xl border border-stroke bg-card px-4 py-2.5 text-sm font-bold text-muted shadow-sm transition-colors hover:border-primary hover:text-primary"
@@ -67,11 +85,6 @@ export default function SettingSystemPage() {
                     <IconArrowLeft size={18} />
                     Kembali
                 </Link>
-
-                <PageHeader
-                    title="Setting System"
-                    subtitle="Atur logo, nama aplikasi, dan tema warna"
-                />
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     {/* Logo & Nama */}
@@ -114,46 +127,84 @@ export default function SettingSystemPage() {
 
                     {/* Warna Utama */}
                     <Card>
-                        <h3 className="mb-5 text-sm font-black uppercase tracking-widest text-muted">
-                            Warna Utama
-                        </h3>
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
-                            {primaryColors.map((cp) => (
+                        <div className="mb-5 flex flex-wrap items-end justify-between gap-2">
+                            <div>
+                                <h3 className="text-sm font-black uppercase tracking-widest text-muted">
+                                    Warna Utama
+                                </h3>
+                                <p className="mt-1 text-xs font-medium text-muted">
+                                    Pilih warna cepat atau tentukan warna khusus.
+                                </p>
+                            </div>
+                            <code className="rounded-lg border border-stroke bg-page px-3 py-1.5 text-xs font-bold text-main">
+                                {data.primary_color}
+                            </code>
+                        </div>
+                        <div className="flex flex-wrap items-start gap-4">
+                            {primaryColors.map((colorOption) => {
+                                const isActive = data.primary_color === colorOption.color;
+
+                                return (
                                 <button
-                                    key={cp.name}
+                                    key={colorOption.name}
                                     type="button"
-                                    onClick={() =>
-                                        setData("primary_color", cp.name)
-                                    }
-                                    className={`group relative flex flex-col items-center justify-center rounded-2xl border-2 p-3 transition-all duration-300 ${
-                                        data.primary_color === cp.name
-                                            ? "border-primary bg-primary/5 ring-4 ring-primary/10"
-                                            : "border-stroke bg-card hover:border-muted/30"
-                                    }`}
+                                    onClick={() => setData("primary_color", colorOption.color)}
+                                    className="group flex min-w-16 flex-col items-center gap-2 rounded-xl px-2 py-2 text-center outline-none transition-transform duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
+                                    aria-pressed={isActive}
                                 >
                                     <div
-                                        className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl shadow-inner transition-all duration-500 group-hover:scale-110 group-hover:rotate-6"
-                                        style={{ backgroundColor: cp.color }}
+                                        className="flex size-12 items-center justify-center rounded-full border-4 border-card shadow-md transition-transform duration-150 group-hover:scale-105"
+                                        style={{
+                                            backgroundColor: colorOption.color,
+                                            boxShadow: isActive
+                                                ? `0 0 0 3px ${colorOption.color}, 0 4px 10px rgba(15, 23, 42, 0.16)`
+                                                : undefined,
+                                        }}
                                     >
-                                        {data.primary_color === cp.name && (
+                                        {isActive && (
                                             <IconCheck
                                                 size={20}
-                                                className="animate-scale-up text-white drop-shadow-md"
+                                                stroke={3}
+                                                className="text-white drop-shadow-md"
                                             />
                                         )}
                                     </div>
-                                    <span
-                                        className={`text-[10px] font-black uppercase tracking-wider transition-colors ${
-                                            data.primary_color === cp.name
-                                                ? "text-primary"
-                                                : "text-muted"
-                                        }`}
-                                    >
-                                        {cp.name}
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-muted">
+                                        {colorOption.name}
                                     </span>
                                 </button>
-                            ))}
+                                );
+                            })}
+
+                            <label className="group relative flex min-w-28 cursor-pointer flex-col items-center gap-2 rounded-xl px-2 py-2 text-center outline-none transition-transform duration-150 hover:-translate-y-0.5 focus-within:ring-2 focus-within:ring-primary/30 active:scale-95">
+                                <input
+                                    type="color"
+                                    value={data.primary_color}
+                                    onChange={(event) => setData("primary_color", event.target.value.toUpperCase())}
+                                    className="absolute inset-0 cursor-pointer opacity-0"
+                                    aria-label="Pilih warna utama khusus"
+                                />
+                                <span
+                                    className="flex size-12 items-center justify-center rounded-full border-4 border-card text-lg font-black text-white shadow-md transition-transform duration-150 group-hover:scale-105"
+                                    style={{
+                                        backgroundColor: data.primary_color,
+                                        boxShadow: isCustomPrimary
+                                            ? `0 0 0 3px ${data.primary_color}, 0 4px 10px rgba(15, 23, 42, 0.16)`
+                                            : undefined,
+                                    }}
+                                >
+                                    {isCustomPrimary ? (
+                                        <IconCheck size={20} stroke={3} />
+                                    ) : "+"}
+                                </span>
+                                <span className="text-[10px] font-black uppercase tracking-wider text-muted">
+                                    Pilih Warna Lain
+                                </span>
+                            </label>
                         </div>
+                        {errors.primary_color ? (
+                            <p className="mt-3 text-sm font-medium text-red-500">{errors.primary_color}</p>
+                        ) : null}
                     </Card>
 
                     {/* Tema */}
@@ -272,6 +323,6 @@ export default function SettingSystemPage() {
                     </div>
                 </form>
             </div>
-        </>
+        </ProtectedLayout>
     );
 }

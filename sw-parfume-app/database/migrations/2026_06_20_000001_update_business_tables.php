@@ -12,8 +12,10 @@ return new class extends Migration
         // Barang bibit is entered directly and no longer depends on master wangi.
         if (Schema::hasColumn('tm_barang_bibit', 'id_wangi')) {
             Schema::table('tm_barang_bibit', function (Blueprint $table): void {
+                // Drop FK first — MySQL uses the unique index to enforce the constraint.
+                $table->dropForeign(['id_wangi']);
                 $table->dropUnique(['id_wangi', 'id_brand']);
-                $table->dropConstrainedForeignId('id_wangi');
+                $table->dropColumn('id_wangi');
             });
         }
 

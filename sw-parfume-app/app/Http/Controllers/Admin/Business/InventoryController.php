@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin\Business;
 
 use App\Http\Controllers\Controller;
 use App\Models\Business\BarangBibit;
+use App\Models\Business\Botol;
 use App\Models\Business\Gudang;
 use App\Models\Business\MutasiStok;
 use App\Models\Business\StokGudang;
@@ -22,11 +23,12 @@ class InventoryController extends Controller
         return Inertia::render('admin/business/InventoryPage', [
             'mode' => 'stock',
             'rows' => StokGudang::query()
-                ->with(['gudang', 'barang.brand', 'barang.botol'])
+                ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
-            'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(),
+            'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol']),
+            'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
         ]);
     }
@@ -34,13 +36,13 @@ class InventoryController extends Controller
     public function lowStock(): Response
     {
         $rows = StokGudang::query()
-            ->with(['gudang', 'barang.brand', 'barang.botol'])
+            ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
             ->whereColumn('stok_ml', '<=', 'minimum_stok_ml')
             ->latest('id')
             ->paginate($this->perPage())
             ->withQueryString();
 
-        return Inertia::render('admin/business/InventoryPage', ['mode' => 'low', 'rows' => $rows, 'barang' => [], 'gudang' => []]);
+        return Inertia::render('admin/business/InventoryPage', ['mode' => 'low', 'rows' => $rows, 'barang' => [], 'botol' => [], 'gudang' => []]);
     }
 
     public function mutations(): Response
@@ -48,12 +50,19 @@ class InventoryController extends Controller
         return Inertia::render('admin/business/InventoryPage', [
             'mode' => 'mutations',
             'rows' => MutasiStok::query()
-                ->with(['gudang', 'barang.brand', 'barang.botol'])
+                ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
-            'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(),
+            'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol']),
+            'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
+            // Untuk filter barang berdasarkan gudang saat mutasi KELUAR
+            'stokGudangMap' => StokGudang::query()
+                ->where('stok_ml', '>', 0)
+                ->get(['id_barang', 'id_gudang'])
+                ->groupBy('id_gudang')
+                ->map(fn ($items) => $items->pluck('id_barang')->unique()->values()),
         ]);
     }
 
@@ -62,6 +71,7 @@ class InventoryController extends Controller
         $this->business->createStockMutation($this->uppercase($request->validate([
             'id_gudang' => ['required', 'exists:tm_gudang,id'],
             'id_barang' => ['required', 'exists:tm_barang_bibit,id'],
+            'id_botol' => ['nullable', 'exists:tm_botol,id'],
             'tipe_mutasi' => ['required', 'in:MASUK,KELUAR'],
             'jumlah_botol' => ['nullable', 'required_if:tipe_mutasi,MASUK', 'integer', 'min:1'],
             'qty_ml' => ['nullable', 'required_if:tipe_mutasi,KELUAR', 'numeric', 'min:0.01'],

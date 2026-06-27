@@ -9,7 +9,7 @@
 
     /* Sidebar & Card Header */
     --color-sidebar: #0f172a;
-    --color-card-header: #1e293b;
+    --color-card-header: var(--theme-primary);
 
     /* Shadow Soft from Tailux Demo */
     --shadow-soft:

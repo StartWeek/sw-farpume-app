@@ -35,17 +35,26 @@ export function useFlashMessages() {
 
 export function PageHeader({ title, subtitle, actionLabel, onAction }) {
     return (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-                <h1 className="text-2xl font-extrabold tracking-tight text-main">{title}</h1>
-                {subtitle ? (
-                    <p className="mt-1.5 text-[13px] font-medium leading-relaxed text-muted">{subtitle}</p>
-                ) : null}
-            </div>
-            {actionLabel ? (
-                <Button icon={IconPlus} size="sm" onClick={onAction}>
-                    {actionLabel}
-                </Button>
+        <div className="space-y-3">
+            <section
+                className="flex min-h-14 items-center rounded-2xl border border-stroke px-6 py-4 shadow-premium"
+                style={{ backgroundColor: "var(--color-card-header)" }}
+            >
+                <h1 className="text-base font-bold text-white text-balance">{title}</h1>
+            </section>
+            {subtitle || actionLabel ? (
+                <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
+                    {subtitle ? (
+                        <p className="text-[13px] font-medium leading-relaxed text-muted text-pretty">{subtitle}</p>
+                    ) : (
+                        <span />
+                    )}
+                    {actionLabel ? (
+                        <Button icon={IconPlus} size="sm" onClick={onAction}>
+                            {actionLabel}
+                        </Button>
+                    ) : null}
+                </div>
             ) : null}
         </div>
     );
@@ -264,9 +273,9 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
     );
 }
 
-export function SimpleTable({ columns, rows, renderActions }) {
+export function SimpleTable({ columns, rows, renderActions, hidePagination = false }) {
     const tableRows = Array.isArray(rows) ? rows : rows?.data || [];
-    const hasPagination = !Array.isArray(rows) && rows;
+    const hasPagination = !Array.isArray(rows) && rows && !hidePagination;
 
     return (
         <div className="space-y-3">
@@ -340,7 +349,7 @@ function tableRowKey(row, index) {
         ?? `${row?.name || row?.nama_item || row?.kode_barang || "row"}-${index}`;
 }
 
-function PaginationBar({ pagination }) {
+export function PaginationBar({ pagination }) {
     const page = Number(pagination.current_page || 1);
     const lastPage = Number(pagination.last_page || 1);
     const perPage = Number(pagination.per_page || 10);
@@ -361,49 +370,43 @@ function PaginationBar({ pagination }) {
     };
 
     return (
-        <div className="flex flex-col gap-3 rounded-xl border border-stroke bg-card px-5 py-3.5 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-center text-[11px] font-semibold tracking-wide text-muted sm:text-left">
+        <div className="flex items-center justify-between gap-3 text-sm text-muted">
+            <div className="text-xs font-medium tracking-wide text-muted">
                 Menampilkan{" "}
                 <span className="font-bold text-main">{from}</span>
                 {" – "}
                 <span className="font-bold text-main">{to}</span>{" dari "}
                 <span className="font-bold text-main">{total}</span>{" data"}
             </div>
-            <div className="flex flex-wrap items-center gap-2.5">
-                <span className="text-[11px] font-semibold tracking-wide text-muted">
-                    Per halaman
-                </span>
-                <div className="w-28">
-                    <Select
+            <div className="flex items-center gap-1.5">
+                <span className="mr-1 text-[10px] font-semibold tracking-wide text-muted">Per halaman</span>
+                <select
                     value={perPage}
-                    onChange={(event) => visit(1, event.target.value)}
-                    searchable={false}
-                    >
-                        {[10, 25, 50].map((value) => (
-                            <option key={value} value={value}>
-                                {value}
-                            </option>
-                        ))}
-                    </Select>
-                </div>
+                    onChange={(event) => visit(1, Number(event.target.value))}
+                    className="rounded-lg border border-stroke bg-card px-2 py-1 text-xs font-medium text-main outline-none focus:border-primary"
+                >
+                    {[10, 25, 50].map((value) => (
+                        <option key={value} value={value}>{value}</option>
+                    ))}
+                </select>
                 <Button
                     size="sm"
                     variant="outline"
                     disabled={page <= 1}
                     onClick={() => visit(page - 1)}
                 >
-                    Sebelumnya
+                    ‹
                 </Button>
-                <div className="min-w-20 text-center text-xs font-bold tabular-nums text-main">
+                <span className="min-w-14 text-center text-xs font-bold tabular-nums text-main">
                     {page} / {lastPage}
-                </div>
+                </span>
                 <Button
                     size="sm"
                     variant="outline"
                     disabled={page >= lastPage}
                     onClick={() => visit(page + 1)}
                 >
-                    Berikutnya
+                    ›
                 </Button>
             </div>
         </div>

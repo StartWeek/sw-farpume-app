@@ -77,9 +77,15 @@ export const menuAdmin = [
                 accessKey: "master-sales",
             },
             {
-                label: "Botol",
+                label: "Botol Kemasan",
                 icon: IconBottle,
                 href: "/admin/master/botol",
+                accessKey: "master-botol",
+            },
+            {
+                label: "Botol Kosong",
+                icon: IconBottle,
+                href: "/admin/master/botol-kosong",
                 accessKey: "master-botol",
             },
             {
@@ -142,6 +148,12 @@ export const menuAdmin = [
                 icon: IconBuildingStore,
                 href: "/admin/penjualan/sales",
                 accessKey: "penjualan-grosir",
+            },
+            {
+                label: "Penjualan Botol Kosong",
+                icon: IconBottle,
+                href: "/admin/penjualan-botol-kosong",
+                accessKey: "penjualan-retail",
             },
             {
                 label: "Hutang Supplier",

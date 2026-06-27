@@ -10,11 +10,18 @@ import { useConfirmStore } from "@/store/confirmStore";
 
 export default function ProtectedLayout({ children, title = "Halaman Admin" }) {
     const { open, title: confirmTitle, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel } = useConfirmStore();
-    const { flash = {}, errors = {} } = usePage().props;
+    const { flash = {}, errors = {}, csrf_token } = usePage().props;
 
     useEffect(() => {
         document.title = title;
     }, [title]);
+
+    // Keep CSRF token in sync with the session after session regeneration (login, etc.)
+    useEffect(() => {
+        if (csrf_token) {
+            document.querySelector('meta[name="csrf-token"]')?.setAttribute('content', csrf_token);
+        }
+    }, [csrf_token]);
 
     useEffect(() => {
         if (flash.success) {

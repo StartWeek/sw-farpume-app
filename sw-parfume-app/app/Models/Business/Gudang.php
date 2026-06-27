@@ -9,7 +9,7 @@ class Gudang extends Model
 {
     protected $table = 'tm_gudang';
 
-    protected $fillable = ['kode_gudang', 'nama_gudang', 'alamat', 'status'];
+    protected $fillable = ['kode_gudang', 'nama_gudang', 'tipe_gudang', 'alamat', 'status'];
 
     public function stok(): HasMany
     {

@@ -71,6 +71,12 @@
         .text-right {
             text-align: right;
         }
+        .text-center {
+            text-align: center;
+        }
+        .font-mono {
+            font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
+        }
     </style>
 </head>
 <body>
@@ -113,19 +119,22 @@
             @forelse($rows as $row)
                 <tr>
                     @foreach($columns as $col)
-                        <td>
-                            @php
-                                $val = null;
-                                if (isset($col['format']) && is_callable($col['format'])) {
-                                    $val = $col['format']($row);
-                                } elseif (isset($col['key'])) {
-                                    $val = data_get($row, $col['key']);
-                                }
-                                if (isset($col['key']) && preg_match('/tanggal|_at$/i', $col['key']) && $val) {
-                                    $val = \Carbon\Carbon::parse($val)->format('d-m-y');
-                                }
-                            @endphp
-                            {{ is_string($val) ? mb_strtoupper($val) : ($val ?? '-') }}
+                        @php
+                            $val = null;
+                            if (isset($col['format']) && is_callable($col['format'])) {
+                                $val = $col['format']($row);
+                            } elseif (isset($col['key'])) {
+                                $val = data_get($row, $col['key']);
+                            }
+                            if (isset($col['key']) && preg_match('/tanggal|_at$/i', $col['key']) && $val) {
+                                $val = \Carbon\Carbon::parse($val)->format('d-m-y');
+                            }
+                            $display = is_string($val) ? mb_strtoupper($val) : ($val ?? '-');
+                            $isNumeric = is_numeric($val) || (is_string($val) && preg_match('/^Rp\s/', $val));
+                            $isCenter = isset($col['key']) && preg_match('/status|tipe/i', $col['key']);
+                        @endphp
+                        <td class="{{ $isNumeric ? 'text-right' : '' }}{{ $isCenter ? 'text-center' : '' }}">
+                            {{ $display }}
                         </td>
                     @endforeach
                 </tr>
@@ -151,9 +160,10 @@
                         $lbl = $summaryLabels[$valIdx] ?? '';
                         $display = '';
                         if ($val !== null) {
+                            $formatted = preg_replace('/,00$/', '', number_format((float) $val, 2, ',', '.'));
                             $display = preg_match('/ML|BOTOL|TRANSAKSI/i', $lbl)
-                                ? number_format((float) $val, 2, ',', '.')
-                                : 'Rp ' . number_format((float) $val, 0, ',', '.');
+                                ? $formatted
+                                : 'Rp ' . $formatted;
                             $valIdx++;
                         }
                     @endphp
@@ -164,10 +174,48 @@
         @endif
     </table>
 
+    @if(!empty($botolStockColumns))
+        <h3 style="margin-top: 25px; padding-top: 15px; border-top: 2px solid #222;">STOK BOTOL KOSONG</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    @foreach($botolStockColumns as $col)
+                        <th>{{ $col['label'] }}</th>
+                    @endforeach
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($botolStock as $row)
+                    <tr>
+                        @foreach($botolStockColumns as $col)
+                            @php
+                                $val = null;
+                                if (isset($col['format']) && is_callable($col['format'])) {
+                                    $val = $col['format']($row);
+                                } elseif (isset($col['key'])) {
+                                    $val = data_get($row, $col['key']);
+                                }
+                                $display = is_string($val) ? mb_strtoupper($val) : ($val ?? '-');
+                                $isNumeric = is_numeric($val) || (is_string($val) && preg_match('/^Rp\s/', $val));
+                            @endphp
+                            <td class="{{ $isNumeric ? 'text-right' : '' }}">
+                                {{ $display }}
+                            </td>
+                        @endforeach
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="{{ count($botolStockColumns) }}" style="text-align: center; padding: 20px;">Data botol kosong tidak tersedia.</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+    @endif
+
     @if(!empty($groups))
         <h3 style="margin-top: 20px;">REKAP PER PIHAK</h3>
         <table class="data-table"><thead><tr><th>Customer/Supplier</th><th>Total</th><th>Sisa</th></tr></thead><tbody>
-        @foreach($groups as $group)<tr><td>{{ strtoupper($group['pihak']) }}</td><td>Rp {{ number_format($group['total'], 0, ',', '.') }}</td><td>Rp {{ number_format($group['sisa'], 0, ',', '.') }}</td></tr>@endforeach
+        @foreach($groups as $group)<tr><td>{{ strtoupper($group['pihak']) }}</td><td class="text-right">Rp {{ preg_replace('/,00$/', '', number_format($group['total'], 2, ',', '.')) }}</td><td class="text-right">Rp {{ preg_replace('/,00$/', '', number_format($group['sisa'], 2, ',', '.')) }}</td></tr>@endforeach
         </tbody></table>
     @endif
 

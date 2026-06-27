@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin\Business;
 use App\Http\Controllers\Controller;
 use App\Models\Business\BarangBibit;
 use App\Models\Business\Brand;
-use App\Models\Business\Botol;
 use App\Services\Business\BusinessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,12 +19,11 @@ class BarangBibitController extends Controller
     {
         return Inertia::render('admin/business/BarangBibitPage', [
             'rows' => BarangBibit::query()
-                ->with(['brand', 'botol'])
+                ->with(['brand'])
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
             'brand' => Brand::query()->where('status', 'AKTIF')->orderBy('nama_brand')->get(),
-            'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
         ]);
     }
 
@@ -63,13 +61,11 @@ class BarangBibitController extends Controller
         return [
             'nama_barang' => ['required', 'string', 'max:255'],
             'id_brand' => ['required', 'exists:tm_brand,id'],
-            'id_botol' => ['required', 'exists:tm_botol,id'],
+            'id_botol' => ['nullable', 'exists:tm_botol,id'],
             'jenis_barang' => ['required', 'in:BIBIT,ABSOLUTE'],
             'harga_beli_per_ml' => ['required', 'numeric', 'min:0.01'],
             'harga_jual_retail_per_ml' => ['required', 'numeric', 'min:0.01'],
             'harga_jual_grosir_per_ml' => ['required', 'numeric', 'min:0.01'],
-            'harga_beli_per_botol' => ['required', 'numeric', 'min:0'],
-            'harga_jual_per_botol' => ['required', 'numeric', 'min:0'],
             'minimum_stok_ml' => ['required', 'numeric', 'min:0'],
             'status' => ['required', 'in:AKTIF,NONAKTIF'],
         ];
@@ -91,10 +87,6 @@ class BarangBibitController extends Controller
             'harga_jual_grosir_per_ml.required' => 'Harga jual sales per ML belum diisi.',
             'harga_jual_grosir_per_ml.numeric' => 'Harga jual sales per ML harus berupa angka.',
             'harga_jual_grosir_per_ml.min' => 'Harga jual sales per ML minimal :min.',
-            'harga_beli_per_botol.required' => 'Harga beli per botol belum diisi.',
-            'harga_beli_per_botol.numeric' => 'Harga beli per botol harus berupa angka.',
-            'harga_jual_per_botol.required' => 'Harga jual per botol belum diisi.',
-            'harga_jual_per_botol.numeric' => 'Harga jual per botol harus berupa angka.',
             'minimum_stok_ml.required' => 'Minimum stok belum diisi.',
             'minimum_stok_ml.numeric' => 'Minimum stok harus berupa angka.',
             'status.required' => 'Status belum dipilih.',
