@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useForm, usePage } from "@inertiajs/react";
 import {
-    IconSearch,
     IconLogout,
     IconUser,
     IconMenu2,
@@ -16,7 +15,7 @@ export default function Navigation() {
     const { auth, systemDate } = usePage().props;
     const [showUserDropdown, setShowUserDropdown] = useState(false);
     const userDropdownRef = useRef(null);
-    const { toggleSidebar, searchQuery, setSearchQuery } = useSidebarStore();
+    const { toggleSidebar } = useSidebarStore();
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -51,29 +50,14 @@ export default function Navigation() {
 
     return (
         <header className="w-full flex h-18 items-center justify-between border-b border-stroke bg-card px-5 shadow-premium transition-colors duration-300">
-            {/* Left Side: Toggle & Search */}
-            <div className="flex items-center gap-3 flex-1 max-w-md">
+            {/* Left Side: Toggle */}
+            <div className="flex items-center gap-3">
                 <button
                     onClick={toggleSidebar}
                     className="p-2 rounded-xl cursor-pointer text-main hover:bg-page focus:outline-none transition-colors"
                 >
                     <IconMenu2 size={20} />
                 </button>
-
-                {/* Search Bar */}
-                <div className="relative flex-1">
-                    <input
-                        type="text"
-                        placeholder="Search here..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full rounded-xl border border-stroke bg-page py-2 pl-10 pr-4 text-sm text-main transition-all duration-300 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    />
-                    <IconSearch
-                        size={16}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-muted opacity-50"
-                    />
-                </div>
             </div>
 
             {/* Right Side Icons */}

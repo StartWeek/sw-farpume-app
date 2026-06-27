@@ -11,6 +11,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->validateCsrfTokens(except: [
+            'login',
+            'admin/logout',
+        ]);
+
         $middleware->alias([
             'request.signature' => \App\Http\Middleware\VerifyRequestSignature::class,
             'sql.injection.guard' => \App\Http\Middleware\PreventSqlInjection::class,

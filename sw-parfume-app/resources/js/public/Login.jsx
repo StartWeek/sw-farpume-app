@@ -1,6 +1,9 @@
-import { Head, useForm } from "@inertiajs/react";
+import { Head, useForm, usePage } from "@inertiajs/react";
+import { useState } from "react";
 import {
     IconArrowRight,
+    IconEye,
+    IconEyeOff,
     IconLock,
     IconUser,
 } from "@tabler/icons-react";
@@ -8,6 +11,13 @@ import Button from "@/components/common/Button";
 import PerfumeBottleImg from "@/assets/images/perfume-bottle.svg";
 
 export default function Login() {
+    const [showPassword, setShowPassword] = useState(false);
+    const { appSettings } = usePage().props;
+    const loginLogoSrc =
+        appSettings?.login_logo_path ||
+        appSettings?.logo_path ||
+        PerfumeBottleImg;
+
     const { data, setData, post, processing, errors } = useForm("Login", {
         login: "",
         password: "",
@@ -42,28 +52,12 @@ export default function Login() {
                                 <div className="w-full max-w-sm">
                                     <div className="mx-auto mb-10 flex h-64 w-64 items-center justify-center">
                                         <img
-                                            src={PerfumeBottleImg}
+                                            src={loginLogoSrc}
                                             alt=""
                                             className="h-full w-full object-contain drop-shadow-[0_28px_42px_rgba(0,0,0,0.28)]"
                                         />
                                     </div>
 
-                                    <div className="grid grid-cols-3 gap-3">
-                                        {[72, 48, 86].map((width, index) => (
-                                            <div
-                                                key={index}
-                                                className="rounded-lg border border-white/10 bg-white/10 p-4"
-                                            >
-                                                <div className="mb-4 h-8 rounded-lg bg-white/15" />
-                                                <div className="h-1.5 rounded-full bg-white/15">
-                                                    <div
-                                                        className="h-1.5 rounded-full bg-[#8ee0bd]"
-                                                        style={{ width: `${width}%` }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
                                 </div>
                             </div>
                         </section>
@@ -76,7 +70,7 @@ export default function Login() {
                                     </h1>
                                     <div className="flex size-12 items-center justify-center rounded-lg border border-emerald-900/10 bg-[#f8faf9] shadow-[0_14px_34px_-22px_rgba(16,45,43,0.55)]">
                                         <img
-                                            src={PerfumeBottleImg}
+                                            src={loginLogoSrc}
                                             alt="Parfum"
                                             className="h-10 w-10 object-contain"
                                         />
@@ -96,12 +90,14 @@ export default function Login() {
 
                                     <LoginField
                                         label="Password"
-                                        type="password"
+                                        type={showPassword ? "text" : "password"}
                                         value={data.password}
                                         onChange={(e) => setData("password", e.target.value)}
                                         error={errors.password}
                                         icon={IconLock}
                                         autoComplete="current-password"
+                                        rightIcon={showPassword ? IconEyeOff : IconEye}
+                                        onRightIconClick={() => setShowPassword((v) => !v)}
                                     />
 
                                     <label className="flex w-fit cursor-pointer items-center">
@@ -139,7 +135,7 @@ export default function Login() {
     );
 }
 
-function LoginField({ label, icon: Icon, error, ...props }) {
+function LoginField({ label, icon: Icon, rightIcon: RightIcon, onRightIconClick, error, ...props }) {
     return (
         <div>
             <label className="mb-2 block text-sm font-bold text-slate-700">
@@ -155,12 +151,23 @@ function LoginField({ label, icon: Icon, error, ...props }) {
                     {...props}
                     required
                     placeholder={label}
-                    className={`h-12 w-full rounded-lg border bg-[#f8faf9] pl-11 pr-4 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-4 ${
+                    className={`h-12 w-full rounded-lg border bg-[#f8faf9] pl-11 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-4 ${
+                        RightIcon ? "pr-11" : "pr-4"
+                    } ${
                         error
                             ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
                             : "border-slate-200 focus:border-emerald-800 focus:ring-emerald-900/10"
                     }`}
                 />
+                {RightIcon && (
+                    <button
+                        type="button"
+                        onClick={onRightIconClick}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                        <RightIcon size={18} stroke={2} />
+                    </button>
+                )}
             </div>
             {error ? (
                 <p className="mt-2 text-sm font-medium text-rose-600">{error}</p>

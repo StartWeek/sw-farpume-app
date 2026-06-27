@@ -3,20 +3,15 @@
 namespace Database\Seeders;
 
 use App\Models\User;
-use App\Services\EncryptService;
 use Illuminate\Database\Seeder;
 
 class SuperUserSeeder extends Seeder
 {
     public function run(): void
     {
-        $encrypt = new EncryptService();
-
         User::query()->updateOrCreate(['username' => 'sw'], [
             'name' => 'Super User',
             'password' => bcrypt('startw33k'),
-            'email' => $encrypt->doEncrypt('sw@erp-parfum.local'),
-            'no_hp' => null,
             'role' => 'superadmin',
             'akses_menu' => [
                 'dashboard',

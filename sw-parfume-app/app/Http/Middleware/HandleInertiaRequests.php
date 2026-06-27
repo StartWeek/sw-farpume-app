@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Inertia\Middleware;
 use Tighten\Ziggy\Ziggy;
 use App\Services\Business\BusinessService;
+use App\Services\SettingsService;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -45,6 +46,7 @@ class HandleInertiaRequests extends Middleware
             'systemDate' => fn () => $request->user()
                 ? app(BusinessService::class)->operationalDate()->toDateString()
                 : null,
+            'appSettings' => fn () => app(SettingsService::class)->get(),
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

@@ -4,6 +4,15 @@ import { Select } from "@/admin/business/_components";
 import { router } from "@inertiajs/react";
 import React, { useMemo, useState } from "react";
 
+const ROLE_LABELS = {
+    superadmin: "SUPER USER",
+    owner: "OWNER",
+    admin: "ADMIN",
+    manager: "MANAGER",
+    kepala_toko: "KEPALA TOKO",
+    kasir: "KASIR",
+};
+
 export default function UserAccess({ users = [], accessOptions = [] }) {
     const [selectedUserId, setSelectedUserId] = useState(users[0]?.id || "");
     const selectedUser = users.find(
@@ -81,7 +90,7 @@ export default function UserAccess({ users = [], accessOptions = [] }) {
                                     <div className="font-semibold text-main">
                                         {selectedUser.name}
                                     </div>
-                                    <div>Role: {selectedUser.role}</div>
+                                    <div>Role: {ROLE_LABELS[selectedUser.role] || selectedUser.role}</div>
                                     <div>{access.length} menu aktif</div>
                                 </div>
                             ) : null}

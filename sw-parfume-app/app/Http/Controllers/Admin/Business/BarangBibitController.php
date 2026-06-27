@@ -31,23 +31,31 @@ class BarangBibitController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        $this->business->createBarang($this->uppercase($request->validate($this->rules())));
+        $this->business->createBarang($this->uppercase($request->validate($this->rules(), $this->messages())));
 
         return back()->with('success', 'Barang bibit berhasil ditambahkan.');
     }
 
     public function update(Request $request, BarangBibit $barang): RedirectResponse
     {
-        $this->business->updateBarang($barang, $this->uppercase($request->validate($this->rules())));
+        $this->business->updateBarang($barang, $this->uppercase($request->validate($this->rules(), $this->messages())));
 
         return back()->with('success', 'Barang bibit berhasil diperbarui.');
     }
 
     public function destroy(BarangBibit $barang): RedirectResponse
     {
-        $barang->delete();
+        try {
+            $barang->delete();
 
-        return back()->with('success', 'Barang bibit berhasil dihapus.');
+            return back()->with('success', 'Barang bibit berhasil dihapus.');
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '23000') {
+                return back()->with('error', 'Barang bibit tidak dapat dihapus karena masih digunakan oleh stok atau transaksi.');
+            }
+
+            throw $e;
+        }
     }
 
     private function rules(): array
@@ -60,10 +68,39 @@ class BarangBibitController extends Controller
             'harga_beli_per_ml' => ['required', 'numeric', 'min:0.01'],
             'harga_jual_retail_per_ml' => ['required', 'numeric', 'min:0.01'],
             'harga_jual_grosir_per_ml' => ['required', 'numeric', 'min:0.01'],
-            'harga_beli_per_botol' => ['nullable', 'numeric', 'min:0'],
-            'harga_jual_per_botol' => ['nullable', 'numeric', 'min:0'],
-            'minimum_stok_ml' => ['nullable', 'numeric', 'min:0'],
+            'harga_beli_per_botol' => ['required', 'numeric', 'min:0'],
+            'harga_jual_per_botol' => ['required', 'numeric', 'min:0'],
+            'minimum_stok_ml' => ['required', 'numeric', 'min:0'],
             'status' => ['required', 'in:AKTIF,NONAKTIF'],
+        ];
+    }
+
+    private function messages(): array
+    {
+        return [
+            'required' => 'Kolom ini wajib diisi.',
+            'nama_barang.required' => 'Nama barang belum diisi.',
+            'id_brand.required' => 'Brand belum dipilih.',
+            'id_botol.required' => 'Botol stok belum dipilih.',
+            'harga_beli_per_ml.required' => 'Harga beli per ML belum diisi.',
+            'harga_beli_per_ml.numeric' => 'Harga beli per ML harus berupa angka.',
+            'harga_beli_per_ml.min' => 'Harga beli per ML minimal :min.',
+            'harga_jual_retail_per_ml.required' => 'Harga jual retail per ML belum diisi.',
+            'harga_jual_retail_per_ml.numeric' => 'Harga jual retail per ML harus berupa angka.',
+            'harga_jual_retail_per_ml.min' => 'Harga jual retail per ML minimal :min.',
+            'harga_jual_grosir_per_ml.required' => 'Harga jual sales per ML belum diisi.',
+            'harga_jual_grosir_per_ml.numeric' => 'Harga jual sales per ML harus berupa angka.',
+            'harga_jual_grosir_per_ml.min' => 'Harga jual sales per ML minimal :min.',
+            'harga_beli_per_botol.required' => 'Harga beli per botol belum diisi.',
+            'harga_beli_per_botol.numeric' => 'Harga beli per botol harus berupa angka.',
+            'harga_jual_per_botol.required' => 'Harga jual per botol belum diisi.',
+            'harga_jual_per_botol.numeric' => 'Harga jual per botol harus berupa angka.',
+            'minimum_stok_ml.required' => 'Minimum stok belum diisi.',
+            'minimum_stok_ml.numeric' => 'Minimum stok harus berupa angka.',
+            'status.required' => 'Status belum dipilih.',
+            'jenis_barang.required' => 'Jenis barang belum dipilih.',
+            'numeric' => 'Harus berupa angka.',
+            'min' => 'Nilai minimal :min.',
         ];
     }
 

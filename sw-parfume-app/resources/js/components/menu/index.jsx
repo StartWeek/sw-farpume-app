@@ -19,6 +19,7 @@ import {
     IconReceipt2,
     IconReportAnalytics,
     IconShieldLock,
+    IconSettings,
     IconShoppingBag,
     IconTag,
     IconTruckDelivery,
@@ -258,6 +259,18 @@ export const menuAdmin = [
         label: "Utility",
         icon: IconTool,
         children: [
+            {
+                label: "Setting System",
+                icon: IconSettings,
+                href: "/admin/setting-system",
+                accessKey: "setting-system",
+            },
+            {
+                label: "Setting Nota",
+                icon: IconReceipt2,
+                href: "/admin/setting-nota",
+                accessKey: "setting-nota",
+            },
             {
                 label: "Tutup Toko",
                 icon: IconBuildingStore,

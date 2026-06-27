@@ -21,10 +21,8 @@ class User extends Authenticatable
     protected $fillable = [
         'username',
         'name',
-        'email',
         'password',
         'role',
-        'no_hp',
         'akses_menu',
     ];
 
@@ -43,15 +41,9 @@ class User extends Authenticatable
      *
      * @var array<string, string>
      */
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-        'role' => 'string',
-        'akses_menu' => 'array',
-    ];
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'akses_menu' => 'array',
         ];

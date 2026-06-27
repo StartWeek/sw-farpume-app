@@ -13,9 +13,18 @@ class UploadController extends Controller
 {
     public function image(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'image' => 'required|file|mimes:jpg,jpeg,png,gif,webp|max:2048', // 2MB
-        ]);
+        $validator = Validator::make(
+            $request->all(),
+            [
+                'image' => 'required|file|mimes:jpg,jpeg,png,gif,webp,svg|max:2048', // 2MB
+            ],
+            [
+                'image.required' => 'Silakan pilih gambar yang akan diunggah.',
+                'image.file' => 'File yang dipilih tidak valid.',
+                'image.mimes' => 'Format gambar harus JPG, JPEG, PNG, GIF, WEBP, atau SVG.',
+                'image.max' => 'Ukuran gambar maksimal 2MB.',
+            ],
+        );
 
         if ($validator->fails()) {
             return response()->json([

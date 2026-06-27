@@ -5,8 +5,11 @@ import { useIsMobile } from "@/utils/isMobile";
 import { Toaster } from "react-hot-toast";
 import toast from "react-hot-toast";
 import { Head, usePage } from "@inertiajs/react";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import { useConfirmStore } from "@/store/confirmStore";
 
 export default function ProtectedLayout({ children, title = "Halaman Admin" }) {
+    const { open, title: confirmTitle, message, confirmLabel, cancelLabel, variant, onConfirm, onCancel } = useConfirmStore();
     const { flash = {}, errors = {} } = usePage().props;
 
     useEffect(() => {
@@ -44,6 +47,16 @@ export default function ProtectedLayout({ children, title = "Halaman Admin" }) {
                 </div>
             </div>
             <Toaster position="top-right" reverseOrder={false} />
+            <ConfirmDialog
+                open={open}
+                title={confirmTitle}
+                message={message}
+                confirmLabel={confirmLabel}
+                cancelLabel={cancelLabel}
+                variant={variant}
+                onConfirm={onConfirm}
+                onCancel={onCancel}
+            />
         </>
     );
 }

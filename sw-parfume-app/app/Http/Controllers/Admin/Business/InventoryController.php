@@ -67,6 +67,20 @@ class InventoryController extends Controller
             'qty_ml' => ['nullable', 'required_if:tipe_mutasi,KELUAR', 'numeric', 'min:0.01'],
             'no_transaksi' => ['nullable', 'string', 'max:255'],
             'keterangan' => ['nullable', 'string'],
+        ], [
+            'required' => 'Kolom ini wajib diisi.',
+            'id_gudang.required' => 'Gudang belum dipilih.',
+            'id_barang.required' => 'Barang belum dipilih.',
+            'tipe_mutasi.required' => 'Tipe mutasi belum dipilih.',
+            'jumlah_botol.required_if' => 'Jumlah botol wajib diisi untuk mutasi masuk.',
+            'jumlah_botol.integer' => 'Jumlah botol harus angka bulat.',
+            'jumlah_botol.min' => 'Jumlah botol minimal 1.',
+            'qty_ml.required_if' => 'Qty ML wajib diisi untuk mutasi keluar.',
+            'qty_ml.numeric' => 'Qty ML harus berupa angka.',
+            'qty_ml.min' => 'Qty ML minimal :min.',
+            'integer' => 'Harus berupa angka bulat.',
+            'numeric' => 'Harus berupa angka.',
+            'min' => 'Nilai minimal :min.',
         ])));
 
         return back()->with('success', 'Mutasi stok berhasil disimpan.');

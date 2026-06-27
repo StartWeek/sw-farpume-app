@@ -8,6 +8,7 @@ import {
     IconX,
     IconUser,
     IconChevronDown,
+    IconSearch,
     IconSettings,
     IconClipboardList,
     IconList,
@@ -31,7 +32,7 @@ import { menuAdmin } from "../menu";
 
 export default function Sidebar() {
     const { auth } = usePage().props;
-    const { isOpen, setSidebarOpen, searchQuery } = useSidebarStore();
+    const { isOpen, setSidebarOpen, searchQuery, setSearchQuery } = useSidebarStore();
     const isMobile = useIsMobile();
 
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -132,7 +133,7 @@ export default function Sidebar() {
                     className="fixed inset-0 bg-black/50 z-40"
                     onClick={() => setSidebarOpen(false)}
                 />
-                <aside className="fixed inset-y-0 left-0 z-50 w-64 flex flex-col font-sidebar border-r border-emerald-950/70 bg-[linear-gradient(165deg,#071f1d_0%,#102d2b_42%,#1f2a24_100%)] text-stone-100 shadow-premium transition-transform duration-300 transform translate-x-0">
+                <aside className="fixed inset-y-0 left-0 z-50 w-64 flex flex-col font-sidebar border-r border-white/10 bg-[var(--color-sidebar,#0f172a)] text-stone-100 shadow-premium transition-transform duration-300 transform translate-x-0">
                     <SidebarContent
                         auth={auth}
                         menuData={menuData}
@@ -141,6 +142,7 @@ export default function Sidebar() {
                         onClose={() => setSidebarOpen(false)}
                         isMobile={true}
                         searchQuery={searchQuery}
+                        setSearchQuery={setSearchQuery}
                     />
                 </aside>
             </>
@@ -159,7 +161,7 @@ export default function Sidebar() {
 
     // Desktop Open
     return (
-        <aside className="w-64 h-screen flex flex-col font-sidebar border-r border-emerald-950/70 bg-[linear-gradient(165deg,#071f1d_0%,#102d2b_42%,#1f2a24_100%)] text-stone-100 transition-all duration-300">
+        <aside className="w-64 h-screen flex flex-col font-sidebar border-r border-white/10 bg-[var(--color-sidebar,#0f172a)] text-stone-100 transition-all duration-300">
             <SidebarContent
                 auth={auth}
                 menuData={menuData}
@@ -167,6 +169,7 @@ export default function Sidebar() {
                 onMenuClick={handleMenuClick}
                 isMobile={false}
                 searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
             />
         </aside>
     );
@@ -303,8 +306,12 @@ const SidebarContent = ({
     onClose,
     isMobile,
     searchQuery,
+    setSearchQuery,
 }) => {
     const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+        const { appSettings } = usePage().props;
+        const logoSrc = appSettings?.logo_path || LogoImg;
+        const appName = appSettings?.app_name || "Paris Parfum Admin";
 
     return (
         <>
@@ -313,14 +320,14 @@ const SidebarContent = ({
                 <div className="flex items-center gap-2.5">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg overflow-hidden border border-amber-300/35 bg-white/10 shrink-0">
                         <img
-                            src={LogoImg}
+                            src={logoSrc}
                             alt="Logo"
                             className="w-full h-full object-cover p-1"
                         />
                     </div>
                     <div>
                         <div className="text-sm font-bold text-white leading-tight tracking-tight">
-                            Paris Parfum Admin
+                            {appName}
                         </div>
                         <div className="text-[10px] text-amber-100/80 leading-tight">
                             Admin Panel
@@ -335,6 +342,20 @@ const SidebarContent = ({
                         <IconX size={18} />
                     </button>
                 )}
+            </div>
+
+            {/* Cari Menu */}
+            <div className="px-3 pt-3 pb-1">
+                <div className="relative">
+                    <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                    <input
+                        type="text"
+                        placeholder="Cari Menu..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full rounded-lg border-0 bg-white/10 py-2 pl-9 pr-3 text-xs font-medium text-white placeholder-white/40 outline-none transition focus:bg-white/15"
+                    />
+                </div>
             </div>
 
             {/* Navigation Menu */}
@@ -360,7 +381,7 @@ const SidebarContent = ({
             {/* Footer */}
             <div className="px-4 py-3 border-t border-white/10 bg-black/10">
                 <div className="text-[10px] font-bold text-emerald-50/40 text-center tracking-widest uppercase">
-                    Paris Parfum Admin v1.0
+                    {appName} v1.0
                 </div>
             </div>
         </>

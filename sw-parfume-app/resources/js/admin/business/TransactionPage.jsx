@@ -5,6 +5,10 @@ import Button from "@/components/common/Button";
 import { IconDotsVertical, IconPencil, IconPlus, IconPrinter, IconTrash, IconX } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, formatInputNumber, money, number, todayDate, useFlashMessages } from "./_components";
+import {
+    renderReceiptTemplate,
+    withReceiptSettings,
+} from "./receiptSettings";
 
 const liquidUnits = ["ML", "LITER"];
 const bottleUnits = ["BOTOL", "DUS"];
@@ -13,7 +17,7 @@ const retailPayments = ["CASH", "TRANSFER"];
 
 export default function TransactionPage({ type, mode = "form", rows = [], refs = {}, operationalDate = todayDate() }) {
     useFlashMessages();
-    const { flash = {}, errors = {} } = usePage().props;
+    const { flash = {}, errors = {}, appSettings = {} } = usePage().props;
     const isHistory = mode === "history";
     const isBuy = type === "pembelian";
     const isWholesale = type === "sales" || type === "grosir";
@@ -38,6 +42,9 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     };
     const [form, setForm] = useState(initial);
     const [receipt, setReceipt] = useState(flash.receipt || null);
+    const printableReceipt = receipt
+        ? withReceiptSettings(receipt, appSettings)
+        : null;
     const [tempoPayment, setTempoPayment] = useState(null);
     const [tempoAmount, setTempoAmount] = useState("");
     const [bluetoothLoading, setBluetoothLoading] = useState(false);
@@ -383,15 +390,15 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                     )}
                 /></>}
 
-                {receipt ? (
+                {printableReceipt ? (
                     <ReceiptModal
-                        receipt={receipt}
+                        receipt={printableReceipt}
                         bluetoothLoading={bluetoothLoading}
                         onClose={() => setReceipt(null)}
                         onBluetooth={async () => {
                             setBluetoothLoading(true);
                             try {
-                                await printBluetoothReceipt(receipt);
+                                await printBluetoothReceipt(printableReceipt);
                             } finally {
                                 setBluetoothLoading(false);
                             }
@@ -711,33 +718,72 @@ function receiptText(receipt) {
     }
 
     const line = "-".repeat(32);
+    const itemLines = receipt.items.flatMap((item) => [
+        truncate(item.name, 32),
+        `${number(item.qty)} ${item.unit} x ${money(item.price).replace("Rp", "").trim()}`,
+        item.capacity_ml ? `${number(item.capacity_ml)} ML @ ${money(item.price_per_ml)}/ML` : null,
+        right(money(item.subtotal), 32),
+    ].filter(Boolean));
+    const templateValues = {
+        store_name: receipt.store_name || "PARIS PARFUM",
+        store_name_center: center(receipt.store_name || "PARIS PARFUM"),
+        store_address: receipt.store_address || "",
+        store_address_center: receipt.store_address ? center(receipt.store_address) : "",
+        store_phone: receipt.store_phone || "",
+        store_phone_center: receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : "",
+        title: receipt.title,
+        title_center: center(receipt.title),
+        number: receipt.number,
+        date: receipt.date || "-",
+        party_label: receipt.party_label,
+        party_name: receipt.party_name,
+        warehouse: receipt.warehouse || "-",
+        items: itemLines.join("\n"),
+        total_qty: number(receipt.total_qty),
+        total_bottle_line: receipt.total_bottle > 0 ? `Total Botol: ${number(receipt.total_bottle)} BOTOL` : "",
+        subtotal_line: receipt.discount > 0 ? `Subtotal  : ${money(receipt.total + receipt.discount)}` : "",
+        discount_line: receipt.discount > 0 ? `Discount  : ${money(receipt.discount)}` : "",
+        grand_total: money(receipt.total),
+        payment_method: receipt.payment_method || "-",
+        payment_line: receipt.type !== "penjualan" ? `Bayar     : ${receipt.payment_method}` : "",
+        payment_status: receipt.payment_status || "-",
+        due_date: receipt.jatuh_tempo || "",
+        due_date_line: receipt.jatuh_tempo ? `Jatuh Tempo: ${receipt.jatuh_tempo}` : "",
+        footer: receipt.receipt_footer || "Terima kasih",
+        footer_center: center(receipt.receipt_footer || "Terima kasih"),
+    };
+
+    if (receipt.receipt_template) {
+        return renderReceiptTemplate(receipt.receipt_template, templateValues);
+    }
+
+    const dline = "=".repeat(32);
     const rows = [
-        center("PARIS PARFUM"),
+        dline,
+        center(receipt.store_name || "PARIS PARFUM"),
+        receipt.store_address ? center(receipt.store_address) : null,
+        receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : null,
+        dline,
         center(receipt.title),
         line,
-        `No   : ${receipt.number}`,
-        `Tgl  : ${receipt.date || "-"}`,
-        `${receipt.party_label.padEnd(5)}: ${receipt.party_name}`,
-        `Gudang: ${receipt.warehouse || "-"}`,
+        `No     : ${receipt.number}`,
+        `Tgl    : ${receipt.date || "-"}`,
+        `${receipt.party_label} : ${receipt.party_name}`,
+        `Gudang : ${receipt.warehouse || "-"}`,
         line,
-        "Barang:",
-        ...receipt.items.flatMap((item) => [
-            truncate(item.name, 32),
-            `${number(item.qty)} ${item.unit} x ${money(item.price).replace("Rp", "").trim()}`,
-            item.capacity_ml ? `${number(item.capacity_ml)} ML @ ${money(item.price_per_ml)}/ML` : null,
-            right(money(item.subtotal), 32),
-        ].filter(Boolean)),
+        ...itemLines,
         line,
-        `Total Qty : ${number(receipt.total_qty)} ML`,
-        receipt.total_bottle > 0 ? `Total Botol: ${number(receipt.total_bottle)} BOTOL` : null,
-        receipt.discount > 0 ? `Subtotal  : ${money(receipt.total + receipt.discount)}` : null,
-        receipt.discount > 0 ? `Discount  : ${money(receipt.discount)}` : null,
-        `Grand Total: ${money(receipt.total)}`,
-        receipt.type !== "penjualan" ? `Bayar     : ${receipt.payment_method}` : null,
-        `Status    : ${receipt.payment_status}`,
-        receipt.jatuh_tempo ? `Jatuh Tempo: ${receipt.jatuh_tempo}` : null,
-        line,
-        center("Terima kasih"),
+        `Total Qty  : ${number(receipt.total_qty)} ML`,
+        receipt.total_bottle > 0 ? `Total Botol : ${number(receipt.total_bottle)} BOTOL` : null,
+        receipt.discount > 0 ? `Subtotal   : ${money(receipt.total + receipt.discount)}` : null,
+        receipt.discount > 0 ? `Discount   : ${money(receipt.discount)}` : null,
+        `Grand Total : ${money(receipt.total)}`,
+        receipt.type !== "penjualan" ? `Bayar      : ${receipt.payment_method}` : null,
+        `Status     : ${receipt.payment_status}`,
+        receipt.jatuh_tempo ? `Jatuh Tempo : ${receipt.jatuh_tempo}` : null,
+        dline,
+        center(receipt.receipt_footer || "Terima kasih"),
+        dline,
         "",
     ].filter(Boolean);
 
@@ -746,25 +792,64 @@ function receiptText(receipt) {
 
 function paymentReceiptText(receipt) {
     const line = "-".repeat(32);
+    const itemLines = paymentReceiptItemLines(receipt.items);
+    const templateValues = {
+        store_name: receipt.store_name || "PARIS PARFUM",
+        store_name_center: center(receipt.store_name || "PARIS PARFUM"),
+        store_address: receipt.store_address || "",
+        store_address_center: receipt.store_address ? center(receipt.store_address) : "",
+        store_phone: receipt.store_phone || "",
+        store_phone_center: receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : "",
+        title: receipt.title,
+        title_center: center(receipt.title),
+        number: receipt.number,
+        source_number: receipt.source_number || "-",
+        date: receipt.date || "-",
+        party_label: receipt.party_label,
+        party_name: receipt.party_name,
+        items: itemLines.join("\n"),
+        total: money(receipt.total),
+        amount: money(receipt.amount),
+        paid: money(receipt.paid),
+        remaining: money(receipt.remaining),
+        status: receipt.status || "-",
+        footer: receipt.receipt_footer || "Terima kasih",
+        footer_center: center(receipt.receipt_footer || "Terima kasih"),
+    };
+
+    if (receipt.payment_receipt_template) {
+        return renderReceiptTemplate(
+            receipt.payment_receipt_template,
+            templateValues,
+        );
+    }
+
+    const dline = "=".repeat(32);
     const rows = [
-        center("PARIS PARFUM"),
+        dline,
+        center(receipt.store_name || "PARIS PARFUM"),
+        receipt.store_address ? center(receipt.store_address) : null,
+        receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : null,
+        dline,
         center(receipt.title),
         line,
-        `No    : ${receipt.number}`,
-        `Ref   : ${receipt.source_number || "-"}`,
-        `Tgl   : ${receipt.date || "-"}`,
-        `${receipt.party_label.padEnd(6)}: ${receipt.party_name}`,
+        `No       : ${receipt.number}`,
+        `Ref      : ${receipt.source_number || "-"}`,
+        `Tgl      : ${receipt.date || "-"}`,
+        `${receipt.party_label} : ${receipt.party_name}`,
         line,
-        ...paymentReceiptItemLines(receipt.items),
-        `Tagihan : ${money(receipt.total)}`,
-        `Bayar   : ${money(receipt.amount)}`,
-        `Terbayar: ${money(receipt.paid)}`,
-        `Sisa    : ${money(receipt.remaining)}`,
-        `Status  : ${receipt.status || "-"}`,
+        ...itemLines,
         line,
-        center("Terima kasih"),
+        `Tagihan  : ${money(receipt.total)}`,
+        `Bayar    : ${money(receipt.amount)}`,
+        `Terbayar : ${money(receipt.paid)}`,
+        `Sisa     : ${money(receipt.remaining)}`,
+        `Status   : ${receipt.status || "-"}`,
+        dline,
+        center(receipt.receipt_footer || "Terima kasih"),
+        dline,
         "",
-    ];
+    ].filter(Boolean);
 
     return rows.join("\n");
 }
@@ -791,9 +876,9 @@ function printReceipt(receipt) {
             <head>
                 <title>${receipt.number}</title>
                 <style>
-                    body { margin: 0; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+                    body { margin: 0; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.4; color: #1a1a1a; }
                     pre { white-space: pre-wrap; margin: 0; }
-                    @page { size: 80mm auto; margin: 4mm; }
+                    @page { size: 80mm auto; margin: 3mm; }
                 </style>
             </head>
             <body><pre>${escapeHtml(receiptText(receipt))}</pre></body>

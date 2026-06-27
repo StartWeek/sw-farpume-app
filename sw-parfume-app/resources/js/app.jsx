@@ -10,8 +10,50 @@ import { useThemeStore } from "./store/themeStore";
 
 const appName = import.meta.env.VITE_APP_NAME || "Laravel";
 
-// Initialize theme
-useThemeStore.getState().init();
+const caseSensitiveAutocompleteValues = new Set([
+    "username",
+    "current-password",
+    "new-password",
+    "one-time-code",
+]);
+
+const shouldUppercaseInput = (element) => {
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+        return false;
+    }
+
+    if (element.dataset.uppercase === "false") {
+        return false;
+    }
+
+    if (element instanceof HTMLInputElement) {
+        const type = element.type.toLowerCase();
+        const fieldName = `${element.name} ${element.id}`;
+
+        if (!["text", "search"].includes(type) || /password/i.test(fieldName)) {
+            return false;
+        }
+
+        if (caseSensitiveAutocompleteValues.has(element.autocomplete)) {
+            return false;
+        }
+    }
+
+    return true;
+};
+
+const UppercaseInputScope = ({ children }) => (
+    <div
+        className="contents"
+        onChangeCapture={(event) => {
+            if (shouldUppercaseInput(event.target)) {
+                event.target.value = event.target.value.toLocaleUpperCase("id-ID");
+            }
+        }}
+    >
+        {children}
+    </div>
+);
 
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
@@ -21,6 +63,10 @@ createInertiaApp({
             import.meta.glob("./**/*.jsx", { eager: false }),
         ),
     setup({ el, App, props }) {
+        useThemeStore
+            .getState()
+            .init(props.initialPage.props.appSettings ?? null);
+
         const root = createRoot(el);
 
         root.render(
@@ -31,7 +77,9 @@ createInertiaApp({
                     </div>
                 }
             >
-                <App {...props} />
+                <UppercaseInputScope>
+                    <App {...props} />
+                </UppercaseInputScope>
             </Suspense>,
         );
     },

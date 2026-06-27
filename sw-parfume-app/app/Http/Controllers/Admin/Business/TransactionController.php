@@ -178,6 +178,7 @@ class TransactionController extends Controller
                 'total_bottle' => (float) $transaction->total_qty_botol,
                 'discount' => (float) $transaction->discount,
                 'total' => (float) $transaction->total_pembelian,
+                'store_name' => app(\App\Services\SettingsService::class)->get()['store_name'],
             ];
         }
 
@@ -207,6 +208,7 @@ class TransactionController extends Controller
                 'discount' => (float) $transaction->discount,
                 'jatuh_tempo' => $transaction->metode_pembayaran === 'TEMPO' && $transaction->jatuh_tempo ? optional($transaction->jatuh_tempo)->format('d/m/Y') : null,
             'total' => (float) $transaction->total_penjualan,
+            'store_name' => app(\App\Services\SettingsService::class)->get()['store_name'],
         ];
     }
 

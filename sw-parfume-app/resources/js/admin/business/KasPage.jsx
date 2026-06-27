@@ -69,16 +69,18 @@ export default function KasPage({ rows, operationalDate = todayDate() }) {
     return (
         <ProtectedLayout title="Uang Kas">
             <div className="space-y-5">
-                <PageHeader
-                    title="Uang Kas"
-                    subtitle="Manajemen transaksi kas masuk dan keluar secara manual."
-                    actionLabel="Tambah Transaksi"
-                    onAction={openModal}
-                />
-
-                <Card>
+                <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium" style={{ backgroundColor: "var(--color-card)" }}>
+                    <div className="flex items-center px-6 py-4" style={{ backgroundColor: "var(--color-card-header, #1e293b)" }}>
+                        <h2 className="text-base font-bold text-white">Uang Kas</h2>
+                    </div>
+                    <div className="flex items-center justify-end px-5 py-3 border-b border-stroke">
+                        <button type="button" onClick={openModal} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white transition hover:opacity-90">
+                            <IconPlus size={16} />
+                            Tambah Transaksi
+                        </button>
+                    </div>
                     <SimpleTable columns={columns} rows={rows} />
-                </Card>
+                </div>
             </div>
 
             <AnimatePresence>

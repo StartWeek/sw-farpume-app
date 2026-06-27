@@ -21,7 +21,8 @@ class UserController extends Controller
         $perPage = in_array($perPage, [10, 25, 50, 100], true) ? $perPage : 10;
 
         $users = User::query()
-            ->select(['id', 'username', 'name', 'email', 'no_hp', 'role', 'akses_menu', 'created_at'])
+            ->select(['id', 'username', 'name', 'role', 'akses_menu', 'created_at'])
+            ->where('role', '!=', 'superadmin')
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($innerQuery) use ($search) {
                     $innerQuery->where('username', 'like', "%{$search}%")
@@ -32,13 +33,6 @@ class UserController extends Controller
             ->latest('id')
             ->paginate($perPage)
             ->withQueryString();
-
-        $users->setCollection(
-            $users->getCollection()->map(function (User $user) {
-                return $user;
-            })
-        );
-
 
         return Inertia::render('admin/datamaster/users/index', [
             'users' => $users,
@@ -57,8 +51,6 @@ class UserController extends Controller
         User::create([
             'username' => $validated['username'],
             'name' => $validated['name'],
-            'email' => $this->encrypt->doEncrypt($this->internalEmail($validated['username'])),
-            'no_hp' => null,
             'role' => $validated['role'],
             'akses_menu' => $this->defaultAccessForRole($validated['role']),
             'password' => Hash::make($validated['password']),
@@ -78,10 +70,6 @@ class UserController extends Controller
             'name' => $validated['name'],
             'role' => $validated['role'],
         ];
-
-        if (empty($user->email)) {
-            $payload['email'] = $this->encrypt->doEncrypt($this->internalEmail($validated['username']));
-        }
 
         if (empty($user->akses_menu)) {
             $payload['akses_menu'] = $this->defaultAccessForRole($validated['role']);
@@ -103,7 +91,6 @@ class UserController extends Controller
         return Inertia::render('admin/datamaster/users/access', [
             'users' => User::query()
                 ->select(['id', 'username', 'name', 'role', 'akses_menu'])
-                ->where('role', '!=', 'superadmin')
                 ->orderBy('name')
                 ->get(),
             'accessOptions' => $this->accessOptions(),
@@ -130,6 +117,10 @@ class UserController extends Controller
 
     public function destroy(User $user): RedirectResponse
     {
+        if ($user->role === 'superadmin') {
+            abort(403, 'Super admin tidak dapat dihapus.');
+        }
+
         User::query()->whereKey($user->id)->delete();
 
         return redirect()
@@ -137,14 +128,9 @@ class UserController extends Controller
             ->with('success', 'User berhasil dihapus.');
     }
 
-    private function internalEmail(string $username): string
-    {
-        return strtolower($username) . '@erp-parfum.local';
-    }
-
     private function defaultAccessForRole(string $role): array
     {
-        if ($role === 'superadmin') {
+        if (in_array($role, ['superadmin', 'owner'], true)) {
             return collect($this->accessOptions())->pluck('key')->all();
         }
 

@@ -35,6 +35,15 @@ class KasController extends Controller
             'jumlah' => ['required', 'numeric', 'min:1'],
             'pihak' => ['nullable', 'string', 'max:255'],
             'keterangan' => ['nullable', 'string'],
+        ], [
+            'required' => 'Kolom ini wajib diisi.',
+            'jenis_transaksi.required' => 'Jenis transaksi belum dipilih.',
+            'jenis_transaksi.in' => 'Jenis transaksi tidak valid.',
+            'jumlah.required' => 'Jumlah belum diisi.',
+            'jumlah.numeric' => 'Jumlah harus berupa angka.',
+            'jumlah.min' => 'Jumlah minimal :min.',
+            'numeric' => 'Harus berupa angka.',
+            'min' => 'Nilai minimal :min.',
         ]);
 
         $this->business->createManualCash($this->uppercase($validated));

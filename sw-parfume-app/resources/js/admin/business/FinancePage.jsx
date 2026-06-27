@@ -4,10 +4,11 @@ import { router, usePage } from "@inertiajs/react";
 import Button from "@/components/common/Button";
 import { IconPrinter, IconX } from "@tabler/icons-react";
 import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, Textarea, money, number, todayDate, useFlashMessages } from "./_components";
+import { renderReceiptTemplate, withReceiptSettings } from "./receiptSettings";
 
 export default function FinancePage({ type, rows = [], refs = {} }) {
     useFlashMessages();
-    const { flash = {} } = usePage().props;
+    const { flash = {}, appSettings = {} } = usePage().props;
     const isDebt = type === "hutang";
     const isSupplierReceivable = type === "piutang-supplier";
     const [active, setActive] = useState(null);
@@ -21,6 +22,9 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
         keterangan: "",
     });
     const [receipt, setReceipt] = useState(flash.receipt || null);
+    const printableReceipt = receipt
+        ? withReceiptSettings(receipt, appSettings)
+        : null;
     const [bluetoothLoading, setBluetoothLoading] = useState(false);
     const title = isDebt ? "Hutang Supplier" : isSupplierReceivable ? "Piutang Supplier" : "Piutang Customer";
     const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
@@ -129,15 +133,15 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
                     )}
                 />
 
-                {receipt ? (
+                {printableReceipt ? (
                     <ReceiptModal
-                        receipt={receipt}
+                        receipt={printableReceipt}
                         bluetoothLoading={bluetoothLoading}
                         onClose={() => setReceipt(null)}
                         onBluetooth={async () => {
                             setBluetoothLoading(true);
                             try {
-                                await printBluetoothReceipt(receipt);
+                                await printBluetoothReceipt(printableReceipt);
                             } finally {
                                 setBluetoothLoading(false);
                             }
@@ -218,25 +222,64 @@ function ReceiptModal({ receipt, onClose, onBluetooth, bluetoothLoading }) {
 
 function receiptText(receipt) {
     const line = "-".repeat(32);
+    const itemLines = receiptItemLines(receipt.items);
+    const templateValues = {
+        store_name: receipt.store_name || "PARIS PARFUM",
+        store_name_center: center(receipt.store_name || "PARIS PARFUM"),
+        store_address: receipt.store_address || "",
+        store_address_center: receipt.store_address ? center(receipt.store_address) : "",
+        store_phone: receipt.store_phone || "",
+        store_phone_center: receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : "",
+        title: receipt.title,
+        title_center: center(receipt.title),
+        number: receipt.number,
+        source_number: receipt.source_number || "-",
+        date: receipt.date || "-",
+        party_label: receipt.party_label,
+        party_name: receipt.party_name,
+        items: itemLines.join("\n"),
+        total: money(receipt.total),
+        amount: money(receipt.amount),
+        paid: money(receipt.paid),
+        remaining: money(receipt.remaining),
+        status: receipt.status || "-",
+        footer: receipt.receipt_footer || "Terima kasih",
+        footer_center: center(receipt.receipt_footer || "Terima kasih"),
+    };
+
+    if (receipt.payment_receipt_template) {
+        return renderReceiptTemplate(
+            receipt.payment_receipt_template,
+            templateValues,
+        );
+    }
+
+    const dline = "=".repeat(32);
     const rows = [
-        center("PARIS PARFUM"),
+        dline,
+        center(receipt.store_name || "PARIS PARFUM"),
+        receipt.store_address ? center(receipt.store_address) : null,
+        receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : null,
+        dline,
         center(receipt.title),
         line,
-        `No    : ${receipt.number}`,
-        `Ref   : ${receipt.source_number || "-"}`,
-        `Tgl   : ${receipt.date || "-"}`,
-        `${receipt.party_label.padEnd(6)}: ${receipt.party_name}`,
+        `No       : ${receipt.number}`,
+        `Ref      : ${receipt.source_number || "-"}`,
+        `Tgl      : ${receipt.date || "-"}`,
+        `${receipt.party_label} : ${receipt.party_name}`,
         line,
-        ...receiptItemLines(receipt.items),
-        `Tagihan : ${money(receipt.total)}`,
-        `Bayar   : ${money(receipt.amount)}`,
-        `Terbayar: ${money(receipt.paid)}`,
-        `Sisa    : ${money(receipt.remaining)}`,
-        `Status  : ${receipt.status || "-"}`,
+        ...itemLines,
         line,
-        center("Terima kasih"),
+        `Tagihan  : ${money(receipt.total)}`,
+        `Bayar    : ${money(receipt.amount)}`,
+        `Terbayar : ${money(receipt.paid)}`,
+        `Sisa     : ${money(receipt.remaining)}`,
+        `Status   : ${receipt.status || "-"}`,
+        dline,
+        center(receipt.receipt_footer || "Terima kasih"),
+        dline,
         "",
-    ];
+    ].filter(Boolean);
 
     return rows.join("\n");
 }
@@ -263,9 +306,9 @@ function printReceipt(receipt) {
             <head>
                 <title>${receipt.number}</title>
                 <style>
-                    body { margin: 0; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+                    body { margin: 0; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.4; color: #1a1a1a; }
                     pre { white-space: pre-wrap; margin: 0; }
-                    @page { size: 80mm auto; margin: 4mm; }
+                    @page { size: 80mm auto; margin: 3mm; }
                 </style>
             </head>
             <body><pre>${escapeHtml(receiptText(receipt))}</pre></body>

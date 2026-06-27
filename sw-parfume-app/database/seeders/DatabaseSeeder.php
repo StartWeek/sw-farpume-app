@@ -10,7 +10,7 @@ use App\Models\Business\Customer;
 use App\Models\Business\Gudang;
 use App\Models\Business\Sales;
 use App\Models\Business\Supplier;
-use App\Services\EncryptService;
+use App\Models\System\AppSetting;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -23,7 +23,6 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $encrypt = new EncryptService();
         $allAccess = [
             'dashboard',
             'master-brand',
@@ -57,13 +56,13 @@ class DatabaseSeeder extends Seeder
             'riwayat-pembelian',
             'riwayat-penjualan',
             'utility',
+            'setting-system',
+            'setting-nota',
         ];
 
         User::query()->updateOrCreate(['username' => 'sw'], [
             'name' => 'Super User',
             'password' => bcrypt('startw33k'),
-            'email' => $encrypt->doEncrypt('sw@erp-parfum.local'),
-            'no_hp' => null,
             'role' => 'superadmin',
             'akses_menu' => $allAccess,
         ]);
@@ -71,8 +70,6 @@ class DatabaseSeeder extends Seeder
         User::query()->updateOrCreate(['username' => 'testuser'], [
             'name' => 'Test User',
             'password' => bcrypt('password'),
-            'email' => $encrypt->doEncrypt('test@example.com'),
-            'no_hp' => $encrypt->doEncrypt('08123456789'),
             'role' => 'admin',
             'akses_menu' => [
                 'dashboard',
@@ -181,5 +178,14 @@ class DatabaseSeeder extends Seeder
             ->whereIn('kode_barang', ['BRG-0001', 'BRG-0002'])
             ->whereNull('id_botol')
             ->update(['id_botol' => $stockBottleId]);
+
+        AppSetting::query()->firstOrCreate(['id' => 1], [
+            'app_name' => 'Paris Parfum Admin',
+            'primary_color' => 'amber',
+            'light_theme' => 'slate',
+            'dark_theme' => 'navy',
+            'is_dark_mode' => false,
+            'store_name' => 'PARIS PARFUM',
+        ]);
     }
 }

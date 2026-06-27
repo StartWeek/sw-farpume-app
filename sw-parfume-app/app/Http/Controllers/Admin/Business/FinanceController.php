@@ -165,6 +165,7 @@ class FinanceController extends Controller
                 'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
                 'unit' => $detail->satuan_input ?? $detail->satuan_dasar ?? 'ML',
             ])->values()->all() ?? [],
+            'store_name' => app(\App\Services\SettingsService::class)->get()['store_name'],
         ];
     }
 }

@@ -12,7 +12,7 @@ class EnsureUserHasMenuAccess
     {
         $user = $request->user();
 
-        if (!$user || $user->role === 'superadmin') {
+        if (!$user || in_array($user->role, ['superadmin', 'owner'], true)) {
             return $next($request);
         }
 
@@ -61,6 +61,8 @@ class EnsureUserHasMenuAccess
             'business.piutang.index', 'business.piutang.pay' => 'piutang',
             'business.piutang-supplier.index', 'business.piutang-supplier.store', 'business.piutang-supplier.pay' => 'piutang-supplier',
             'business.utility.index', 'business.utility.close' => 'utility',
+            'admin.setting-system', 'admin.setting-system.update' => 'setting-system',
+            'admin.setting-nota', 'admin.setting-nota.update' => 'setting-nota',
             default => $this->resourceAccess($request),
         };
     }

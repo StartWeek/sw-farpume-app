@@ -4,6 +4,12 @@ window.axios = axios;
 
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
+// CSRF token untuk request non-Inertia (upload, dll)
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+if (csrfToken) {
+    window.axios.defaults.headers.common['X-CSRF-TOKEN'] = csrfToken;
+}
+
 async function sha256Hex(input) {
     const encoder = new TextEncoder();
     const data = encoder.encode(input);

@@ -1,6 +1,7 @@
 import React from "react";
 import { router } from "@inertiajs/react";
 import Button from "@/components/common/Button";
+import { useConfirmStore } from "@/store/confirmStore";
 import {
     IconCalendarEvent,
     IconCheck,
@@ -76,31 +77,37 @@ export function Input({ className = "", type = "text", error, ...props }) {
 
     if (type === "date") {
         return (
-            <div className="relative">
-                <IconCalendarEvent
-                    size={17}
-                    stroke={2}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-primary"
-                />
-                <input
-                    {...props}
-                    type="date"
-                    className={`${baseClass} h-10 cursor-pointer pl-10 pr-9 font-semibold text-main shadow-sm [color-scheme:light] [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 ${className}`}
-                />
-                <IconChevronDown
-                    size={15}
-                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted"
-                />
+            <div>
+                <div className="relative">
+                    <IconCalendarEvent
+                        size={17}
+                        stroke={2}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-primary"
+                    />
+                    <input
+                        {...props}
+                        type="date"
+                        className={`${baseClass} h-10 cursor-pointer pl-10 pr-9 font-semibold text-main shadow-sm [color-scheme:light] [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 ${className}`}
+                    />
+                    <IconChevronDown
+                        size={15}
+                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted"
+                    />
+                </div>
+                {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
             </div>
         );
     }
 
     return (
-        <input
-            {...props}
-            type={type}
-            className={`${baseClass} ${className}`}
-        />
+        <div>
+            <input
+                {...props}
+                type={type}
+                className={`${baseClass} ${className}`}
+            />
+            {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
+        </div>
     );
 }
 
@@ -128,10 +135,13 @@ export function CurrencyInput({ value, onChange, error, ...props }) {
 export function Textarea({ error, ...props }) {
     const errorClass = error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "border-stroke focus:border-primary focus:ring-primary/20";
     return (
-        <textarea
-            {...props}
-            className={`min-h-20 w-full rounded-lg border bg-card px-3.5 py-2.5 text-sm font-medium text-main outline-none transition-all duration-200 placeholder:text-gray-400 placeholder:font-normal focus:ring-2 ${errorClass}`}
-        />
+        <div>
+            <textarea
+                {...props}
+                className={`min-h-20 w-full rounded-lg border bg-card px-3.5 py-2.5 text-sm font-medium text-main outline-none transition-all duration-200 placeholder:text-gray-400 placeholder:font-normal focus:ring-2 ${errorClass}`}
+            />
+            {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
+        </div>
     );
 }
 
@@ -249,6 +259,7 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
                     )}
                 </div>
             ) : null}
+            {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
         </div>
     );
 }
@@ -401,33 +412,34 @@ function PaginationBar({ pagination }) {
 
 export function RowActions({ onEdit, onDelete }) {
     return (
-        <>
+        <div className="flex items-center justify-center gap-1.5">
             {onEdit ? (
-                <Button
-                    icon={IconPencil}
-                    iconOnly
-                    variant="outline"
-                    size="sm"
+                <button
+                    type="button"
                     onClick={onEdit}
-                    title="Edit"
-                />
+                    className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:opacity-90"
+                >
+                    <IconPencil size={13} />
+                    Edit
+                </button>
             ) : null}
             {onDelete ? (
-                <Button
-                    icon={IconTrash}
-                    iconOnly
-                    variant="danger"
-                    size="sm"
+                <button
+                    type="button"
                     onClick={onDelete}
-                    title="Hapus"
-                />
+                    className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:bg-red-700"
+                >
+                    <IconTrash size={13} />
+                    Delete
+                </button>
             ) : null}
-        </>
+        </div>
     );
 }
 
-export function submitDelete(url, message = "Hapus data ini?") {
-    if (!window.confirm(message)) return;
+export async function submitDelete(url, message = "Hapus data ini?") {
+    const confirmed = await useConfirmStore.getState().confirm({ message });
+    if (!confirmed) return;
     router.delete(url, { preserveScroll: true });
 }
 

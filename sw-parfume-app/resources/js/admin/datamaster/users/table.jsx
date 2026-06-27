@@ -4,7 +4,17 @@ import { IconEdit } from "@tabler/icons-react";
 import { IconPlus } from "@tabler/icons-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { useModalGlobal } from "@/store/modalStore";
+import { useConfirmStore } from "@/store/confirmStore";
 import { router } from "@inertiajs/react";
+
+const ROLE_LABELS = {
+    superadmin: "SUPER USER",
+    owner: "OWNER",
+    admin: "ADMIN",
+    manager: "MANAGER",
+    kepala_toko: "KEPALA TOKO",
+    kasir: "KASIR",
+};
 
 const TableUsers = ({ users, filters = {} }) => {
     const { openModal: openCreateModal } = useModalGlobal("users-create");
@@ -80,10 +90,11 @@ const TableUsers = ({ users, filters = {} }) => {
         );
     };
 
-    const handleDelete = (row) => {
-        if (!window.confirm(`Hapus user ${row.original.username}?`)) {
-            return;
-        }
+    const handleDelete = async (row) => {
+        const confirmed = await useConfirmStore.getState().confirm({
+            message: `Hapus user ${row.original.username}?`,
+        });
+        if (!confirmed) return;
 
         router.delete(`/admin/users/${row.original.id}`, {
             preserveScroll: true,
@@ -111,7 +122,7 @@ const TableUsers = ({ users, filters = {} }) => {
             columns={[
                 { header: "Username", accessorKey: "username" },
                 { header: "Name", accessorKey: "name" },
-                { header: "Role", accessorKey: "role" },
+                { header: "Role", accessorKey: "role", cell: ({ row }) => ROLE_LABELS[row.original.role] || row.original.role },
                 {
                     header: "Hak Akses",
                     accessorKey: "akses_menu",

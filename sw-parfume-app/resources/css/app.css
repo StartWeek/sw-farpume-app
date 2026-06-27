@@ -7,6 +7,10 @@
         Inter, ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
         "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 
+    /* Sidebar & Card Header */
+    --color-sidebar: #0f172a;
+    --color-card-header: #1e293b;
+
     /* Shadow Soft from Tailux Demo */
     --shadow-soft:
         rgba(145, 158, 171, 0.2) 0px 0px 2px 0px,
@@ -123,6 +127,10 @@
 
     body {
         @apply antialiased text-main bg-page;
+    }
+
+    :where(input:not([type]), input[type="text" i], input[type="search" i], textarea):not([data-uppercase="false"]):not([autocomplete="username" i]):not([autocomplete="current-password" i]):not([autocomplete="new-password" i]):not([autocomplete="one-time-code" i]):not([name*="password" i]):not([id*="password" i]) {
+        text-transform: uppercase;
     }
 }
 

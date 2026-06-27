@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Business\BusinessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -35,7 +36,7 @@ class MasterController extends Controller
     {
         abort_unless(isset(BusinessService::MASTERS[$resource]), 404);
 
-        $this->business->createMaster($resource, $this->uppercase($request->validate($this->rules($resource))));
+        $this->business->createMaster($resource, $this->uppercase($request->validate($this->rules($resource), $this->messages($resource))));
 
         return back()->with('success', 'Data berhasil ditambahkan.');
     }
@@ -46,7 +47,7 @@ class MasterController extends Controller
 
         $model = BusinessService::MASTERS[$resource]['model'];
         $row = $model::query()->findOrFail($id);
-        $row->update($this->uppercase($request->validate($this->rules($resource))));
+        $row->update($this->uppercase($request->validate($this->rules($resource), $this->messages($resource))));
 
         return back()->with('success', 'Data berhasil diperbarui.');
     }
@@ -55,10 +56,20 @@ class MasterController extends Controller
     {
         abort_unless(isset(BusinessService::MASTERS[$resource]), 404);
 
-        $model = BusinessService::MASTERS[$resource]['model'];
-        $model::query()->findOrFail($id)->delete();
+        $config = BusinessService::MASTERS[$resource];
+        $model = $config['model'];
 
-        return back()->with('success', 'Data berhasil dihapus.');
+        try {
+            $model::query()->findOrFail($id)->delete();
+
+            return back()->with('success', 'Data berhasil dihapus.');
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '23000') {
+                return back()->with('error', "{$config['label']} tidak dapat dihapus karena masih digunakan oleh data lain.");
+            }
+
+            throw $e;
+        }
     }
 
     private function rules(string $resource): array
@@ -72,6 +83,34 @@ class MasterController extends Controller
             'botol' => ['varian_ml' => ['required', 'integer', 'min:1'], 'nama_botol' => ['required', 'string', 'max:255'], 'isi_per_dus' => ['required', 'integer', 'min:1'], 'harga_beli_per_botol' => ['nullable', 'numeric', 'min:0'], 'harga_jual_per_botol' => ['nullable', 'numeric', 'min:0'], 'harga_jual_per_dus' => ['nullable', 'numeric', 'min:0'], 'stock_botol' => ['nullable', 'numeric', 'min:0'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
             default => [],
         };
+    }
+
+    private function messages(string $resource): array
+    {
+        $labels = [
+            'brand' => ['nama_brand' => 'Nama Brand', 'negara_asal' => 'Negara Asal', 'keterangan' => 'Keterangan', 'status' => 'Status'],
+            'gudang' => ['nama_gudang' => 'Nama Gudang', 'alamat' => 'Alamat', 'status' => 'Status'],
+            'supplier' => ['nama_supplier' => 'Nama Supplier', 'pic_name' => 'PIC Name', 'no_hp' => 'No HP', 'alamat' => 'Alamat', 'keterangan' => 'Keterangan', 'status' => 'Status'],
+            'customer' => ['nama_customer' => 'Nama Customer', 'tipe_customer' => 'Tipe Customer', 'no_hp' => 'No HP', 'alamat' => 'Alamat', 'limit_piutang' => 'Limit Piutang', 'status' => 'Status'],
+            'sales' => ['nama_sales' => 'Nama Sales', 'no_hp' => 'No HP', 'alamat' => 'Alamat', 'status' => 'Status'],
+            'botol' => ['varian_ml' => 'Varian ML', 'nama_botol' => 'Nama Botol', 'isi_per_dus' => 'Isi Per Dus', 'status' => 'Status'],
+        ];
+
+        $msgs = [
+            'required' => 'Kolom ini wajib diisi.',
+            'numeric' => 'Harus berupa angka.',
+            'integer' => 'Harus berupa angka bulat.',
+            'min' => 'Nilai minimal :min.',
+            'string' => 'Harus berupa teks.',
+            'max' => 'Maksimal :max karakter.',
+            'in' => 'Pilihan tidak valid.',
+        ];
+
+        foreach (($labels[$resource] ?? []) as $field => $label) {
+            $msgs["{$field}.required"] = "{$label} belum diisi.";
+        }
+
+        return $msgs;
     }
 
     private function perPage(): int

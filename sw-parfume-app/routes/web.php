@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\Business\MasterController;
 use App\Http\Controllers\Admin\Business\ReportController;
 use App\Http\Controllers\Admin\Business\TransactionController;
 use App\Http\Controllers\Admin\Business\UtilityController;
+use App\Http\Controllers\Admin\System\SettingsController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -20,7 +21,7 @@ Route::get('/', [AuthenticatedSessionController::class, 'create'])
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
     Route::post('/login', [AuthenticatedSessionController::class, 'store'])
-        ->middleware(['request.signature', 'sql.injection.guard', 'xss.guard', 'throttle:5,1']);
+        ->middleware(['sql.injection.guard', 'xss.guard', 'throttle:5,1']);
 });
 
 Route::middleware(['auth', 'menu.access'])->prefix('admin')->group(function () {
@@ -38,7 +39,7 @@ Route::middleware(['auth', 'menu.access'])->prefix('admin')->group(function () {
 
     // Upload endpoint (backend validation + audit)
     Route::post('/upload/image', [\App\Http\Controllers\UploadController::class, 'image'])
-        ->middleware(['request.signature', 'sql.injection.guard', 'xss.guard', 'throttle:10,1'])
+        ->middleware(['sql.injection.guard', 'xss.guard', 'throttle:10,1'])
         ->name('upload.image');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
         ->middleware(['sql.injection.guard', 'xss.guard', 'throttle:20,1'])
@@ -84,6 +85,11 @@ Route::middleware(['auth', 'menu.access'])->prefix('admin')->group(function () {
 
     Route::get('/utility', [UtilityController::class, 'index'])->name('business.utility.index');
     Route::post('/utility/tutup-toko', [UtilityController::class, 'close'])->name('business.utility.close');
+
+    Route::get('/setting-system', [SettingsController::class, 'systemIndex'])->name('admin.setting-system');
+    Route::put('/setting-system', [SettingsController::class, 'systemUpdate'])->name('admin.setting-system.update');
+    Route::get('/setting-nota', [SettingsController::class, 'notaIndex'])->name('admin.setting-nota');
+    Route::put('/setting-nota', [SettingsController::class, 'notaUpdate'])->name('admin.setting-nota.update');
 
 
 });

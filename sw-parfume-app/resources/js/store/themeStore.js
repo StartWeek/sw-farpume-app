@@ -42,9 +42,21 @@ export const useThemeStore = create(
                 });
             },
 
-            // Initialize themes on load
-            init: () => {
-                const state = useThemeStore.getState();
+            // Initialize themes on load. Server settings win over stale local storage.
+            init: (settings = null) => {
+                const state = settings
+                    ? {
+                          primaryColor: settings.primary_color || "amber",
+                          lightTheme: settings.light_theme || "slate",
+                          darkTheme: settings.dark_theme || "navy",
+                          isDarkMode: Boolean(settings.is_dark_mode),
+                      }
+                    : useThemeStore.getState();
+
+                if (settings) {
+                    set(state);
+                }
+
                 document.documentElement.setAttribute(
                     "data-theme-primary",
                     state.primaryColor,
@@ -59,6 +71,8 @@ export const useThemeStore = create(
                 );
                 if (state.isDarkMode) {
                     document.documentElement.classList.add("dark");
+                } else {
+                    document.documentElement.classList.remove("dark");
                 }
             },
         }),

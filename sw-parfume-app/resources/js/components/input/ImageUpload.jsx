@@ -19,7 +19,7 @@ const validateFileType = (file, accept) => {
 const getAcceptHint = (accept) => {
     if (!accept || accept === "*/*") return "Semua tipe file";
     const typeMap = {
-        "image/*": "JPG, PNG, GIF",
+        "image/*": "JPG, JPEG, PNG, GIF, WEBP, SVG",
         "application/pdf": "PDF",
         "video/*": "MP4, AVI, MOV",
         "audio/*": "MP3, WAV",

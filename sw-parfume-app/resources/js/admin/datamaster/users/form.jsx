@@ -1,7 +1,7 @@
 import Button from "@/components/common/Button";
 import { useModalGlobal } from "@/store/modalStore";
 import { useForm } from "@inertiajs/react";
-import React, { useEffect } from "react";
+import React from "react";
 import InertiaTextInput from "@/components/input/RenderTextInput";
 import AsyncSelectInput from "@/components/input/AsyncSelectInput";
 
@@ -13,52 +13,39 @@ const defaultValues = {
 };
 
 const ROLE_OPTIONS = [
-    { label: "admin", value: "admin" },
-    { label: "superadmin", value: "superadmin" },
-    { label: "manager", value: "manager" },
-    { label: "kepala_toko", value: "kepala_toko" },
+    { label: "OWNER", value: "owner" },
+    { label: "ADMIN", value: "admin" },
+    { label: "MANAGER", value: "manager" },
+    { label: "KEPALA TOKO", value: "kepala_toko" },
+    { label: "KASIR", value: "kasir" },
 ];
 
 const FormUsers = ({ modalName }) => {
     const { data: modalData, isEdit, closeModal } = useModalGlobal(modalName);
-    const { data, setData, post, put, processing, errors, reset, clearErrors } =
-        useForm(defaultValues);
 
-    useEffect(() => {
-        if (isEdit && modalData) {
-            setData({
-                username: modalData.username || "",
-                name: modalData.name || "",
-                role: modalData.role || "admin",
-                password: "",
-            });
-            return;
+    const init = isEdit && modalData
+        ? {
+            username: modalData.username || "",
+            name: modalData.name || "",
+            role: modalData.role || "admin",
+            password: "",
         }
+        : { ...defaultValues };
 
-        reset();
-    }, [isEdit, modalData, setData, reset]);
+    const { data, setData, post, put, processing, errors, reset } = useForm(init);
+    // Reset tidak dipanggil via useEffect — GlobalModal remount komponen tiap buka
 
     const submit = (e) => {
         e.preventDefault();
-
-        const onSuccess = () => {
-            reset();
-            clearErrors();
-            closeModal();
+        const options = {
+            preserveScroll: true,
+            onSuccess: () => closeModal(),
         };
-
         if (isEdit && modalData?.id) {
-            put(`/admin/users/${modalData.id}`, {
-                preserveScroll: true,
-                onSuccess,
-            });
+            put(`/admin/users/${modalData.id}`, options);
             return;
         }
-
-        post("/admin/users", {
-            preserveScroll: true,
-            onSuccess,
-        });
+        post("/admin/users", options);
     };
 
     const selectedRole =
@@ -72,7 +59,9 @@ const FormUsers = ({ modalName }) => {
                 placeholder="Masukkan username"
                 value={data.username}
                 readOnly={isEdit}
-                onChange={(value) => setData("username", value)}
+                onChange={(value) =>
+                    setData("username", value.toLocaleUpperCase("id-ID"))
+                }
                 error={errors.username}
             />
 
@@ -81,7 +70,9 @@ const FormUsers = ({ modalName }) => {
                 label="Nama"
                 placeholder="Masukkan nama lengkap"
                 value={data.name}
-                onChange={(value) => setData("name", value)}
+                onChange={(value) =>
+                    setData("name", value.toLocaleUpperCase("id-ID"))
+                }
                 error={errors.name}
             />
 

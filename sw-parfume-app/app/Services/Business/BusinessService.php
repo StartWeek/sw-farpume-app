@@ -110,10 +110,10 @@ class BusinessService
         });
     }
 
-    public function replaceStock(int $gudangId, int $barangId, float $qtyMl, array $meta): StokGudang
+    public function replaceStock(int $gudangId, int $barangId, float $qtyMl, array $meta, bool $skipBottleCheck = false): StokGudang
     {
         $barang = BarangBibit::query()->with('botol')->findOrFail($barangId);
-        if (! $barang->botol) {
+        if (! $skipBottleCheck && ! $barang->botol) {
             throw ValidationException::withMessages(['items' => "Botol stok untuk {$barang->nama_barang} belum dipilih di master barang."]);
         }
         $stock = StokGudang::query()->firstOrCreate(
@@ -128,15 +128,17 @@ class BusinessService
             throw ValidationException::withMessages(['items' => 'Stok barang tidak mencukupi.']);
         }
 
-        $beforeBottles = $this->filledBottleCount($before, (float) $barang->botol->varian_ml);
-        $afterBottles = $this->filledBottleCount($after, (float) $barang->botol->varian_ml);
-        $neededBottles = max(0, $afterBottles - $beforeBottles);
-        if ($neededBottles > 0) {
-            $botol = Botol::query()->lockForUpdate()->findOrFail($barang->botol->id);
-            if ((float) $botol->stock_botol < $neededBottles) {
-                throw ValidationException::withMessages(['items' => "Stok {$botol->nama_botol} tidak cukup. Dibutuhkan {$neededBottles} botol kosong."]);
+        if (! $skipBottleCheck && $barang->botol) {
+            $beforeBottles = $this->filledBottleCount($before, (float) $barang->botol->varian_ml);
+            $afterBottles = $this->filledBottleCount($after, (float) $barang->botol->varian_ml);
+            $neededBottles = max(0, $afterBottles - $beforeBottles);
+            if ($neededBottles > 0) {
+                $botol = Botol::query()->lockForUpdate()->findOrFail($barang->botol->id);
+                if ((float) $botol->stock_botol < $neededBottles) {
+                    throw ValidationException::withMessages(['items' => "Stok {$botol->nama_botol} tidak cukup. Dibutuhkan {$neededBottles} botol kosong."]);
+                }
+                $botol->decrement('stock_botol', $neededBottles);
             }
-            $botol->decrement('stock_botol', $neededBottles);
         }
 
         $stock->update([
@@ -184,7 +186,8 @@ class BusinessService
                 'no_transaksi' => $payload['no_transaksi'] ?? 'MANUAL',
                 'keterangan' => $payload['keterangan'] ?? 'Input manual inventory',
                 'created_by' => $payload['created_by'] ?? auth()->user()?->name,
-            ]
+            ],
+            skipBottleCheck: true
         ));
     }
 
