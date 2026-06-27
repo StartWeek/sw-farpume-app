@@ -2,7 +2,7 @@ import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import React, { useEffect, useState } from "react";
 import { router, usePage } from "@inertiajs/react";
 import Button from "@/components/common/Button";
-import { IconBluetooth, IconPrinter, IconX } from "@tabler/icons-react";
+import { IconPrinter, IconX } from "@tabler/icons-react";
 import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, Textarea, money, number, todayDate, useFlashMessages } from "./_components";
 
 export default function FinancePage({ type, rows = [], refs = {} }) {
@@ -50,7 +50,7 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
         <ProtectedLayout title={title}>
             <div className="space-y-5">
                 <PageHeader title={title} subtitle="Catat pembayaran dan pantau sisa tagihan tempo." />
-                {isDebt || isSupplierReceivable ? (
+                {isSupplierReceivable ? (
                     <Card>
                         <form onSubmit={storeSupplierFinance} className="space-y-4">
                             <div className="grid gap-4 md:grid-cols-4">
@@ -134,7 +134,6 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
                         receipt={receipt}
                         bluetoothLoading={bluetoothLoading}
                         onClose={() => setReceipt(null)}
-                        onPrint={() => printReceipt(receipt)}
                         onBluetooth={async () => {
                             setBluetoothLoading(true);
                             try {
@@ -179,7 +178,7 @@ function receiptItemsFromSource(row, isDebt, isSupplierReceivable) {
     }));
 }
 
-function ReceiptModal({ receipt, onClose, onPrint, onBluetooth, bluetoothLoading }) {
+function ReceiptModal({ receipt, onClose, onBluetooth, bluetoothLoading }) {
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg bg-card shadow-premium">
@@ -203,13 +202,12 @@ function ReceiptModal({ receipt, onClose, onPrint, onBluetooth, bluetoothLoading
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                            <Button icon={IconPrinter} onClick={onPrint}>Print Thermal</Button>
-                            <Button icon={IconBluetooth} variant="outline" loading={bluetoothLoading} onClick={onBluetooth}>Bluetooth</Button>
+                            <Button icon={IconPrinter} loading={bluetoothLoading} onClick={onBluetooth}>Print</Button>
                             <Button variant="ghost" onClick={onClose}>Tutup</Button>
                         </div>
 
                         <div className="text-xs leading-5 text-muted">
-                            Bluetooth memakai Web Bluetooth dan perlu printer BLE yang memiliki writable characteristic. Untuk printer Bluetooth classic, pair di OS lalu gunakan Print Thermal.
+                            Print memakai koneksi Bluetooth ke printer BLE.
                         </div>
                     </div>
                 </div>

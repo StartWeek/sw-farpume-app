@@ -6,7 +6,8 @@ import { Card, Field, Input, PageHeader, Select, SimpleTable, number, useFlashMe
 
 export default function InventoryPage({ mode, rows = [], barang = [], gudang = [] }) {
     useFlashMessages();
-    const [form, setForm] = useState({ tipe_mutasi: "MASUK", qty_ml: "", id_barang: "", id_gudang: "", keterangan: "" });
+    const emptyForm = { tipe_mutasi: "MASUK", jumlah_botol: "", qty_ml: "", id_barang: "", id_gudang: "", keterangan: "" };
+    const [form, setForm] = useState(emptyForm);
     const isMutation = mode === "mutations";
     const title = mode === "low" ? "Stok Menipis" : isMutation ? "Mutasi Stok" : "Stok Gudang";
     const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -14,14 +15,14 @@ export default function InventoryPage({ mode, rows = [], barang = [], gudang = [
         event.preventDefault();
         router.post("/admin/mutasi-stok", form, {
             preserveScroll: true,
-            onSuccess: () => setForm({ tipe_mutasi: "MASUK", qty_ml: "", id_barang: "", id_gudang: "", keterangan: "" }),
+            onSuccess: () => setForm(emptyForm),
         });
     };
 
     return (
         <ProtectedLayout title={title}>
             <div className="space-y-5">
-                <PageHeader title={title} subtitle="Stok utama memakai satuan ML dan dikonversi otomatis untuk pembelian." />
+                <PageHeader title={title} subtitle="Stok cairan disimpan per botol isi berdasarkan barang, botol, dan gudang." />
                 {isMutation || mode === "stock" ? (
                     <Card>
                         <form onSubmit={submit} className="grid gap-4 md:grid-cols-5">
@@ -43,7 +44,11 @@ export default function InventoryPage({ mode, rows = [], barang = [], gudang = [
                                     <option>KELUAR</option>
                                 </Select>
                             </Field>
-                            <Field label="Qty ML"><Input type="number" value={form.qty_ml} onChange={(event) => set("qty_ml", event.target.value)} /></Field>
+                            {form.tipe_mutasi === "MASUK" ? (
+                                <Field label="Jumlah Botol"><Input type="number" min="1" value={form.jumlah_botol} onChange={(event) => set("jumlah_botol", event.target.value)} /></Field>
+                            ) : (
+                                <Field label="Jumlah Keluar ML"><Input type="number" min="0.01" step="0.01" value={form.qty_ml} onChange={(event) => set("qty_ml", event.target.value)} /></Field>
+                            )}
                             <Field label="Keterangan"><Input value={form.keterangan} onChange={(event) => set("keterangan", event.target.value)} /></Field>
                             <div className="flex justify-end md:col-span-5"><Button type="submit">Simpan Mutasi</Button></div>
                         </form>
@@ -52,7 +57,7 @@ export default function InventoryPage({ mode, rows = [], barang = [], gudang = [
                 <SimpleTable
                     rows={rows}
                     columns={isMutation ? [
-                        { key: "tanggal", label: "Tanggal", render: (row) => row.tanggal || "-" },
+                        { key: "tanggal", label: "Tanggal" },
                         { key: "no_transaksi", label: "No Transaksi" },
                         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
@@ -62,9 +67,10 @@ export default function InventoryPage({ mode, rows = [], barang = [], gudang = [
                     ] : [
                         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
+                        { key: "botol", label: "Botol", render: (row) => row.barang?.botol ? `${row.barang.botol.nama_botol} - ${row.barang.botol.varian_ml} ML` : "-" },
                         { key: "stok_ml", label: "Stok ML", render: (row) => number(row.stok_ml) },
-                        { key: "botol_500", label: "Botol 500ML", render: (row) => number(Number(row.stok_ml || 0) / 500) },
-                        { key: "liter", label: "Liter", render: (row) => number(Number(row.stok_ml || 0) / 1000) },
+                        { key: "stok_botol_isi", label: "Botol Isi", render: (row) => number(row.stok_botol_isi) },
+                        { key: "sisa_botol_ml", label: "Sisa Botol Aktif", render: (row) => `${number(row.sisa_botol_ml)} ML` },
                         { key: "minimum_stok_ml", label: "Minimum", render: (row) => number(row.minimum_stok_ml) },
                     ]}
                 />

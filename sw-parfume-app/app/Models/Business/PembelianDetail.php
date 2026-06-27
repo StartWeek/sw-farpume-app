@@ -23,6 +23,17 @@ class PembelianDetail extends Model
         'harga',
         'harga_beli_per_ml',
         'subtotal',
+        'discount',
+    ];
+
+    protected $casts = [
+        'qty_input' => 'decimal:2',
+        'qty_ml' => 'decimal:2',
+        'konversi_qty_dasar' => 'decimal:2',
+        'harga' => 'decimal:2',
+        'harga_beli_per_ml' => 'decimal:2',
+        'subtotal' => 'decimal:2',
+        'discount' => 'decimal:2',
     ];
 
     public function barang(): BelongsTo

@@ -25,6 +25,7 @@ import {
     IconUserCog,
     IconUserDollar,
     IconUsersGroup,
+    IconTool,
 } from "@tabler/icons-react";
 
 export const menuAdmin = [
@@ -38,12 +39,6 @@ export const menuAdmin = [
         label: "Master Data",
         icon: IconDatabase,
         children: [
-            {
-                label: "Wangi",
-                icon: IconBottle,
-                href: "/admin/master/wangi",
-                accessKey: "master-wangi",
-            },
             {
                 label: "Brand",
                 icon: IconTag,
@@ -159,12 +154,36 @@ export const menuAdmin = [
                 href: "/admin/piutang",
                 accessKey: "piutang",
             },
+            {
+                label: "Piutang Supplier",
+                icon: IconCreditCardRefund,
+                href: "/admin/piutang-supplier",
+                accessKey: "piutang-supplier",
+            },
 
             {
                 label: "Uang Kas",
                 icon: IconReceipt2,
                 href: "/admin/kas",
                 accessKey: "kas",
+            },
+        ],
+    },
+    {
+        label: "Riwayat Transaksi",
+        icon: IconClipboardData,
+        children: [
+            {
+                label: "Lihat Pembelian Supplier",
+                icon: IconPackageImport,
+                href: "/admin/riwayat-pembelian",
+                accessKey: "riwayat-pembelian",
+            },
+            {
+                label: "Lihat Penjualan",
+                icon: IconShoppingBag,
+                href: "/admin/riwayat-penjualan/retail",
+                accessKey: "riwayat-penjualan",
             },
         ],
     },
@@ -214,6 +233,12 @@ export const menuAdmin = [
                 href: "/admin/laporan/piutang",
                 accessKey: "laporan-piutang",
             },
+            {
+                label: "Piutang Supplier",
+                icon: IconCreditCardRefund,
+                href: "/admin/laporan/piutang-supplier",
+                accessKey: "laporan-piutang-supplier",
+            },
 
             {
                 label: "Kas",
@@ -226,6 +251,18 @@ export const menuAdmin = [
                 icon: IconChartHistogram,
                 href: "/admin/laporan/laba-kotor",
                 accessKey: "laporan-laba-kotor",
+            },
+        ],
+    },
+    {
+        label: "Utility",
+        icon: IconTool,
+        children: [
+            {
+                label: "Tutup Toko",
+                icon: IconBuildingStore,
+                href: "/admin/utility",
+                accessKey: "utility",
             },
         ],
     },

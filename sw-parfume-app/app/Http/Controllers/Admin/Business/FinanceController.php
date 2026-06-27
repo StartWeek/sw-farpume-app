@@ -84,7 +84,7 @@ class FinanceController extends Controller
             'keterangan' => ['nullable', 'string'],
         ]);
 
-        $piutang = $this->business->createPiutangSupplier($validated);
+        $piutang = $this->business->createPiutangSupplier($this->uppercase($validated));
 
         return redirect()
             ->route('business.piutang-supplier.index')

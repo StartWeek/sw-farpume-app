@@ -50,7 +50,7 @@ const LandscapeIcon = ({ size = 14 }) => (
     </svg>
 );
 
-export default function ReportPage({ type, rows = [], filters = {}, refs = {}, searched = false }) {
+export default function ReportPage({ type, rows = [], botolStock = [], filters = {}, refs = {}, searched = false, summary = {}, groups = [] }) {
     useFlashMessages();
     const [orientation, setOrientation] = useState("landscape");
     const [form, setForm] = useState({
@@ -175,7 +175,7 @@ export default function ReportPage({ type, rows = [], filters = {}, refs = {}, s
                                     </Select>
                                 </Field>
                             ) : null}
-                            {type === "stok" ? (
+                            {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
                                 <Field label="Varian Botol">
                                     <Select value={form.id_botol} onChange={(event) => set("id_botol", event.target.value)}>
                                         <option value="">Semua botol</option>
@@ -269,7 +269,29 @@ export default function ReportPage({ type, rows = [], filters = {}, refs = {}, s
 
                 {searched ? (
                     <div className="space-y-3">
-                        <SimpleTable rows={rows} columns={columns(type)} />
+                        <div className="uppercase"><SimpleTable rows={rows} columns={columns(type)} /></div>
+
+                        {type === "stok" && botolStock.length > 0 && (
+                            <Card>
+                                <div className="mb-3 text-sm font-bold">Stok Botol Kosong</div>
+                                <SimpleTable rows={botolStock} columns={[
+                                    { key: "nama_item", label: "Botol" },
+                                    { key: "stok_botol", label: "Stok Botol", render: (row) => number(row.stok_botol) },
+                                    { key: "dus", label: "Dus/Sisa", render: (row) => `${number(row.dus)} dus ${number(row.sisa_botol)} botol` },
+                                ]} />
+                            </Card>
+                        )}
+
+                        {groups.length > 0 && (
+                            <Card>
+                                <div className="mb-3 text-sm font-bold">Rekap per Customer/Supplier</div>
+                                <SimpleTable rows={groups} columns={[
+                                    { key: "pihak", label: "Customer/Supplier" },
+                                    { key: "total", label: "Total", render: (row) => money(row.total) },
+                                    { key: "sisa", label: "Sisa", render: (row) => money(row.sisa) },
+                                ]} />
+                            </Card>
+                        )}
 
                         {/* Export Bar */}
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -355,6 +377,9 @@ function columns(type) {
         { key: "supplier", label: "Supplier", render: (row) => row.supplier?.nama_supplier || "-" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
         { key: "total_qty_ml", label: "Qty ML", render: (row) => number(row.total_qty_ml) },
+        { key: "total_qty_botol", label: "Qty Botol", render: (row) => number(row.total_qty_botol) },
+        { key: "details", label: "Detail Barang", render: detailItems },
+        { key: "discount", label: "Diskon", render: (row) => money(row.discount) },
         { key: "total_pembelian", label: "Total", render: (row) => money(row.total_pembelian) },
         { key: "status_pembayaran", label: "Status" },
     ];
@@ -362,18 +387,19 @@ function columns(type) {
         { key: "no_penjualan", label: "No Penjualan" },
         { key: "customer", label: "Customer", render: (row) => row.customer?.nama_customer || "-" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
+        { key: "details", label: "Detail Barang", render: detailItems },
+        { key: "discount", label: "Diskon", render: (row) => money(row.discount) },
         { key: "total_penjualan", label: "Penjualan", render: (row) => money(row.total_penjualan) },
         { key: "total_modal", label: "Modal", render: (row) => money(row.total_modal) },
         { key: "laba_kotor", label: "Laba", render: (row) => money(row.laba_kotor) },
     ];
     if (type === "stok") return [
-        { key: "jenis_barang", label: "Jenis" },
         { key: "nama_item", label: "Barang" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
-        { key: "stok_ml", label: "Stok ML", render: (row) => row.jenis_barang === "BOTOL" ? "-" : number(row.stok_ml) },
-        { key: "liter", label: "Liter/Sisa ML", render: (row) => row.jenis_barang === "BOTOL" ? "-" : `${number(row.liter)} liter ${number(row.sisa_ml)} ml` },
-        { key: "stok_botol", label: "Stok Botol", render: (row) => row.jenis_barang === "BOTOL" ? number(row.stok_botol) : "-" },
-        { key: "dus", label: "Dus/Sisa Botol", render: (row) => row.jenis_barang === "BOTOL" ? `${number(row.dus)} dus ${number(row.sisa_botol)} botol` : "-" },
+        { key: "botol", label: "Botol", render: (row) => row.botol?.nama_botol || "-" },
+        { key: "stok_ml", label: "Stok ML", render: (row) => number(row.stok_ml) },
+        { key: "stok_botol_isi", label: "Botol Isi", render: (row) => number(row.stok_botol_isi) },
+        { key: "sisa_botol_ml", label: "Sisa ML", render: (row) => number(row.sisa_botol_ml) },
         { key: "minimum_stok_ml", label: "Minimum", render: (row) => row.minimum_stok_ml ? number(row.minimum_stok_ml) : "-" },
     ];
     if (type === "mutasi-stok") return [
@@ -384,6 +410,7 @@ function columns(type) {
         { key: "qty_ml", label: "Qty ML", render: (row) => number(row.qty_ml) },
     ];
     if (type === "barang-summary") return [
+        { key: "botol", label: "Botol", render: (row) => row.barang?.botol?.nama_botol || "-" },
         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
         { key: "total_masuk_ml", label: "Masuk ML", render: (row) => number(row.total_masuk_ml) },
@@ -416,6 +443,7 @@ function columns(type) {
         { key: "pihak", label: "Customer/Sales/Supplier" },
         { key: "kas_masuk", label: "Kas Masuk", render: (row) => money(row.kas_masuk) },
         { key: "kas_keluar", label: "Kas Keluar", render: (row) => money(row.kas_keluar) },
+        { key: "saldo_awal", label: "Saldo Awal", render: (row) => money(row.saldo_awal) },
         { key: "saldo_akhir", label: "Saldo Akhir", render: (row) => money(row.saldo_akhir) },
         { key: "keterangan", label: "Keterangan" },
     ];
@@ -426,4 +454,15 @@ function columns(type) {
         { key: "sisa_piutang", label: "Sisa", render: (row) => money(row.sisa_piutang) },
         { key: "status_piutang", label: "Status" },
     ];
+}
+
+function detailItems(row) {
+    return (row.details || []).map((item) => {
+        const name = item.nama_item || item.barang?.nama_barang || item.botol?.nama_botol || "-";
+        const qty = Number(item.konversi_qty_dasar || item.qty_ml || 0);
+        const unit = item.satuan_dasar || "ML";
+        const ml = Number(item.qty_ml || 0);
+        const perMl = Number(item.harga_jual_per_ml || item.harga_beli_per_ml || 0);
+        return `${name}: ${number(qty)} ${unit}${unit === "BOTOL" ? ` / ${number(ml)} ML` : ""}${perMl ? ` @ ${money(perMl)}/ML` : ""}`;
+    }).join("; ") || "-";
 }

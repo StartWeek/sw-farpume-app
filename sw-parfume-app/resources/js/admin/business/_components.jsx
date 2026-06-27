@@ -10,6 +10,9 @@ import {
     IconSearch,
     IconTrash,
 } from "@tabler/icons-react";
+import { formatBusinessDate, formatInputNumber, isBusinessDateKey, rawInputNumber } from "./formatters";
+
+export { formatBusinessDate, formatInputNumber, rawInputNumber } from "./formatters";
 
 export const money = (value) =>
     new Intl.NumberFormat("id-ID", {
@@ -22,15 +25,6 @@ export const number = (value) =>
     new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(
         Number(value || 0),
     );
-
-export const formatInputNumber = (value) => {
-    const digits = String(value ?? "").replace(/\D/g, "");
-    if (!digits) return "";
-
-    return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Number(digits));
-};
-
-export const rawInputNumber = (value) => String(value ?? "").replace(/\D/g, "");
 
 export const todayDate = () => new Date().toLocaleDateString("en-CA");
 
@@ -287,7 +281,9 @@ export function SimpleTable({ columns, rows, renderActions }) {
                                         <td key={`${column.key || column.label}-${columnIndex}`} className="px-4 py-3 font-medium text-main">
                                             {column.render
                                                 ? column.render(row)
-                                                : row[column.key] || "-"}
+                                                : isBusinessDateKey(column.key)
+                                                    ? formatBusinessDate(row[column.key])
+                                                    : (row[column.key] ?? "-")}
                                         </td>
                                     ))}
                                     {renderActions ? (
@@ -372,7 +368,7 @@ function PaginationBar({ pagination }) {
                     onChange={(event) => visit(1, event.target.value)}
                     searchable={false}
                     >
-                        {[10, 25, 50, 100].map((value) => (
+                        {[10, 25, 50].map((value) => (
                             <option key={value} value={value}>
                                 {value}
                             </option>

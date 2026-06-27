@@ -121,8 +121,11 @@
                                 } elseif (isset($col['key'])) {
                                     $val = data_get($row, $col['key']);
                                 }
+                                if (isset($col['key']) && preg_match('/tanggal|_at$/i', $col['key']) && $val) {
+                                    $val = \Carbon\Carbon::parse($val)->format('d-m-y');
+                                }
                             @endphp
-                            {{ $val ?? '-' }}
+                            {{ is_string($val) ? mb_strtoupper($val) : ($val ?? '-') }}
                         </td>
                     @endforeach
                 </tr>
@@ -132,7 +135,41 @@
                 </tr>
             @endforelse
         </tbody>
+        @if(!empty($summary))
+        <tfoot>
+            <tr style="background-color: #e9ecef; font-weight: bold;">
+                <td style="text-transform: uppercase;">GRAND TOTAL</td>
+                @php
+                    $summaryValues = array_values($summary);
+                    $summaryLabels = array_keys($summary);
+                    $colCount = count($columns);
+                    $valIdx = 0;
+                @endphp
+                @for($c = 1; $c < $colCount; $c++)
+                    @php
+                        $val = $summaryValues[$valIdx] ?? null;
+                        $lbl = $summaryLabels[$valIdx] ?? '';
+                        $display = '';
+                        if ($val !== null) {
+                            $display = preg_match('/ML|BOTOL|TRANSAKSI/i', $lbl)
+                                ? number_format((float) $val, 2, ',', '.')
+                                : 'Rp ' . number_format((float) $val, 0, ',', '.');
+                            $valIdx++;
+                        }
+                    @endphp
+                    <td class="text-right">{{ $display }}</td>
+                @endfor
+            </tr>
+        </tfoot>
+        @endif
     </table>
+
+    @if(!empty($groups))
+        <h3 style="margin-top: 20px;">REKAP PER PIHAK</h3>
+        <table class="data-table"><thead><tr><th>Customer/Supplier</th><th>Total</th><th>Sisa</th></tr></thead><tbody>
+        @foreach($groups as $group)<tr><td>{{ strtoupper($group['pihak']) }}</td><td>Rp {{ number_format($group['total'], 0, ',', '.') }}</td><td>Rp {{ number_format($group['sisa'], 0, ',', '.') }}</td></tr>@endforeach
+        </tbody></table>
+    @endif
 
 </body>
 </html>

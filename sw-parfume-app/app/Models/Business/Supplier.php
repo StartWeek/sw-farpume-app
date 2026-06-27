@@ -9,7 +9,7 @@ class Supplier extends Model
 {
     protected $table = 'tm_supplier';
 
-    protected $fillable = ['kode_supplier', 'nama_supplier', 'no_hp', 'alamat', 'keterangan', 'status'];
+    protected $fillable = ['kode_supplier', 'nama_supplier', 'pic_name', 'no_hp', 'alamat', 'keterangan', 'status'];
 
     public function pembelian(): HasMany
     {

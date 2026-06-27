@@ -15,6 +15,9 @@ use App\Models\Business\Penjualan;
 use App\Models\Business\Piutang;
 use App\Models\Business\PiutangSupplier;
 use App\Models\Business\Supplier;
+use App\Models\Business\TokoClosing;
+use App\Models\Business\SystemDate;
+use App\Models\Business\StokGudang;
 use App\Models\Business\Wangi;
 use App\Models\User;
 use App\Services\Business\BusinessService;
@@ -257,7 +260,7 @@ class BusinessTransactionReportTest extends TestCase
         $customer = Customer::query()->create([
             'kode_customer' => 'CUS-0001',
             'nama_customer' => 'Customer Sales',
-            'tipe_customer' => 'GROSIR',
+            'tipe_customer' => 'SALES',
             'status' => 'AKTIF',
         ]);
 
@@ -335,6 +338,134 @@ class BusinessTransactionReportTest extends TestCase
         }
     }
 
+    public function test_bottle_sale_records_bottle_quantity_capacity_and_equivalent_price_per_ml(): void
+    {
+        [, $gudang] = $this->seedPurchaseData();
+        $customer = Customer::query()->create([
+            'kode_customer' => 'CUS-0001',
+            'nama_customer' => 'Customer Retail',
+            'tipe_customer' => 'RETAIL',
+            'status' => 'AKTIF',
+        ]);
+        $botol = Botol::query()->create([
+            'kode_botol' => 'BTL-0700',
+            'varian_ml' => 700,
+            'nama_botol' => 'Botol 700 ML',
+            'isi_per_dus' => 1,
+            'harga_beli_per_botol' => 50000,
+            'harga_jual_per_botol' => 70000,
+            'stock_botol' => 2,
+            'status' => 'AKTIF',
+        ]);
+
+        $sale = app(BusinessService::class)->createPenjualan([
+            'id_customer' => $customer->id,
+            'tipe_penjualan' => 'RETAIL',
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'tipe_item' => 'BOTOL',
+                'item_id' => $botol->id,
+                'qty_input' => 1,
+                'satuan_input' => 'BOTOL',
+            ]],
+        ]);
+
+        $detail = $sale->details()->firstOrFail();
+        $this->assertSame('1.00', $detail->konversi_qty_dasar);
+        $this->assertSame('700.00', $detail->qty_ml);
+        $this->assertSame('70000.00', $detail->subtotal_jual);
+        $this->assertSame('100.00', $detail->harga_jual_per_ml);
+        $this->assertSame('1.00', $botol->refresh()->stock_botol);
+    }
+
+    public function test_liquid_stock_uses_selected_bottle_and_tracks_active_remainder(): void
+    {
+        [, $gudang, $barang] = $this->seedPurchaseData();
+        $customer = Customer::query()->create([
+            'kode_customer' => 'CUS-BOTOL',
+            'nama_customer' => 'Customer Botol',
+            'tipe_customer' => 'RETAIL',
+            'status' => 'AKTIF',
+        ]);
+        $botol = $barang->botol()->firstOrFail();
+
+        app(BusinessService::class)->createStockMutation([
+            'id_gudang' => $gudang->id,
+            'id_barang' => $barang->id,
+            'tipe_mutasi' => 'MASUK',
+            'jumlah_botol' => 1,
+        ]);
+
+        $this->assertSame('999.00', $botol->refresh()->stock_botol);
+
+        app(BusinessService::class)->createPenjualan([
+            'id_customer' => $customer->id,
+            'tipe_penjualan' => 'RETAIL',
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'tipe_item' => 'BIBIT',
+                'item_id' => $barang->id,
+                'qty_input' => 10,
+                'satuan_input' => 'ML',
+            ]],
+        ]);
+
+        $stock = StokGudang::query()->with('barang.botol')->firstOrFail();
+        $this->assertSame('90.00', $stock->stok_ml);
+        $this->assertSame(1, $stock->stok_botol_isi);
+        $this->assertSame(90.0, $stock->sisa_botol_ml);
+
+        $user = User::query()->create([
+            'username' => 'stock-report',
+            'name' => 'Stock Report',
+            'email' => 'stock-report@example.test',
+            'password' => 'secret',
+            'role' => 'superadmin',
+        ]);
+        $this->actingAs($user)
+            ->get('/admin/laporan/stok?search=1&jenis_barang=BIBIT&per_page=50')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('rows.per_page', 50)
+                ->where('rows.data.0.stok_botol_isi', 1)
+                ->where('rows.data.0.sisa_botol_ml', 90)
+            );
+    }
+
+    public function test_closing_store_carries_ending_balance_to_next_operational_day(): void
+    {
+        SystemDate::query()->updateOrCreate(['id' => 1], ['tanggal_system' => '2026-06-20']);
+        KasMutasi::query()->create([
+            'tanggal' => '2026-06-20',
+            'no_transaksi' => 'KAS-0001',
+            'jenis_transaksi' => 'MASUK',
+            'sumber_transaksi' => 'MODAL',
+            'kas_masuk' => 100000,
+            'kas_keluar' => 0,
+            'saldo_akhir' => 100000,
+        ]);
+
+        $closing = app(BusinessService::class)->closeStore(null, 'TUTUP HARIAN');
+
+        $this->assertInstanceOf(TokoClosing::class, $closing);
+        $this->assertSame('100000.00', $closing->saldo_akhir);
+        $this->assertSame('2026-06-21', app(BusinessService::class)->operationalDate()->toDateString());
+        $this->assertTrue(SystemDate::query()->whereDate('tanggal_system', '2026-06-21')->exists());
+        $this->assertTrue(TokoClosing::query()
+            ->whereDate('tanggal_tutup', '2026-06-20')
+            ->where('saldo_akhir', 100000)
+            ->exists());
+
+        $cash = app(BusinessService::class)->createManualCash([
+            'tanggal' => '2026-06-20',
+            'jenis_transaksi' => 'MASUK',
+            'jumlah' => 1000,
+        ]);
+        $this->assertSame('2026-06-21', $cash->tanggal->toDateString());
+    }
+
     private function seedPurchaseData(): array
     {
         $supplier = Supplier::query()->create([
@@ -357,10 +488,21 @@ class BusinessTransactionReportTest extends TestCase
             'nama_brand' => 'Brand Test',
             'status' => 'AKTIF',
         ]);
+        $botol = Botol::query()->create([
+            'kode_botol' => 'BTL-STOCK',
+            'varian_ml' => 100,
+            'nama_botol' => 'Botol Stok 100 ML',
+            'isi_per_dus' => 1,
+            'harga_beli_per_botol' => 1000,
+            'harga_jual_per_botol' => 1500,
+            'stock_botol' => 1000,
+            'status' => 'AKTIF',
+        ]);
         $barang = BarangBibit::query()->create([
             'kode_barang' => 'BRG-0001',
             'id_wangi' => $wangi->id,
             'id_brand' => $brand->id,
+            'id_botol' => $botol->id,
             'nama_barang' => 'Vanilla - Brand Test',
             'harga_beli_per_ml' => 1000,
             'harga_jual_retail_per_ml' => 1500,

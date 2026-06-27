@@ -12,13 +12,15 @@ class BarangBibit extends Model
 
     protected $fillable = [
         'kode_barang',
-        'id_wangi',
         'id_brand',
+        'id_botol',
         'nama_barang',
         'jenis_barang',
         'harga_beli_per_ml',
         'harga_jual_retail_per_ml',
         'harga_jual_grosir_per_ml',
+        'harga_beli_per_botol',
+        'harga_jual_per_botol',
         'minimum_stok_ml',
         'satuan_dasar',
         'status',
@@ -28,17 +30,19 @@ class BarangBibit extends Model
         'harga_beli_per_ml' => 'decimal:2',
         'harga_jual_retail_per_ml' => 'decimal:2',
         'harga_jual_grosir_per_ml' => 'decimal:2',
+        'harga_beli_per_botol' => 'decimal:2',
+        'harga_jual_per_botol' => 'decimal:2',
         'minimum_stok_ml' => 'decimal:2',
     ];
-
-    public function wangi(): BelongsTo
-    {
-        return $this->belongsTo(Wangi::class, 'id_wangi');
-    }
 
     public function brand(): BelongsTo
     {
         return $this->belongsTo(Brand::class, 'id_brand');
+    }
+
+    public function botol(): BelongsTo
+    {
+        return $this->belongsTo(Botol::class, 'id_botol');
     }
 
     public function stok(): HasMany

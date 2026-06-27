@@ -17,7 +17,8 @@ use App\Models\Business\PiutangSupplier;
 use App\Models\Business\Sales;
 use App\Models\Business\StokGudang;
 use App\Models\Business\Supplier;
-use App\Models\Business\Wangi;
+use App\Models\Business\TokoClosing;
+use App\Models\Business\SystemDate;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -26,7 +27,6 @@ use Illuminate\Validation\ValidationException;
 class BusinessService
 {
     public const MASTERS = [
-        'wangi' => ['model' => Wangi::class, 'code' => 'kode_wangi', 'prefix' => 'WNG', 'label' => 'Data Wangi'],
         'brand' => ['model' => Brand::class, 'code' => 'kode_brand', 'prefix' => 'BRD', 'label' => 'Data Brand'],
         'gudang' => ['model' => Gudang::class, 'code' => 'kode_gudang', 'prefix' => 'GDG', 'label' => 'Data Gudang'],
         'supplier' => ['model' => Supplier::class, 'code' => 'kode_supplier', 'prefix' => 'SUP', 'label' => 'Data Supplier'],
@@ -54,17 +54,15 @@ class BusinessService
     public function createBarang(array $payload): BarangBibit
     {
         return DB::transaction(function () use ($payload) {
-            $wangi = Wangi::query()->findOrFail($payload['id_wangi']);
             $brand = Brand::query()->findOrFail($payload['id_brand']);
 
-            if (BarangBibit::query()->where('id_wangi', $wangi->id)->where('id_brand', $brand->id)->exists()) {
-                throw ValidationException::withMessages(['id_brand' => 'Kombinasi wangi dan brand sudah ada.']);
+            if (BarangBibit::query()->where('id_brand', $brand->id)->where('nama_barang', $payload['nama_barang'])->exists()) {
+                throw ValidationException::withMessages(['nama_barang' => 'Nama barang sudah ada.']);
             }
 
             return BarangBibit::query()->create([
                 ...$payload,
                 'kode_barang' => $this->nextCode(BarangBibit::class, 'kode_barang', 'BRG'),
-                'nama_barang' => "{$wangi->nama_wangi} - {$brand->nama_brand}",
                 'jenis_barang' => $payload['jenis_barang'] ?? 'BIBIT',
                 'satuan_dasar' => 'ML',
             ]);
@@ -74,22 +72,36 @@ class BusinessService
     public function updateBarang(BarangBibit $barang, array $payload): BarangBibit
     {
         return DB::transaction(function () use ($barang, $payload) {
-            $wangi = Wangi::query()->findOrFail($payload['id_wangi']);
             $brand = Brand::query()->findOrFail($payload['id_brand']);
 
             $exists = BarangBibit::query()
                 ->whereKeyNot($barang->id)
-                ->where('id_wangi', $wangi->id)
                 ->where('id_brand', $brand->id)
+                ->where('nama_barang', $payload['nama_barang'])
                 ->exists();
 
             if ($exists) {
-                throw ValidationException::withMessages(['id_brand' => 'Kombinasi wangi dan brand sudah ada.']);
+                throw ValidationException::withMessages(['nama_barang' => 'Nama barang sudah ada.']);
+            }
+
+            $newBottleId = (int) $payload['id_botol'];
+            $currentBottleId = (int) ($barang->id_botol ?? 0);
+            $existingStocks = $barang->stok()->where('stok_ml', '>', 0)->get();
+            if ($currentBottleId > 0 && $currentBottleId !== $newBottleId && $existingStocks->isNotEmpty()) {
+                throw ValidationException::withMessages(['id_botol' => 'Botol stok tidak dapat diganti selama stok barang masih tersedia.']);
+            }
+
+            if ($currentBottleId === 0 && $existingStocks->isNotEmpty()) {
+                $botol = Botol::query()->lockForUpdate()->findOrFail($newBottleId);
+                $required = $existingStocks->sum(fn (StokGudang $stock) => $this->filledBottleCount((float) $stock->stok_ml, (float) $botol->varian_ml));
+                if ((float) $botol->stock_botol < $required) {
+                    throw ValidationException::withMessages(['id_botol' => "Stok {$botol->nama_botol} membutuhkan {$required} botol kosong."]);
+                }
+                $botol->decrement('stock_botol', $required);
             }
 
             $barang->update([
                 ...$payload,
-                'nama_barang' => "{$wangi->nama_wangi} - {$brand->nama_brand}",
                 'jenis_barang' => $payload['jenis_barang'] ?? 'BIBIT',
                 'satuan_dasar' => 'ML',
             ]);
@@ -100,7 +112,10 @@ class BusinessService
 
     public function replaceStock(int $gudangId, int $barangId, float $qtyMl, array $meta): StokGudang
     {
-        $barang = BarangBibit::query()->findOrFail($barangId);
+        $barang = BarangBibit::query()->with('botol')->findOrFail($barangId);
+        if (! $barang->botol) {
+            throw ValidationException::withMessages(['items' => "Botol stok untuk {$barang->nama_barang} belum dipilih di master barang."]);
+        }
         $stock = StokGudang::query()->firstOrCreate(
             ['id_gudang' => $gudangId, 'id_barang' => $barangId],
             ['stok_ml' => 0, 'stok_reserved_ml' => 0, 'minimum_stok_ml' => $barang->minimum_stok_ml]
@@ -113,6 +128,17 @@ class BusinessService
             throw ValidationException::withMessages(['items' => 'Stok barang tidak mencukupi.']);
         }
 
+        $beforeBottles = $this->filledBottleCount($before, (float) $barang->botol->varian_ml);
+        $afterBottles = $this->filledBottleCount($after, (float) $barang->botol->varian_ml);
+        $neededBottles = max(0, $afterBottles - $beforeBottles);
+        if ($neededBottles > 0) {
+            $botol = Botol::query()->lockForUpdate()->findOrFail($barang->botol->id);
+            if ((float) $botol->stock_botol < $neededBottles) {
+                throw ValidationException::withMessages(['items' => "Stok {$botol->nama_botol} tidak cukup. Dibutuhkan {$neededBottles} botol kosong."]);
+            }
+            $botol->decrement('stock_botol', $neededBottles);
+        }
+
         $stock->update([
             'stok_ml' => $after,
             'minimum_stok_ml' => $barang->minimum_stok_ml,
@@ -120,7 +146,7 @@ class BusinessService
         ]);
 
         MutasiStok::query()->create([
-            'tanggal' => now()->toDateString(),
+            'tanggal' => $this->operationalDate()->toDateString(),
             'tipe_mutasi' => $qtyMl < 0 ? 'KELUAR' : 'MASUK',
             'sumber_transaksi' => $meta['sumber_transaksi'] ?? 'ADJUSTMENT',
             'no_transaksi' => $meta['no_transaksi'] ?? 'MANUAL',
@@ -140,10 +166,19 @@ class BusinessService
     {
         $multiplier = ($payload['tipe_mutasi'] ?? 'MASUK') === 'KELUAR' ? -1 : 1;
 
+        $qtyMl = (float) ($payload['qty_ml'] ?? 0);
+        if ($multiplier === 1 && isset($payload['jumlah_botol'])) {
+            $barang = BarangBibit::query()->with('botol')->findOrFail($payload['id_barang']);
+            if (! $barang->botol) {
+                throw ValidationException::withMessages(['id_barang' => 'Pilih botol stok pada master barang terlebih dahulu.']);
+            }
+            $qtyMl = (float) $payload['jumlah_botol'] * (float) $barang->botol->varian_ml;
+        }
+
         return DB::transaction(fn () => $this->replaceStock(
             (int) $payload['id_gudang'],
             (int) $payload['id_barang'],
-            ((float) $payload['qty_ml']) * $multiplier,
+            $qtyMl * $multiplier,
             [
                 'sumber_transaksi' => 'ADJUSTMENT',
                 'no_transaksi' => $payload['no_transaksi'] ?? 'MANUAL',
@@ -153,32 +188,47 @@ class BusinessService
         ));
     }
 
+    private function filledBottleCount(float $stockMl, float $capacityMl): int
+    {
+        return $stockMl > 0 && $capacityMl > 0 ? (int) ceil($stockMl / $capacityMl) : 0;
+    }
+
     private function purchaseDetail(array $item): array
     {
         $type = $this->normalizeItemType($item['tipe_item'] ?? 'BIBIT');
         $unit = strtoupper($item['satuan_input'] ?? 'ML');
         $qtyInput = (float) $item['qty_input'];
+        $discount = (float) ($item['discount'] ?? 0);
 
         if ($type === 'BOTOL') {
             $this->ensureUnit($unit, ['BOTOL', 'DUS'], 'botol');
             $botol = Botol::query()->findOrFail($item['item_id'] ?? $item['id_botol'] ?? null);
+            $barang = isset($item['id_barang']) ? BarangBibit::query()->find($item['id_barang']) : null;
+
             $qtyBotol = $unit === 'DUS' ? $this->dusToBotol($qtyInput, (int) $botol->isi_per_dus) : $qtyInput;
-            $price = (float) ($item['harga'] ?? $item['harga_beli_per_botol'] ?? $botol->harga_beli_per_botol);
+
+            // Harga beli: prioritaskan dari master barang, fallback ke master botol
+            $barangBeliPerBotol = (float) ($barang?->harga_beli_per_botol ?? 0);
+            $defaultPrice = $barangBeliPerBotol > 0 ? $barangBeliPerBotol : (float) $botol->harga_beli_per_botol;
+            $price = (float) ($item['harga'] ?? $item['harga_beli_per_botol'] ?? $defaultPrice);
+
             $subtotal = $unit === 'DUS' ? $qtyInput * $price : $qtyBotol * $price;
+            $subtotalAfterDiscount = $subtotal - $discount;
 
             return [
                 'tipe_item' => 'BOTOL',
                 'item_id' => $botol->id,
-                'nama_item' => $botol->nama_botol,
-                'id_barang' => null,
+                'nama_item' => $barang?->nama_barang ?? $botol->nama_botol,
+                'id_barang' => $barang?->id ?? null,
                 'qty_input' => $qtyInput,
                 'satuan_input' => $unit,
-                'qty_ml' => 0,
+                'qty_ml' => $qtyBotol * (int) $botol->varian_ml,
                 'konversi_qty_dasar' => $qtyBotol,
                 'satuan_dasar' => 'BOTOL',
                 'harga' => $price,
-                'harga_beli_per_ml' => 0,
-                'subtotal' => $subtotal,
+                'harga_beli_per_ml' => (float) $botol->varian_ml > 0 ? $price / (float) $botol->varian_ml : 0,
+                'subtotal' => $subtotalAfterDiscount,
+                'discount' => $discount,
             ];
         }
 
@@ -187,6 +237,7 @@ class BusinessService
         $qtyMl = $this->convertToMl($qtyInput, $unit);
         $price = (float) ($item['harga'] ?? $item['harga_beli_per_ml'] ?? $barang->harga_beli_per_ml);
         $subtotal = $qtyMl * $price;
+        $subtotalAfterDiscount = $subtotal - $discount;
 
         return [
             'tipe_item' => $barang->jenis_barang === 'ABSOLUTE' ? 'ABSOLUTE' : 'BIBIT',
@@ -200,7 +251,8 @@ class BusinessService
             'satuan_dasar' => 'ML',
             'harga' => $price,
             'harga_beli_per_ml' => $price,
-            'subtotal' => $subtotal,
+            'subtotal' => $subtotalAfterDiscount,
+            'discount' => $discount,
         ];
     }
 
@@ -209,44 +261,61 @@ class BusinessService
         $type = $this->normalizeItemType($item['tipe_item'] ?? 'BIBIT');
         $unit = strtoupper($item['satuan_input'] ?? 'ML');
         $qtyInput = (float) ($item['qty_input'] ?? $item['qty_ml'] ?? 0);
+        $discount = (float) ($item['discount'] ?? 0);
 
         if ($type === 'BOTOL') {
             $this->ensureUnit($unit, ['BOTOL', 'DUS'], 'botol');
             $botol = Botol::query()->findOrFail($item['item_id'] ?? $item['id_botol'] ?? null);
+            $barang = isset($item['id_barang']) ? BarangBibit::query()->find($item['id_barang']) : null;
+
             $qtyBotol = $unit === 'DUS' ? $this->dusToBotol($qtyInput, (int) $botol->isi_per_dus) : $qtyInput;
+
+            // Harga jual: prioritaskan dari master barang, fallback ke master botol
+            $barangJualPerBotol = (float) ($barang?->harga_jual_per_botol ?? 0);
             $defaultPrice = $unit === 'DUS' && (float) $botol->harga_jual_per_dus > 0
                 ? (float) $botol->harga_jual_per_dus
-                : (float) $botol->harga_jual_per_botol;
+                : ($barangJualPerBotol > 0 ? $barangJualPerBotol : (float) $botol->harga_jual_per_botol);
             $price = (float) ($item['harga'] ?? $defaultPrice);
-            $modal = $qtyBotol * (float) $botol->harga_beli_per_botol;
+
+            // Harga beli (modal): prioritaskan dari master barang, fallback ke master botol
+            $barangBeliPerBotol = (float) ($barang?->harga_beli_per_botol ?? 0);
+            $beliPerBotol = $barangBeliPerBotol > 0 ? $barangBeliPerBotol : (float) $botol->harga_beli_per_botol;
+            $modal = $qtyBotol * $beliPerBotol;
+
             $jual = $unit === 'DUS' ? $qtyInput * $price : $qtyBotol * $price;
+            $jualAfterDiscount = $jual - $discount;
 
             return [
                 'tipe_item' => 'BOTOL',
                 'item_id' => $botol->id,
-                'nama_item' => $botol->nama_botol,
-                'id_barang' => null,
+                'nama_item' => $barang?->nama_barang ?? $botol->nama_botol,
+                'id_barang' => $barang?->id ?? null,
                 'qty_input' => $qtyInput,
                 'satuan_input' => $unit,
-                'qty_ml' => 0,
+                'qty_ml' => $qtyBotol * (int) $botol->varian_ml,
                 'konversi_qty_dasar' => $qtyBotol,
                 'satuan_dasar' => 'BOTOL',
                 'harga' => $price,
-                'harga_beli_per_ml' => 0,
-                'harga_jual_per_ml' => 0,
+                'harga_beli_per_ml' => (float) $botol->varian_ml > 0 ? $beliPerBotol / (float) $botol->varian_ml : 0,
+                'harga_jual_per_ml' => (float) $botol->varian_ml > 0 ? ($unit === 'DUS' ? $jual / max(1, $qtyBotol) : $price) / (float) $botol->varian_ml : 0,
                 'subtotal_modal' => $modal,
-                'subtotal_jual' => $jual,
-                'laba_kotor' => $jual - $modal,
+                'subtotal_jual' => $jualAfterDiscount,
+                'laba_kotor' => $jualAfterDiscount - $modal,
+                'discount' => $discount,
             ];
         }
 
         $this->ensureUnit($unit, ['ML', 'LITER'], 'cairan');
         $barang = BarangBibit::query()->findOrFail($item['item_id'] ?? $item['id_barang'] ?? null);
         $qtyMl = $this->convertToMl($qtyInput, $unit);
-        $defaultPrice = $salesType === 'RETAIL' ? (float) $barang->harga_jual_retail_per_ml : (float) $barang->harga_jual_grosir_per_ml;
+        $salesPrice = (float) $barang->harga_jual_grosir_per_ml;
+        $defaultPrice = $salesType === 'RETAIL' || $salesPrice <= 0
+            ? (float) $barang->harga_jual_retail_per_ml
+            : $salesPrice;
         $price = (float) ($item['harga'] ?? $defaultPrice);
         $modal = $qtyMl * (float) $barang->harga_beli_per_ml;
         $jual = $qtyMl * $price;
+        $jualAfterDiscount = $jual - $discount;
 
         return [
             'tipe_item' => $barang->jenis_barang === 'ABSOLUTE' ? 'ABSOLUTE' : 'BIBIT',
@@ -262,8 +331,9 @@ class BusinessService
             'harga_beli_per_ml' => $barang->harga_beli_per_ml,
             'harga_jual_per_ml' => $price,
             'subtotal_modal' => $modal,
-            'subtotal_jual' => $jual,
-            'laba_kotor' => $jual - $modal,
+            'subtotal_jual' => $jualAfterDiscount,
+            'laba_kotor' => $jualAfterDiscount - $modal,
+            'discount' => $discount,
         ];
     }
 
@@ -340,7 +410,7 @@ class BusinessService
         $number = sprintf('KAS-%s-%04d', now()->format('Ymd'), $lastId + 1);
 
         return $this->recordCash(
-            $payload['tanggal'] ?? now()->toDateString(),
+            $this->operationalDate()->toDateString(),
             $number,
             $payload['jenis_transaksi'],
             'MANUAL',
@@ -371,17 +441,20 @@ class BusinessService
                 $details[] = $detail;
             }
 
-            $payment = $this->paymentAmounts($payload['metode_pembayaran'], $total, (float) ($payload['jumlah_bayar'] ?? 0));
+            $headerDiscount = (float) ($payload['discount'] ?? 0);
+            $totalAfterDiscount = max(0, $total - $headerDiscount);
+            $payment = $this->paymentAmounts($payload['metode_pembayaran'], $totalAfterDiscount, (float) ($payload['jumlah_bayar'] ?? 0));
             $number = $this->nextCode(Pembelian::class, 'no_pembelian', 'PBL');
             $pembelian = Pembelian::query()->create([
                 'no_pembelian' => $number,
-                'tanggal' => $payload['tanggal'] ?? now()->toDateString(),
+                'tanggal' => $this->operationalDate()->toDateString(),
                 'id_supplier' => $payload['id_supplier'],
                 'id_gudang' => $payload['id_gudang'],
                 'total_qty_ml' => $totalQtyMl,
                 'total_qty_botol' => $totalQtyBotol,
-                'total_pembelian' => $total,
+                'total_pembelian' => $totalAfterDiscount,
                 'jumlah_bayar' => $payment['paid'],
+                'discount' => $headerDiscount,
                 'metode_pembayaran' => $payment['stored_method'],
                 'status_pembayaran' => $payment['status'],
                 'jatuh_tempo' => $payload['jatuh_tempo'] ?? null,
@@ -391,6 +464,9 @@ class BusinessService
 
             foreach ($details as $detail) {
                 $pembelian->details()->create($detail);
+            }
+
+            foreach (collect($details)->sortBy(fn (array $detail) => $detail['satuan_dasar'] === 'BOTOL' ? 0 : 1) as $detail) {
                 $this->applyStockMovement((int) $payload['id_gudang'], $detail, 1, $number, 'PEMBELIAN', $payload);
             }
 
@@ -405,7 +481,7 @@ class BusinessService
                     'tanggal' => $pembelian->tanggal,
                     'id_supplier' => $payload['id_supplier'],
                     'id_pembelian' => $pembelian->id,
-                    'total_hutang' => $total,
+                    'total_hutang' => $totalAfterDiscount,
                     'total_bayar' => $payment['paid'],
                     'sisa_hutang' => $payment['remaining'],
                     'status_hutang' => $this->debtStatus($payment['remaining'], $payment['paid']),
@@ -424,8 +500,9 @@ class BusinessService
         }
 
         return DB::transaction(function () use ($payload) {
-            $customer = Customer::query()->findOrFail($payload['id_customer']);
-            $type = $this->normalizeSalesType($payload['tipe_penjualan'] ?? $customer->tipe_customer);
+            $customerId = $payload['id_customer'] ?? null;
+            $customerName = $customerId ? Customer::query()->findOrFail($customerId)->nama_customer : ($payload['manual_customer_name'] ?? 'Customer Manual');
+            $type = $this->normalizeSalesType($payload['tipe_penjualan'] ?? 'RETAIL');
             $details = [];
             $totalQtyMl = 0;
             $totalQtyBotol = 0;
@@ -441,21 +518,25 @@ class BusinessService
                 $details[] = $detail;
             }
 
-            $payment = $this->paymentAmounts($payload['metode_pembayaran'], $totalJual, (float) ($payload['jumlah_bayar'] ?? 0));
+            $headerDiscount = (float) ($payload['discount'] ?? 0);
+            $totalAfterDiscount = max(0, $totalJual - $headerDiscount);
+            $payment = $this->paymentAmounts($payload['metode_pembayaran'], $totalAfterDiscount, (float) ($payload['jumlah_bayar'] ?? 0));
             $number = $this->nextCode(Penjualan::class, 'no_penjualan', 'PJL');
             $penjualan = Penjualan::query()->create([
                 'no_penjualan' => $number,
-                'tanggal' => $payload['tanggal'] ?? now()->toDateString(),
-                'id_customer' => $payload['id_customer'],
+                'tanggal' => $this->operationalDate()->toDateString(),
+                'id_customer' => $customerId,
+                'manual_customer_name' => $payload['manual_customer_name'] ?? null,
                 'tipe_penjualan' => $type,
                 'id_sales' => $payload['id_sales'] ?? null,
                 'id_gudang' => $payload['id_gudang'],
                 'total_qty_ml' => $totalQtyMl,
                 'total_qty_botol' => $totalQtyBotol,
-                'total_penjualan' => $totalJual,
+                'total_penjualan' => $totalAfterDiscount,
                 'jumlah_bayar' => $payment['paid'],
+                'discount' => $headerDiscount,
                 'total_modal' => $totalModal,
-                'laba_kotor' => $totalJual - $totalModal,
+                'laba_kotor' => $totalAfterDiscount - $totalModal,
                 'metode_pembayaran' => $payment['stored_method'],
                 'status_pembayaran' => $payment['status'],
                 'jatuh_tempo' => $payload['jatuh_tempo'] ?? null,
@@ -469,16 +550,16 @@ class BusinessService
             }
 
             if ($payment['paid'] > 0) {
-                $this->recordCash($penjualan->tanggal->toDateString(), $number, 'MASUK', $type === 'RETAIL' ? 'Penjualan retail' : 'Penjualan sales', $customer->nama_customer, $payment['paid'], $payload['keterangan'] ?? null, $payload['created_by'] ?? auth()->user()?->name);
+                $this->recordCash($penjualan->tanggal->toDateString(), $number, 'MASUK', $type === 'RETAIL' ? 'Penjualan retail' : 'Penjualan sales', $customerName, $payment['paid'], $payload['keterangan'] ?? null, $payload['created_by'] ?? auth()->user()?->name);
             }
 
-            if ($payment['remaining'] > 0) {
+            if ($payment['remaining'] > 0 && $customerId) {
                 Piutang::query()->create([
                     'no_piutang' => $this->nextCode(Piutang::class, 'no_piutang', 'PTG'),
                     'tanggal' => $penjualan->tanggal,
-                    'id_customer' => $payload['id_customer'],
+                    'id_customer' => $customerId,
                     'id_penjualan' => $penjualan->id,
-                    'total_piutang' => $totalJual,
+                    'total_piutang' => $totalAfterDiscount,
                     'total_bayar' => $payment['paid'],
                     'sisa_piutang' => $payment['remaining'],
                     'status_piutang' => $this->debtStatus($payment['remaining'], $payment['paid']),
@@ -503,7 +584,7 @@ class BusinessService
             ]);
         }
 
-        $this->recordCash(now()->toDateString(), $hutang->no_hutang, 'KELUAR', 'Pelunasan hutang supplier', $hutang->supplier?->nama_supplier, $amount, $hutang->keterangan, auth()->user()?->name);
+        $this->recordCash($this->operationalDate()->toDateString(), $hutang->no_hutang, 'KELUAR', 'Pelunasan hutang supplier', $hutang->supplier?->nama_supplier, $amount, $hutang->keterangan, auth()->user()?->name);
 
         return $hutang->refresh();
     }
@@ -512,7 +593,7 @@ class BusinessService
     {
         return Hutang::query()->create([
             'no_hutang' => $this->nextCode(Hutang::class, 'no_hutang', 'HTG'),
-            'tanggal' => $payload['tanggal'] ?? now()->toDateString(),
+            'tanggal' => $this->operationalDate()->toDateString(),
             'id_supplier' => $payload['id_supplier'],
             'id_pembelian' => null,
             'total_hutang' => $payload['total_hutang'],
@@ -538,7 +619,7 @@ class BusinessService
             ]);
         }
 
-        $this->recordCash(now()->toDateString(), $piutang->no_piutang, 'MASUK', 'Pelunasan piutang customer/sales', $piutang->customer?->nama_customer, $amount, null, auth()->user()?->name);
+        $this->recordCash($this->operationalDate()->toDateString(), $piutang->no_piutang, 'MASUK', 'Pelunasan piutang customer/sales', $piutang->customer?->nama_customer, $amount, null, auth()->user()?->name);
 
         return $piutang->refresh();
     }
@@ -547,7 +628,7 @@ class BusinessService
     {
         return PiutangSupplier::query()->create([
             'no_piutang_supplier' => $this->nextCode(PiutangSupplier::class, 'no_piutang_supplier', 'PTS'),
-            'tanggal' => $payload['tanggal'] ?? now()->toDateString(),
+            'tanggal' => $this->operationalDate()->toDateString(),
             'id_supplier' => $payload['id_supplier'],
             'total_piutang' => $payload['total_piutang'],
             'total_bayar' => 0,
@@ -570,11 +651,11 @@ class BusinessService
 
     public function dashboard(): array
     {
-        $today = Carbon::today();
+        $today = $this->operationalDate();
         $month = $today->format('Y-m');
         $salesToday = Penjualan::query()->whereDate('tanggal', $today)->get();
         $buysToday = Pembelian::query()->whereDate('tanggal', $today)->get();
-        $stocks = StokGudang::query()->with(['gudang', 'barang.wangi', 'barang.brand'])->get();
+        $stocks = StokGudang::query()->with(['gudang', 'barang.brand', 'barang.botol'])->get();
         $lowStocks = $stocks->filter(fn (StokGudang $stock) => (float) $stock->stok_ml <= (float) $stock->minimum_stok_ml)->values();
 
         return [
@@ -588,6 +669,54 @@ class BusinessService
             'laba_kotor_bulan_ini' => Penjualan::query()->where('tanggal', 'like', "{$month}%")->sum('laba_kotor'),
             'inventory_per_gudang' => $stocks->groupBy(fn ($stock) => $stock->gudang?->nama_gudang ?? 'Tidak diketahui')->map(fn ($rows, $name) => ['name' => $name, 'stok_ml' => $rows->sum('stok_ml')])->values(),
         ];
+    }
+
+    public function operationalDate(): Carbon
+    {
+        $system = SystemDate::query()->firstOrCreate(
+            ['id' => 1],
+            ['tanggal_system' => Carbon::today()->toDateString()]
+        );
+
+        return Carbon::parse($system->tanggal_system);
+    }
+
+    public function closeStore(?string $date = null, ?string $note = null): TokoClosing
+    {
+        return DB::transaction(function () use ($date, $note): TokoClosing {
+            $system = SystemDate::query()->lockForUpdate()->firstOrCreate(
+                ['id' => 1],
+                ['tanggal_system' => Carbon::today()->toDateString()]
+            );
+            $businessDate = Carbon::parse($system->tanggal_system);
+
+            if ($date && ! Carbon::parse($date)->isSameDay($businessDate)) {
+                throw ValidationException::withMessages(['tanggal_tutup' => 'Tanggal tutup harus sama dengan tanggal system.']);
+            }
+
+            if (TokoClosing::query()->whereDate('tanggal_tutup', $businessDate)->exists()) {
+                throw ValidationException::withMessages(['tanggal_tutup' => 'Tanggal operasional ini sudah ditutup.']);
+            }
+
+            $previousClosing = TokoClosing::query()->whereDate('tanggal_tutup', '<', $businessDate)->latest('tanggal_tutup')->first();
+            $saldoAwal = (float) ($previousClosing?->saldo_akhir ?? 0);
+            $cashIn = (float) KasMutasi::query()->whereDate('tanggal', $businessDate)->sum('kas_masuk');
+            $cashOut = (float) KasMutasi::query()->whereDate('tanggal', $businessDate)->sum('kas_keluar');
+
+            $closing = TokoClosing::query()->create([
+                'tanggal_tutup' => $businessDate->toDateString(),
+                'saldo_awal' => $saldoAwal,
+                'saldo_akhir' => $saldoAwal + $cashIn - $cashOut,
+                'total_penjualan' => Penjualan::query()->whereDate('tanggal', $businessDate)->sum('total_penjualan'),
+                'total_pembelian' => Pembelian::query()->whereDate('tanggal', $businessDate)->sum('total_pembelian'),
+                'keterangan' => $note,
+                'created_by' => auth()->user()?->name,
+            ]);
+
+            $system->update(['tanggal_system' => $businessDate->copy()->addDay()->toDateString()]);
+
+            return $closing;
+        });
     }
 
     public function convertToMl(float $qty, string $unit): float

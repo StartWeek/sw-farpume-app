@@ -19,12 +19,12 @@ import {
 } from "./_components";
 import { IconPlus } from "@tabler/icons-react";
 
-export default function KasPage({ rows }) {
+export default function KasPage({ rows, operationalDate = todayDate() }) {
     useFlashMessages();
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     const { data, setData, post, processing, errors, reset, clearErrors } = useForm({
-        tanggal: todayDate(),
+        tanggal: operationalDate,
         jenis_transaksi: "MASUK",
         jumlah: "",
         pihak: "",
@@ -47,7 +47,7 @@ export default function KasPage({ rows }) {
     };
 
     const columns = [
-        { key: "tanggal", label: "Tanggal", render: (row) => row.tanggal },
+        { key: "tanggal", label: "Tanggal" },
         { key: "no_transaksi", label: "No Transaksi" },
         {
             key: "jenis_transaksi",
@@ -89,7 +89,7 @@ export default function KasPage({ rows }) {
                                 <Input
                                     type="date"
                                     value={data.tanggal}
-                                    onChange={(e) => setData("tanggal", e.target.value)}
+                                    readOnly
                                     required
                                 />
                                 {errors.tanggal && <div className="mt-1 text-xs text-red-500">{errors.tanggal}</div>}

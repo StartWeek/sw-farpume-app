@@ -10,7 +10,6 @@ use App\Models\Business\Customer;
 use App\Models\Business\Gudang;
 use App\Models\Business\Sales;
 use App\Models\Business\Supplier;
-use App\Models\Business\Wangi;
 use App\Services\EncryptService;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -27,7 +26,6 @@ class DatabaseSeeder extends Seeder
         $encrypt = new EncryptService();
         $allAccess = [
             'dashboard',
-            'master-wangi',
             'master-brand',
             'barang-bibit',
             'master-gudang',
@@ -56,6 +54,9 @@ class DatabaseSeeder extends Seeder
             'laporan-piutang-supplier',
             'laporan-kas',
             'laporan-laba-kotor',
+            'riwayat-pembelian',
+            'riwayat-penjualan',
+            'utility',
         ];
 
         User::query()->updateOrCreate(['username' => 'sw'], [
@@ -88,16 +89,6 @@ class DatabaseSeeder extends Seeder
             ],
         ]);
 
-        $fresh = Wangi::query()->firstOrCreate(
-            ['kode_wangi' => 'WNG-0001'],
-            ['nama_wangi' => 'Fresh Citrus', 'kategori_aroma' => 'Fresh', 'status' => 'AKTIF']
-        );
-
-        $oud = Wangi::query()->firstOrCreate(
-            ['kode_wangi' => 'WNG-0002'],
-            ['nama_wangi' => 'Soft Oud', 'kategori_aroma' => 'Woody', 'status' => 'AKTIF']
-        );
-
         $brandA = Brand::query()->firstOrCreate(
             ['kode_brand' => 'BRD-0001'],
             ['nama_brand' => 'Maison A', 'negara_asal' => 'Indonesia', 'status' => 'AKTIF']
@@ -125,7 +116,7 @@ class DatabaseSeeder extends Seeder
 
         Customer::query()->firstOrCreate(
             ['kode_customer' => 'CUS-0002'],
-            ['nama_customer' => 'Customer Sales Wangi', 'tipe_customer' => 'GROSIR', 'limit_piutang' => 5000000, 'status' => 'AKTIF']
+            ['nama_customer' => 'Customer Sales Wangi', 'tipe_customer' => 'SALES', 'limit_piutang' => 5000000, 'status' => 'AKTIF']
         );
 
         Sales::query()->firstOrCreate(
@@ -136,9 +127,8 @@ class DatabaseSeeder extends Seeder
         BarangBibit::query()->firstOrCreate(
             ['kode_barang' => 'BRG-0001'],
             [
-                'id_wangi' => $fresh->id,
                 'id_brand' => $brandA->id,
-                'nama_barang' => "{$fresh->nama_wangi} - {$brandA->nama_brand}",
+                'nama_barang' => "FRESH CITRUS - {$brandA->nama_brand}",
                 'jenis_barang' => 'BIBIT',
                 'harga_beli_per_ml' => 1200,
                 'harga_jual_retail_per_ml' => 2500,
@@ -152,9 +142,8 @@ class DatabaseSeeder extends Seeder
         BarangBibit::query()->firstOrCreate(
             ['kode_barang' => 'BRG-0002'],
             [
-                'id_wangi' => $oud->id,
                 'id_brand' => $brandB->id,
-                'nama_barang' => "{$oud->nama_wangi} - {$brandB->nama_brand}",
+                'nama_barang' => "SOFT OUD - {$brandB->nama_brand}",
                 'jenis_barang' => 'BIBIT',
                 'harga_beli_per_ml' => 1800,
                 'harga_jual_retail_per_ml' => 3500,
@@ -186,5 +175,11 @@ class DatabaseSeeder extends Seeder
                 ]
             );
         }
+
+        $stockBottleId = Botol::query()->where('kode_botol', 'BTL-0002')->value('id');
+        BarangBibit::query()
+            ->whereIn('kode_barang', ['BRG-0001', 'BRG-0002'])
+            ->whereNull('id_botol')
+            ->update(['id_botol' => $stockBottleId]);
     }
 }

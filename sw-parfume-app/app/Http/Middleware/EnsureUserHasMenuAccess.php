@@ -55,9 +55,12 @@ class EnsureUserHasMenuAccess
             'business.mutation.index', 'business.mutation.store' => 'mutasi-stok',
             'business.pembelian.index', 'business.pembelian.store' => 'pembelian',
             'business.penjualan.store' => in_array($request->input('tipe_penjualan'), ['GROSIR', 'SALES'], true) ? 'penjualan-grosir' : 'penjualan-retail',
-            'business.hutang.index', 'business.hutang.store', 'business.hutang.pay' => 'hutang',
+            'business.riwayat.pembelian' => 'riwayat-pembelian',
+            'business.riwayat.penjualan' => 'riwayat-penjualan',
+            'business.hutang.index', 'business.hutang.pay' => 'hutang',
             'business.piutang.index', 'business.piutang.pay' => 'piutang',
             'business.piutang-supplier.index', 'business.piutang-supplier.store', 'business.piutang-supplier.pay' => 'piutang-supplier',
+            'business.utility.index', 'business.utility.close' => 'utility',
             default => $this->resourceAccess($request),
         };
     }
@@ -77,7 +80,6 @@ class EnsureUserHasMenuAccess
 
         if (str_starts_with($routeName, 'business.master.')) {
             return match ($request->route('resource')) {
-                'wangi' => 'master-wangi',
                 'brand' => 'master-brand',
                 'gudang' => 'master-gudang',
                 'supplier' => 'master-supplier',
@@ -88,7 +90,7 @@ class EnsureUserHasMenuAccess
             };
         }
 
-        if ($routeName === 'business.penjualan.index') {
+        if (in_array($routeName, ['business.penjualan.index', 'business.riwayat.penjualan'], true)) {
             return in_array($request->route('type'), ['grosir', 'sales'], true) ? 'penjualan-grosir' : 'penjualan-retail';
         }
 

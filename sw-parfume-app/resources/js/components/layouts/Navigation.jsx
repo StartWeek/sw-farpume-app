@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useForm, usePage } from "@inertiajs/react";
 import {
-    IconBell,
     IconSearch,
     IconLogout,
     IconUser,
@@ -11,9 +10,10 @@ import {
 import toast from "react-hot-toast";
 import { useSidebarStore } from "@/store/sidebarStore";
 import DefaultFoto from "@/assets/images/defaultfoto.jpg";
+import { formatBusinessDate } from "@/admin/business/formatters";
 
 export default function Navigation() {
-    const { auth } = usePage().props;
+    const { auth, systemDate } = usePage().props;
     const [showUserDropdown, setShowUserDropdown] = useState(false);
     const userDropdownRef = useRef(null);
     const { toggleSidebar, searchQuery, setSearchQuery } = useSidebarStore();
@@ -78,11 +78,10 @@ export default function Navigation() {
 
             {/* Right Side Icons */}
             <div className="flex items-center gap-1">
-                {/* Notification Bell */}
-                <button className="relative rounded-xl p-2 transition-colors hover:bg-page">
-                    <IconBell size={20} className="text-main" />
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full border-2 border-card bg-red-500"></span>
-                </button>
+                <div className="hidden text-right sm:block">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted">Tanggal System</div>
+                    <div className="text-xs font-extrabold text-main">{formatBusinessDate(systemDate)}</div>
+                </div>
 
                 {/* Divider */}
                 <div className="mx-2 h-6 w-px bg-stroke" />

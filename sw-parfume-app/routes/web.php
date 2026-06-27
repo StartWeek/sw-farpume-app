@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\Business\InventoryController;
 use App\Http\Controllers\Admin\Business\MasterController;
 use App\Http\Controllers\Admin\Business\ReportController;
 use App\Http\Controllers\Admin\Business\TransactionController;
+use App\Http\Controllers\Admin\Business\UtilityController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -65,8 +66,10 @@ Route::middleware(['auth', 'menu.access'])->prefix('admin')->group(function () {
     Route::get('/penjualan/{type}', [TransactionController::class, 'penjualan'])->name('business.penjualan.index');
     Route::post('/penjualan', [TransactionController::class, 'storePenjualan'])->name('business.penjualan.store');
 
+    Route::get('/riwayat-pembelian', [TransactionController::class, 'riwayatPembelian'])->name('business.riwayat.pembelian');
+    Route::get('/riwayat-penjualan/{type}', [TransactionController::class, 'riwayatPenjualan'])->name('business.riwayat.penjualan');
+
     Route::get('/hutang', [FinanceController::class, 'hutang'])->name('business.hutang.index');
-    Route::post('/hutang', [FinanceController::class, 'storeHutang'])->name('business.hutang.store');
     Route::post('/hutang/{hutang}/bayar', [FinanceController::class, 'payHutang'])->name('business.hutang.pay');
     Route::get('/piutang', [FinanceController::class, 'piutang'])->name('business.piutang.index');
     Route::post('/piutang/{piutang}/bayar', [FinanceController::class, 'payPiutang'])->name('business.piutang.pay');
@@ -78,6 +81,9 @@ Route::middleware(['auth', 'menu.access'])->prefix('admin')->group(function () {
     Route::post('/kas', [\App\Http\Controllers\Admin\Business\KasController::class, 'store'])->name('business.kas.store');
 
     Route::get('/laporan/{type}', [ReportController::class, 'show'])->name('business.report.show');
+
+    Route::get('/utility', [UtilityController::class, 'index'])->name('business.utility.index');
+    Route::post('/utility/tutup-toko', [UtilityController::class, 'close'])->name('business.utility.close');
 
 
 });

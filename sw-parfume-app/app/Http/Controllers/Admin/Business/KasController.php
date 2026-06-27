@@ -19,9 +19,11 @@ class KasController extends Controller
         return Inertia::render('admin/business/KasPage', [
             'rows' => KasMutasi::query()
                 ->where('sumber_transaksi', 'MANUAL')
+                ->whereDate('tanggal', $this->business->operationalDate())
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
+            'operationalDate' => $this->business->operationalDate()->toDateString(),
         ]);
     }
 
@@ -35,7 +37,7 @@ class KasController extends Controller
             'keterangan' => ['nullable', 'string'],
         ]);
 
-        $this->business->createManualCash($validated);
+        $this->business->createManualCash($this->uppercase($validated));
 
         return redirect()
             ->route('business.kas.index')

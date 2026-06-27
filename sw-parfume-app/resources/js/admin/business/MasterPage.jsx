@@ -16,7 +16,6 @@ import {
 import Button from "@/components/common/Button";
 
 const codeByResource = {
-    wangi: "kode_wangi",
     brand: "kode_brand",
     gudang: "kode_gudang",
     supplier: "kode_supplier",
@@ -101,7 +100,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
                                                 setForm({
                                                     ...form,
                                                     [field.name]:
-                                                        event.target.value,
+                                                        event.target.value.toUpperCase(),
                                                 })
                                             }
                                         >
@@ -121,7 +120,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
                                                 setForm({
                                                     ...form,
                                                     [field.name]:
-                                                        event.target.value,
+                                                        event.target.value.toUpperCase(),
                                                 })
                                             }
                                         />
@@ -133,7 +132,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [] }) 
                                                 setForm({
                                                     ...form,
                                                     [field.name]:
-                                                        event.target.value,
+                                                        event.target.value.toUpperCase(),
                                                 })
                                             }
                                         />

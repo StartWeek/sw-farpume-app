@@ -35,7 +35,7 @@ class MasterController extends Controller
     {
         abort_unless(isset(BusinessService::MASTERS[$resource]), 404);
 
-        $this->business->createMaster($resource, $request->validate($this->rules($resource)));
+        $this->business->createMaster($resource, $this->uppercase($request->validate($this->rules($resource))));
 
         return back()->with('success', 'Data berhasil ditambahkan.');
     }
@@ -46,7 +46,7 @@ class MasterController extends Controller
 
         $model = BusinessService::MASTERS[$resource]['model'];
         $row = $model::query()->findOrFail($id);
-        $row->update($request->validate($this->rules($resource)));
+        $row->update($this->uppercase($request->validate($this->rules($resource))));
 
         return back()->with('success', 'Data berhasil diperbarui.');
     }
@@ -64,11 +64,10 @@ class MasterController extends Controller
     private function rules(string $resource): array
     {
         return match ($resource) {
-            'wangi' => ['nama_wangi' => ['required', 'string', 'max:255'], 'kategori_aroma' => ['nullable', 'string', 'max:255'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
             'brand' => ['nama_brand' => ['required', 'string', 'max:255'], 'negara_asal' => ['nullable', 'string', 'max:255'], 'keterangan' => ['nullable', 'string'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
             'gudang' => ['nama_gudang' => ['required', 'string', 'max:255'], 'alamat' => ['nullable', 'string'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
-            'supplier' => ['nama_supplier' => ['required', 'string', 'max:255'], 'no_hp' => ['nullable', 'string', 'max:50'], 'alamat' => ['nullable', 'string'], 'keterangan' => ['nullable', 'string'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
-            'customer' => ['nama_customer' => ['required', 'string', 'max:255'], 'tipe_customer' => ['required', 'in:RETAIL,GROSIR,SALES,TOKO'], 'no_hp' => ['nullable', 'string', 'max:50'], 'alamat' => ['nullable', 'string'], 'limit_piutang' => ['nullable', 'numeric', 'min:0'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
+            'supplier' => ['nama_supplier' => ['required', 'string', 'max:255'], 'pic_name' => ['nullable', 'string', 'max:255'], 'no_hp' => ['nullable', 'string', 'max:50'], 'alamat' => ['nullable', 'string'], 'keterangan' => ['nullable', 'string'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
+            'customer' => ['nama_customer' => ['required', 'string', 'max:255'], 'tipe_customer' => ['required', 'in:RETAIL,SALES'], 'no_hp' => ['nullable', 'string', 'max:50'], 'alamat' => ['nullable', 'string'], 'limit_piutang' => ['nullable', 'numeric', 'min:0'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
             'sales' => ['nama_sales' => ['required', 'string', 'max:255'], 'no_hp' => ['nullable', 'string', 'max:50'], 'alamat' => ['nullable', 'string'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
             'botol' => ['varian_ml' => ['required', 'integer', 'min:1'], 'nama_botol' => ['required', 'string', 'max:255'], 'isi_per_dus' => ['required', 'integer', 'min:1'], 'harga_beli_per_botol' => ['nullable', 'numeric', 'min:0'], 'harga_jual_per_botol' => ['nullable', 'numeric', 'min:0'], 'harga_jual_per_dus' => ['nullable', 'numeric', 'min:0'], 'stock_botol' => ['nullable', 'numeric', 'min:0'], 'status' => ['required', 'in:AKTIF,NONAKTIF']],
             default => [],
@@ -87,11 +86,10 @@ class MasterController extends Controller
         $commonStatus = ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'options' => ['AKTIF', 'NONAKTIF']];
 
         return match ($resource) {
-            'wangi' => [['name' => 'nama_wangi', 'label' => 'Nama Wangi'], ['name' => 'kategori_aroma', 'label' => 'Kategori Aroma'], $commonStatus],
             'brand' => [['name' => 'nama_brand', 'label' => 'Nama Brand'], ['name' => 'negara_asal', 'label' => 'Negara Asal'], ['name' => 'keterangan', 'label' => 'Keterangan', 'type' => 'textarea'], $commonStatus],
             'gudang' => [['name' => 'nama_gudang', 'label' => 'Nama Gudang'], ['name' => 'alamat', 'label' => 'Alamat', 'type' => 'textarea'], $commonStatus],
-            'supplier' => [['name' => 'nama_supplier', 'label' => 'Nama Supplier'], ['name' => 'no_hp', 'label' => 'No HP'], ['name' => 'alamat', 'label' => 'Alamat', 'type' => 'textarea'], ['name' => 'keterangan', 'label' => 'Keterangan', 'type' => 'textarea'], $commonStatus],
-            'customer' => [['name' => 'nama_customer', 'label' => 'Nama Customer'], ['name' => 'tipe_customer', 'label' => 'Tipe Customer', 'type' => 'select', 'options' => ['RETAIL', 'SALES', 'TOKO']], ['name' => 'no_hp', 'label' => 'No HP'], ['name' => 'alamat', 'label' => 'Alamat', 'type' => 'textarea'], ['name' => 'limit_piutang', 'label' => 'Limit Piutang', 'type' => 'number'], $commonStatus],
+            'supplier' => [['name' => 'nama_supplier', 'label' => 'Nama Supplier'], ['name' => 'pic_name', 'label' => 'PIC Name'], ['name' => 'no_hp', 'label' => 'No HP'], ['name' => 'alamat', 'label' => 'Alamat', 'type' => 'textarea'], ['name' => 'keterangan', 'label' => 'Keterangan', 'type' => 'textarea'], $commonStatus],
+            'customer' => [['name' => 'nama_customer', 'label' => 'Nama Customer'], ['name' => 'tipe_customer', 'label' => 'Tipe Customer', 'type' => 'select', 'options' => ['RETAIL', 'SALES']], ['name' => 'no_hp', 'label' => 'No HP'], ['name' => 'alamat', 'label' => 'Alamat', 'type' => 'textarea'], ['name' => 'limit_piutang', 'label' => 'Limit Piutang', 'type' => 'number'], $commonStatus],
             'sales' => [['name' => 'nama_sales', 'label' => 'Nama Sales'], ['name' => 'no_hp', 'label' => 'No HP'], ['name' => 'alamat', 'label' => 'Alamat', 'type' => 'textarea'], $commonStatus],
             'botol' => [['name' => 'nama_botol', 'label' => 'Nama Botol'], ['name' => 'varian_ml', 'label' => 'Varian ML', 'type' => 'number'], ['name' => 'isi_per_dus', 'label' => 'Isi Per Dus', 'type' => 'number'], ['name' => 'harga_beli_per_botol', 'label' => 'Harga Beli/Botol', 'type' => 'number'], ['name' => 'harga_jual_per_botol', 'label' => 'Harga Jual/Botol', 'type' => 'number'], ['name' => 'harga_jual_per_dus', 'label' => 'Harga Jual/Dus', 'type' => 'number'], ['name' => 'stock_botol', 'label' => 'Stok Botol', 'type' => 'number'], $commonStatus],
             default => [],

@@ -18,6 +18,8 @@ class StokGudang extends Model
         'last_update' => 'datetime',
     ];
 
+    protected $appends = ['stok_botol_isi', 'sisa_botol_ml'];
+
     public function gudang(): BelongsTo
     {
         return $this->belongsTo(Gudang::class, 'id_gudang');
@@ -26,5 +28,25 @@ class StokGudang extends Model
     public function barang(): BelongsTo
     {
         return $this->belongsTo(BarangBibit::class, 'id_barang');
+    }
+
+    public function getStokBotolIsiAttribute(): int
+    {
+        $capacity = (float) ($this->barang?->botol?->varian_ml ?? 0);
+
+        return $capacity > 0 ? (int) ceil((float) $this->stok_ml / $capacity) : 0;
+    }
+
+    public function getSisaBotolMlAttribute(): float
+    {
+        $stock = (float) $this->stok_ml;
+        $capacity = (float) ($this->barang?->botol?->varian_ml ?? 0);
+        if ($stock <= 0 || $capacity <= 0) {
+            return 0;
+        }
+
+        $remainder = fmod($stock, $capacity);
+
+        return $remainder > 0 ? $remainder : $capacity;
     }
 }

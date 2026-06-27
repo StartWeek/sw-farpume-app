@@ -26,6 +26,20 @@ class PenjualanDetail extends Model
         'subtotal_modal',
         'subtotal_jual',
         'laba_kotor',
+        'discount',
+    ];
+
+    protected $casts = [
+        'qty_input' => 'decimal:2',
+        'qty_ml' => 'decimal:2',
+        'konversi_qty_dasar' => 'decimal:2',
+        'harga' => 'decimal:2',
+        'harga_beli_per_ml' => 'decimal:2',
+        'harga_jual_per_ml' => 'decimal:2',
+        'subtotal_modal' => 'decimal:2',
+        'subtotal_jual' => 'decimal:2',
+        'laba_kotor' => 'decimal:2',
+        'discount' => 'decimal:2',
     ];
 
     public function barang(): BelongsTo

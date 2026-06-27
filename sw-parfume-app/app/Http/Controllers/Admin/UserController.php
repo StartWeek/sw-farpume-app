@@ -151,7 +151,6 @@ class UserController extends Controller
         return match ($role) {
             'manager', 'kepala_toko' => [
                 'dashboard',
-                'master-wangi',
                 'master-brand',
                 'barang-bibit',
                 'master-gudang',
@@ -176,6 +175,7 @@ class UserController extends Controller
                 'laporan-piutang',
                 'laporan-piutang-supplier',
                 'laporan-laba-kotor',
+                'utility',
             ],
             default => [
                 'dashboard',
@@ -195,7 +195,6 @@ class UserController extends Controller
     {
         return [
             ['key' => 'dashboard', 'label' => 'Dasbor', 'group' => 'Utama'],
-            ['key' => 'master-wangi', 'label' => 'Wangi', 'group' => 'Master Data'],
             ['key' => 'master-brand', 'label' => 'Brand', 'group' => 'Master Data'],
             ['key' => 'barang-bibit', 'label' => 'Barang Bibit', 'group' => 'Master Data'],
             ['key' => 'master-gudang', 'label' => 'Gudang', 'group' => 'Master Data'],
@@ -224,6 +223,7 @@ class UserController extends Controller
             ['key' => 'laporan-piutang-supplier', 'label' => 'Laporan Piutang Supplier', 'group' => 'Laporan'],
             ['key' => 'laporan-kas', 'label' => 'Laporan Kas', 'group' => 'Laporan'],
             ['key' => 'laporan-laba-kotor', 'label' => 'Laporan Laba Kotor', 'group' => 'Laporan'],
+            ['key' => 'utility', 'label' => 'Tutup Toko', 'group' => 'Utility'],
         ];
     }
 }
