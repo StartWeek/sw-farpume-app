@@ -65,21 +65,72 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
         );
     };
 
+    const tableFields = useMemo(() => {
+        if (resource === "supplier") {
+            const supplierFields = [
+                { name: "nama_supplier", label: "Nama Supplier" },
+                { name: "tipe_gudang", label: "Tipe Gudang" },
+                { name: "id_gudang", label: "Gudang" },
+                { name: "pic_name", label: "PIC Name" },
+                { name: "no_hp", label: "No HP" },
+            ];
+
+            const existingFieldNames = new Set(fields.map((f) => f.name));
+            return supplierFields.filter((f) => existingFieldNames.has(f.name) || ["tipe_gudang", "id_gudang"].includes(f.name));
+        }
+
+        const baseFields = fields.filter((f) => f.name !== "status" && f.name !== "limit_piutang");
+        return baseFields.slice(0, 4);
+    }, [fields, resource]);
+
     const columns = useMemo(
         () => [
             { key: codeByResource[resource], label: "Kode" },
-            ...fields
-                .filter((f) => f.name !== "status" && f.name !== "limit_piutang")
-                .filter((f, index) => index < 4)
-                .map((f) => ({
-                    key: f.name,
-                    label: f.label,
-                    ...(f.optionsRef ? { render: (row) => row.gudang ? `${row.gudang.kode_gudang} - ${row.gudang.nama_gudang}` : "-" } : {}),
-                    ...(f.type === "number" ? { render: (row) => number(row[f.name]) } : {}),
-                })),
+            ...tableFields.map((f) => ({
+                key: f.name,
+                label: f.label,
+                render: (row) => {
+                    if (resource === "supplier" && f.name === "tipe_gudang") {
+                        const warehouse = (refs.gudang || []).find((item) => String(item.id) === String(row.id_gudang));
+                        return row.tipe_gudang || row.gudang_type_label || warehouse?.tipe_gudang || "-";
+                    }
+
+                    if (resource === "supplier" && f.name === "id_gudang") {
+                        if (row.gudang_label) {
+                            return row.gudang_label;
+                        }
+
+                        if (row.gudang) {
+                            return `${row.gudang.kode_gudang} - ${row.gudang.nama_gudang}`;
+                        }
+
+                        const warehouse = (refs.gudang || []).find((item) => String(item.id) === String(row.id_gudang));
+                        if (warehouse) {
+                            return `${warehouse.kode_gudang} - ${warehouse.nama_gudang}`;
+                        }
+
+                        if (row.id_gudang) {
+                            return row.id_gudang;
+                        }
+
+                        return "-";
+                    }
+
+                    if (f.optionsRef && row[f.optionsRef]) {
+                        const related = row[f.optionsRef];
+                        return `${related.kode_gudang || related.kode || related.nama_gudang || related.nama || ""}`.trim();
+                    }
+
+                    if (f.type === "number") {
+                        return number(row[f.name]);
+                    }
+
+                    return row[f.name] ?? "-";
+                },
+            })),
             { key: "status", label: "Status" },
         ],
-        [fields, resource],
+        [resource, tableFields],
     );
 
     // Sembunyikan limit_piutang untuk tipe RETAIL
@@ -94,6 +145,13 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
         [fields, resource, form.tipe_customer],
     );
 
+    const filteredGudangOptions = useMemo(() => {
+        if (resource !== "supplier") return refs.gudang || [];
+        const selectedType = (form.tipe_gudang || "").toUpperCase();
+        if (!selectedType) return refs.gudang || [];
+        return (refs.gudang || []).filter((item) => String(item.tipe_gudang || "").toUpperCase() === selectedType);
+    }, [form.tipe_gudang, refs.gudang, resource]);
+
     const emptyForm = () =>
         Object.fromEntries(
             fields.map((f) => [f.name, f.name === "status" ? "AKTIF" : ""]),
@@ -106,14 +164,19 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
 
     const openEdit = (row) => {
         setEditing(row);
-        setForm(
-            Object.fromEntries(
-                fields.map((f) => [
-                    f.name,
-                    row[f.name] ?? (f.name === "status" ? "AKTIF" : ""),
-                ]),
-            ),
+        const initialForm = Object.fromEntries(
+            fields.map((f) => [
+                f.name,
+                row[f.name] ?? (f.name === "status" ? "AKTIF" : ""),
+            ]),
         );
+
+        if (resource === "supplier") {
+            initialForm.tipe_gudang = row.tipe_gudang || "";
+            initialForm.id_gudang = row.id_gudang || "";
+        }
+
+        setForm(initialForm);
     };
 
     const submit = (e) => {
@@ -146,13 +209,16 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
                                     if (f.name === "tipe_customer" && val === "RETAIL") {
                                         updates.limit_piutang = "";
                                     }
+                                    if (f.name === "tipe_gudang" && resource === "supplier") {
+                                        updates.id_gudang = "";
+                                    }
                                     setForm(updates);
                                 }}
                                 error={errors[f.name]}
                                 placeholder={`Pilih ${f.label}`}
                             >
                                 {f.optionsRef ? (
-                                    (refs[f.optionsRef] || []).map((o) => (
+                                    ((f.name === "id_gudang" && resource === "supplier") ? filteredGudangOptions : (refs[f.optionsRef] || [])).map((o) => (
                                         <option key={o[f.optionValue || "id"]} value={o[f.optionValue || "id"]}>
                                             {o[f.optionLabel]}{f.optionDescription ? ` - ${o[f.optionDescription]}` : ""}
                                         </option>

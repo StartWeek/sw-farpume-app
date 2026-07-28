@@ -273,7 +273,7 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
     );
 }
 
-export function SimpleTable({ columns, rows, renderActions, hidePagination = false }) {
+export function SimpleTable({ columns, rows, renderActions, hidePagination = false, footer = null }) {
     const tableRows = Array.isArray(rows) ? rows : rows?.data || [];
     const hasPagination = !Array.isArray(rows) && rows && !hidePagination;
 
@@ -329,6 +329,7 @@ export function SimpleTable({ columns, rows, renderActions, hidePagination = fal
                             </tr>
                         )}
                     </tbody>
+                    {footer ? <tfoot>{footer}</tfoot> : null}
                 </table>
             </div>
 

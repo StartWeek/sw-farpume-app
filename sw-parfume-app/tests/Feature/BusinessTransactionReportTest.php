@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\Business\BarangBibit;
 use App\Models\Business\Botol;
+use App\Models\Business\BotolKosong;
 use App\Models\Business\Brand;
 use App\Models\Business\Customer;
 use App\Models\Business\Gudang;
+use App\Models\Business\HistoriSaldoBarang;
 use App\Models\Business\Hutang;
 use App\Models\Business\KasMutasi;
 use App\Models\Business\MutasiStok;
@@ -14,6 +16,7 @@ use App\Models\Business\Pembelian;
 use App\Models\Business\Penjualan;
 use App\Models\Business\Piutang;
 use App\Models\Business\PiutangSupplier;
+use App\Models\Business\SaldoBarang;
 use App\Models\Business\Supplier;
 use App\Models\Business\TokoClosing;
 use App\Models\Business\SystemDate;
@@ -22,6 +25,7 @@ use App\Models\Business\Wangi;
 use App\Models\User;
 use App\Services\Business\BusinessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -55,6 +59,16 @@ class BusinessTransactionReportTest extends TestCase
         $this->assertSame('Gudang Test', $reportRow->gudang->nama_gudang);
         $this->assertCount(1, $reportRow->details);
         $this->assertDatabaseHas('tt_mutasi_stok', [
+            'sumber_transaksi' => 'PEMBELIAN',
+            'no_transaksi' => $pembelian->no_pembelian,
+        ]);
+        $this->assertDatabaseHas('tt_barang_bibit', [
+            'id_gudang' => $gudang->id,
+            'id_barang' => $barang->id,
+            'tipe_mutasi' => 'MASUK',
+            'qty_ml' => 2,
+            'stok_awal_ml' => 0,
+            'stok_akhir_ml' => 2,
             'sumber_transaksi' => 'PEMBELIAN',
             'no_transaksi' => $pembelian->no_pembelian,
         ]);
@@ -241,6 +255,241 @@ class BusinessTransactionReportTest extends TestCase
                 ->where('rows.data.0.total_masuk_ml', 10)
                 ->where('rows.data.0.total_keluar_ml', 3)
                 ->where('rows.data.0.selisih_ml', 7)
+                ->where('rows.data.0.stok_awal_ml', '0.00')
+                ->where('rows.data.0.stok_akhir_ml', '7.00')
+            );
+
+        SystemDate::query()->updateOrCreate(['id' => 1], ['tanggal_system' => '2099-01-02']);
+        app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_input' => 5,
+                'satuan_input' => 'ML',
+                'harga_beli_per_ml' => 1000,
+            ]],
+        ]);
+
+        $this->get('/admin/laporan/barang-summary?search=1&tanggal_dari=2099-01-02&tanggal_sampai=2099-01-02')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('rows.data.0.stok_awal_ml', '7.00')
+                ->where('rows.data.0.total_masuk_ml', 5)
+                ->where('rows.data.0.total_keluar_ml', 0)
+                ->where('rows.data.0.stok_akhir_ml', '12.00')
+            );
+    }
+
+    public function test_empty_bottle_purchase_is_recorded_in_stock_and_item_summary_reports(): void
+    {
+        [$supplier, $gudang, $barang] = $this->seedPurchaseData();
+        $botol = BotolKosong::query()->create([
+            'kode_botol' => 'BTK-0010',
+            'id_gudang' => $gudang->id,
+            'nama_botol' => 'Botol Kosong 100 ML',
+            'harga_beli' => 1000,
+            'stock' => 100,
+            'satuan' => 'BOTOL',
+            'status' => 'AKTIF',
+        ]);
+        $user = User::query()->create([
+            'username' => 'bottle-report',
+            'name' => 'Bottle Report',
+            'email' => 'bottle-report@example.test',
+            'password' => 'secret',
+            'role' => 'superadmin',
+        ]);
+
+        $purchase = app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'tipe_item' => 'BOTOL',
+                'item_id' => $botol->id,
+                'qty_input' => 10,
+                'satuan_input' => 'BOTOL',
+                'harga' => 1000,
+            ]],
+        ]);
+        app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'tipe_item' => 'BIBIT',
+                'item_id' => $barang->id,
+                'qty_input' => 25,
+                'satuan_input' => 'ML',
+                'harga' => 1000,
+            ]],
+        ]);
+
+        $this->assertDatabaseHas('tt_botol_kosong', [
+            'id_botol_kosong' => $botol->id,
+            'tipe_mutasi' => 'MASUK',
+            'qty_botol' => 10,
+            'stok_awal' => 100,
+            'stok_akhir' => 110,
+            'sumber_transaksi' => 'PEMBELIAN',
+            'no_transaksi' => $purchase->no_pembelian,
+        ]);
+
+        $this->actingAs($user)
+            ->get('/admin/laporan/stok?search=1&jenis_barang=BOTOL')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('rows.data', 0)
+                ->has('botolStock', 1)
+                ->where('botolStock.0.stok_botol', 110)
+            );
+
+        $this->get('/admin/laporan/barang-summary?search=1&jenis_barang=BOTOL')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('rows.data', 0)
+                ->has('botolSummary', 1)
+                ->where('botolSummary.0.stok_awal', 100)
+                ->where('botolSummary.0.total_masuk', 10)
+                ->where('botolSummary.0.total_keluar', 0)
+                ->where('botolSummary.0.stok_akhir', 110)
+            );
+
+        $this->get('/admin/laporan/stok?search=1&jenis_barang=BIBIT')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('rows.data', 1)
+                ->where('rows.data.0.nama_item', $barang->nama_barang)
+                ->has('botolStock', 0)
+            );
+
+        $this->get('/admin/laporan/barang-summary?search=1&jenis_barang=BIBIT')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('rows.data', 1)
+                ->where('rows.data.0.barang.id', $barang->id)
+                ->has('botolSummary', 0)
+            );
+    }
+
+    public function test_legacy_empty_bottle_purchase_can_be_backfilled_for_item_summary(): void
+    {
+        [$supplier, $gudang] = $this->seedPurchaseData();
+        $botol = BotolKosong::query()->create([
+            'kode_botol' => 'BTK-LEGACY',
+            'id_gudang' => $gudang->id,
+            'nama_botol' => 'Botol Kosong Lama',
+            'harga_beli' => 1000,
+            'stock' => 100,
+            'satuan' => 'BOTOL',
+            'status' => 'AKTIF',
+        ]);
+
+        $purchase = app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'tipe_item' => 'BOTOL',
+                'item_id' => $botol->id,
+                'qty_input' => 10,
+                'satuan_input' => 'BOTOL',
+                'harga' => 1000,
+            ]],
+        ]);
+        DB::table('tt_botol_kosong')->truncate();
+
+        app(BusinessService::class)->backfillBotolKosongTransactions();
+
+        $this->assertDatabaseHas('tt_botol_kosong', [
+            'id_botol_kosong' => $botol->id,
+            'tipe_mutasi' => 'MASUK',
+            'qty_botol' => 10,
+            'stok_awal' => 100,
+            'stok_akhir' => 110,
+            'sumber_transaksi' => 'PEMBELIAN',
+            'no_transaksi' => $purchase->no_pembelian,
+        ]);
+    }
+
+    public function test_barang_balance_is_snapshotted_and_carried_to_the_next_operational_day(): void
+    {
+        [$supplier, $gudang, $barang] = $this->seedPurchaseData();
+        $today = now()->toDateString();
+        $tomorrow = now()->addDay()->toDateString();
+        SystemDate::query()->updateOrCreate(['id' => 1], ['tanggal_system' => $today]);
+
+        app(BusinessService::class)->createPembelian([
+            'id_supplier' => $supplier->id,
+            'id_gudang' => $gudang->id,
+            'metode_pembayaran' => 'CASH',
+            'items' => [[
+                'id_barang' => $barang->id,
+                'qty_input' => 10,
+                'satuan_input' => 'ML',
+                'harga_beli_per_ml' => 1000,
+            ]],
+        ]);
+
+        $this->assertDatabaseHas('tt_saldo_barang', [
+            'id_gudang' => $gudang->id,
+            'id_barang' => $barang->id,
+            'stok_awal_ml' => 0,
+            'masuk_ml' => 10,
+            'keluar_ml' => 0,
+            'stok_akhir_ml' => 10,
+        ]);
+        $this->assertTrue(SaldoBarang::query()->whereDate('tanggal', $today)->exists());
+
+        app(BusinessService::class)->closeStore();
+
+        $this->assertDatabaseHas('th_saldo_barang', [
+            'id_gudang' => $gudang->id,
+            'id_barang' => $barang->id,
+            'stok_awal_ml' => 0,
+            'masuk_ml' => 10,
+            'keluar_ml' => 0,
+            'stok_akhir_ml' => 10,
+        ]);
+        $this->assertTrue(HistoriSaldoBarang::query()->whereDate('tanggal', $today)->exists());
+        $this->assertDatabaseHas('tt_saldo_barang', [
+            'id_gudang' => $gudang->id,
+            'id_barang' => $barang->id,
+            'stok_awal_ml' => 10,
+            'masuk_ml' => 0,
+            'keluar_ml' => 0,
+            'stok_akhir_ml' => 10,
+        ]);
+        $this->assertTrue(SaldoBarang::query()->whereDate('tanggal', $tomorrow)->exists());
+
+        $user = User::query()->create([
+            'username' => 'balance-report',
+            'name' => 'Balance Report',
+            'password' => 'secret',
+            'role' => 'superadmin',
+        ]);
+
+        $this->actingAs($user)
+            ->get("/admin/laporan/barang-summary?search=1&tanggal_dari={$tomorrow}&tanggal_sampai={$tomorrow}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('rows.data', 1)
+                ->where('rows.data.0.stok_awal_ml', '10.00')
+                ->where('rows.data.0.total_masuk_ml', 0)
+                ->where('rows.data.0.total_keluar_ml', 0)
+                ->where('rows.data.0.stok_akhir_ml', '10.00')
+            );
+
+        $this->get("/admin/laporan/barang-summary?search=1&tanggal_dari={$today}&tanggal_sampai={$today}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('rows.data', 1)
+                ->where('rows.data.0.stok_awal_ml', '0.00')
+                ->where('rows.data.0.total_masuk_ml', 10)
+                ->where('rows.data.0.total_keluar_ml', 0)
+                ->where('rows.data.0.stok_akhir_ml', '10.00')
             );
     }
 

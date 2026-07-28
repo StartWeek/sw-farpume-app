@@ -148,23 +148,28 @@
         <tfoot>
             <tr style="background-color: #e9ecef; font-weight: bold;">
                 <td style="text-transform: uppercase;">GRAND TOTAL</td>
-                @php
-                    $summaryValues = array_values($summary);
-                    $summaryLabels = array_keys($summary);
-                    $colCount = count($columns);
-                    $valIdx = 0;
-                @endphp
+                @php $colCount = count($columns); @endphp
                 @for($c = 1; $c < $colCount; $c++)
                     @php
-                        $val = $summaryValues[$valIdx] ?? null;
-                        $lbl = $summaryLabels[$valIdx] ?? '';
+                        $colLabel = $columns[$c]['label'] ?? $columns[$c]['key'] ?? '';
                         $display = '';
-                        if ($val !== null) {
-                            $formatted = preg_replace('/,00$/', '', number_format((float) $val, 2, ',', '.'));
-                            $display = preg_match('/ML|BOTOL|TRANSAKSI/i', $lbl)
-                                ? $formatted
-                                : 'Rp ' . $formatted;
-                            $valIdx++;
+                        // Only try to match on numeric/value columns (skip label/id columns)
+                        $skipPattern = '/^(No\.?\s|No\s)/i';
+                        if (!preg_match($skipPattern, $colLabel)) {
+                            foreach($summary as $summaryKey => $summaryVal) {
+                                $searchKey = str_replace(['Total ', ' ML'], '', $summaryKey);
+                                $colClean = str_replace(['Qty ', 'Total '], '', $colLabel);
+                                if (
+                                    ($searchKey && stripos($colLabel, $searchKey) !== false) ||
+                                    ($colClean && stripos($summaryKey, $colClean) !== false)
+                                ) {
+                                    $formatted = preg_replace('/,00$/', '', number_format((float) $summaryVal, 2, ',', '.'));
+                                    $display = preg_match('/ML|BOTOL|TRANSAKSI/i', $summaryKey)
+                                        ? $formatted
+                                        : 'Rp ' . $formatted;
+                                    break;
+                                }
+                            }
                         }
                     @endphp
                     <td class="text-right">{{ $display }}</td>

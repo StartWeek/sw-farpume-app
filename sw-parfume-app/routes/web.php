@@ -61,9 +61,12 @@ Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group
     Route::get('/stok-menipis', [InventoryController::class, 'lowStock'])->name('business.stock.low');
     Route::get('/mutasi-stok', [InventoryController::class, 'mutations'])->name('business.mutation.index');
     Route::post('/mutasi-stok', [InventoryController::class, 'storeMutation'])->name('business.mutation.store');
+    Route::get('/hancur-stock', [InventoryController::class, 'destroyStock'])->name('business.destroy-stock.index');
+    Route::post('/hancur-stock', [InventoryController::class, 'storeDestroyStock'])->name('business.destroy-stock.store');
 
     Route::get('/pembelian', [TransactionController::class, 'pembelian'])->name('business.pembelian.index');
     Route::post('/pembelian', [TransactionController::class, 'storePembelian'])->name('business.pembelian.store');
+    Route::get('/pembelian/{id}/pdf', [TransactionController::class, 'notaPdf'])->name('business.pembelian.pdf');
     Route::get('/penjualan-botol-kosong', [TransactionController::class, 'penjualanBotolKosong'])->name('business.penjualan-botol-kosong.index');
     Route::post('/penjualan-botol-kosong', [TransactionController::class, 'storePenjualanBotolKosong'])->name('business.penjualan-botol-kosong.store');
     Route::get('/penjualan/{type}', [TransactionController::class, 'penjualan'])->name('business.penjualan.index');

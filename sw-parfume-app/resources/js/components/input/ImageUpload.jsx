@@ -39,7 +39,7 @@ const getAcceptHint = (accept) => {
 const isImageType = (val) => {
     if (val instanceof File) return val.type.startsWith("image/");
     if (typeof val === "string")
-        return /\.(jpg|jpeg|png|gif|webp|svg|bmp)/i.test(val);
+        return /\.(jpe?g|png|gif|webp|svg|bmp|jfif)/i.test(val);
     return false;
 };
 
@@ -56,6 +56,7 @@ const isImageType = (val) => {
  * @param {number} [props.maxSizeMB=2] Max file size in MB
  * @param {boolean} [props.multiple=false] Allow multiple file selection
  * @param {string|null} [props.placeholder] Custom placeholder text for the drop zone
+ * @param {string} [props.uploadType="default"] Processing type sent to API ("sidebar_logo", "login_logo", "default")
  */
 const ImageUpload = ({
     label,
@@ -69,6 +70,7 @@ const ImageUpload = ({
     maxSizeMB = 2,
     multiple = false,
     placeholder = null,
+    uploadType = "default",
 }) => {
     const maxBytes = maxSizeMB * 1024 * 1024;
     const objectUrlsRef = useRef([]);
@@ -150,6 +152,7 @@ const ImageUpload = ({
             for (const file of files) {
                 const formData = new FormData();
                 formData.append("image", file);
+                formData.append("type", uploadType);
                 if (currentPath && !multiple) {
                     formData.append(
                         "old_path",
@@ -322,42 +325,35 @@ const ImageUpload = ({
             </label>
 
             {/* Previews */}
-            {preview && previewItems.length > 0 && (
+            {preview && previewItems.filter((item) => item.isImage).length > 0 && (
                 <div
                     className={`mt-1 ${multiple ? "flex flex-wrap gap-3" : ""}`}
                 >
-                    {previewItems.map((item, index) => (
-                        <div
-                            key={index}
-                            className={`relative group ${
-                                multiple ? "w-28 h-28" : "w-full max-w-xs h-48"
-                            }`}
-                        >
-                            {item.isImage ? (
+                    {previewItems
+                        .filter((item) => item.isImage)
+                        .map((item, index) => (
+                            <div
+                                key={index}
+                                className={`relative group ${
+                                    multiple ? "w-28 h-28" : "w-full max-w-xs h-48"
+                                }`}
+                            >
                                 <img
                                     src={item.url}
                                     alt={item.name}
                                     className="w-full h-full object-cover rounded-xl border border-stroke bg-card shadow-sm"
                                 />
-                            ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center rounded-xl border border-stroke bg-card shadow-sm gap-2 px-2">
-                                    <IconFile className="h-8 w-8 text-muted" />
-                                    <span className="text-xs text-muted text-center truncate w-full">
-                                        {item.name}
-                                    </span>
-                                </div>
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => handleRemove(index)}
-                                className="absolute top-1.5 right-1.5 bg-red-500 text-white rounded-full p-1
+                                <button
+                                    type="button"
+                                    onClick={() => handleRemove(index)}
+                                    className="absolute top-1.5 right-1.5 bg-red-500 text-white rounded-full p-1
                                            opacity-0 group-hover:opacity-100 hover:bg-red-600
                                            shadow-md transition-all duration-150"
-                            >
-                                <IconX className="h-3 w-3" />
-                            </button>
-                        </div>
-                    ))}
+                                >
+                                    <IconX className="h-3 w-3" />
+                                </button>
+                            </div>
+                        ))}
                 </div>
             )}
 

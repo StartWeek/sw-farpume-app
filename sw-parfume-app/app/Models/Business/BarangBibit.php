@@ -13,6 +13,7 @@ class BarangBibit extends Model
     protected $fillable = [
         'kode_barang',
         'id_brand',
+        'id_gudang',
         'id_botol',
         'nama_barang',
         'jenis_barang',
@@ -39,6 +40,11 @@ class BarangBibit extends Model
     public function botol(): BelongsTo
     {
         return $this->belongsTo(Botol::class, 'id_botol');
+    }
+
+    public function gudang(): BelongsTo
+    {
+        return $this->belongsTo(Gudang::class, 'id_gudang');
     }
 
     public function stok(): HasMany

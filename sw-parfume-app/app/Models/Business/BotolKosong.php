@@ -13,7 +13,6 @@ class BotolKosong extends Model
         'kode_botol',
         'id_gudang',
         'nama_botol',
-        'kapasitas',
         'harga_beli',
         'harga_jual',
         'stock',
@@ -23,7 +22,6 @@ class BotolKosong extends Model
     ];
 
     protected $casts = [
-        'kapasitas' => 'integer',
         'harga_beli' => 'decimal:2',
         'harga_jual' => 'decimal:2',
         'stock' => 'decimal:2',

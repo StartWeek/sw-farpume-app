@@ -1,5 +1,5 @@
 import ProtectedLayout from "@/components/layouts/ProtectedLayout";
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { router } from "@inertiajs/react";
 import toast from "react-hot-toast";
 import Button from "@/components/common/Button";
@@ -50,7 +50,7 @@ const LandscapeIcon = ({ size = 14 }) => (
     </svg>
 );
 
-export default function ReportPage({ type, rows = [], botolStock = [], filters = {}, refs = {}, searched = false, summary = {}, groups = [] }) {
+export default function ReportPage({ type, rows = [], botolStock = [], botolSummary = [], filters = {}, refs = {}, searched = false, summary = {}, groups = [] }) {
     useFlashMessages();
     const [orientation, setOrientation] = useState("landscape");
     const [form, setForm] = useState({
@@ -58,6 +58,7 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
         tanggal_sampai: filters.tanggal_sampai || todayDate(),
         id_supplier: filters.id_supplier || "",
         id_customer: filters.id_customer || "",
+        tipe_gudang: filters.tipe_gudang || "",
         id_gudang: filters.id_gudang || "",
         id_barang: filters.id_barang || "",
         status: filters.status || "",
@@ -68,6 +69,23 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
         id_botol: filters.id_botol || "",
     });
     const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
+    const visibleGudang = (refs.gudang || []).filter((row) => !form.tipe_gudang || row.tipe_gudang === form.tipe_gudang);
+    const handleGudangTypeChange = (value) => {
+        set("tipe_gudang", value);
+        if (form.id_gudang) {
+            const currentGudang = (refs.gudang || []).find((row) => String(row.id) === String(form.id_gudang));
+            if (currentGudang && currentGudang.tipe_gudang !== value) {
+                set("id_gudang", "");
+            }
+        }
+    };
+    const handleGudangChange = (value) => {
+        set("id_gudang", value);
+        const selected = (refs.gudang || []).find((row) => String(row.id) === String(value));
+        if (selected) {
+            set("tipe_gudang", selected.tipe_gudang || "");
+        }
+    };
 
     const submit = (event) => {
         event.preventDefault();
@@ -119,11 +137,19 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
         }
     }
 
-    useEffect(() => {
-        if (searched) {
-            toast.success("Laporan berhasil dimuat!", { id: "report-toast" });
-        }
-    }, [searched]);
+    const rowsArray = Array.isArray(rows) ? rows : rows?.data || [];
+    const summaryFooter = type === "barang-summary" && rowsArray.length > 0 ? (
+        <tr className="bg-amber-50 dark:bg-amber-900/20 font-semibold">
+            <td className="px-4 py-2 text-center text-[11px] uppercase tracking-widest text-muted" colSpan={3}>GRAND TOTAL</td>
+            <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Stok Awal ML"] || 0)}</td>
+            <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Masuk ML"] || 0)}</td>
+            <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Keluar ML"] || 0)}</td>
+            <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Stok Akhir ML"] || 0)}</td>
+            <td className="px-4 py-2"></td>
+            <td className="px-4 py-2"></td>
+            <td className="px-4 py-2"></td>
+        </tr>
+    ) : null;
 
     return (
         <ProtectedLayout title={titles[type] || "Laporan"}>
@@ -150,10 +176,19 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
                                 </Field>
                             ) : null}
                             {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
+                                <Field label="Tipe Gudang">
+                                    <Select value={form.tipe_gudang} onChange={(event) => handleGudangTypeChange(event.target.value)}>
+                                        <option value="">Semua tipe</option>
+                                        <option value="BIBIT">BIBIT</option>
+                                        <option value="BOTOL">BOTOL</option>
+                                    </Select>
+                                </Field>
+                            ) : null}
+                            {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
                                 <Field label="Gudang">
-                                    <Select value={form.id_gudang} onChange={(event) => set("id_gudang", event.target.value)}>
+                                    <Select value={form.id_gudang} onChange={(event) => handleGudangChange(event.target.value)}>
                                         <option value="">Semua gudang</option>
-                                        {(refs.gudang || []).map((row) => <option key={row.id} value={row.id}>{row.nama_gudang}</option>)}
+                                        {visibleGudang.map((row) => <option key={row.id} value={row.id}>{row.nama_gudang}</option>)}
                                     </Select>
                                 </Field>
                             ) : null}
@@ -268,7 +303,7 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
                 </Card>
 
                 {searched ? (
-                    <div className="space-y-3">
+                    <div className="space-y-3 pb-4">
                         {type === "stok" && botolStock.length > 0 && (
                             <Card>
                                 <div className="mb-3 text-sm font-bold">Stok Botol Kosong</div>
@@ -276,6 +311,22 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
                                     { key: "nama_item", label: "Botol" },
                                     { key: "gudang", label: "Gudang" },
                                     { key: "stok_botol", label: "Stok Botol", render: (row) => number(row.stok_botol) },
+                                ]} />
+                            </Card>
+                        )}
+
+                        {type === "barang-summary" && botolSummary.length > 0 && (
+                            <Card>
+                                <div className="mb-3 text-sm font-bold">Summary Botol Kosong</div>
+                                <SimpleTable rows={botolSummary} columns={[
+                                    { key: "nama_item", label: "Botol" },
+                                    { key: "gudang", label: "Gudang" },
+                                    { key: "stok_awal", label: "Stok Awal", render: (row) => number(row.stok_awal) },
+                                    { key: "total_masuk", label: "Masuk (PCS)", render: (row) => number(row.total_masuk) },
+                                    { key: "total_keluar", label: "Keluar (PCS)", render: (row) => number(row.total_keluar) },
+                                    { key: "stok_akhir", label: "Stok Akhir", render: (row) => number(row.stok_akhir) },
+                                    { key: "total_mutasi", label: "Transaksi", render: (row) => number(row.total_mutasi) },
+                                    { key: "terakhir_mutasi", label: "Terakhir" },
                                 ]} />
                             </Card>
                         )}
@@ -292,63 +343,65 @@ export default function ReportPage({ type, rows = [], botolStock = [], filters =
                         )}
 
                         {/* Main data table — tanpa pagination, pagination render manual di paling bawah */}
-                        <div className="uppercase"><SimpleTable rows={rows} columns={columns(type)} hidePagination /></div>
+                        <div className="uppercase"><SimpleTable rows={rows} columns={columns(type)} hidePagination footer={summaryFooter} /></div>
 
-                        {/* Export Bar — posisi kedua terakhir */}
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            {/* Orientation Toggle */}
-                            <div className="inline-flex items-center rounded-xl border-2 border-stroke overflow-hidden text-xs">
-                                <button
-                                    type="button"
-                                    onClick={() => setOrientation("portrait")}
-                                    className={`inline-flex items-center gap-1.5 px-3 py-2 font-semibold transition-all ${
-                                        orientation === "portrait"
-                                            ? "bg-primary text-white"
-                                            : "bg-card text-muted hover:text-main hover:bg-page"
-                                    }`}
-                                >
-                                    <PortraitIcon size={14} />
-                                    Portrait
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setOrientation("landscape")}
-                                    className={`inline-flex items-center gap-1.5 px-3 py-2 font-semibold transition-all ${
-                                        orientation === "landscape"
-                                            ? "bg-primary text-white"
-                                            : "bg-card text-muted hover:text-main hover:bg-page"
-                                    }`}
-                                >
-                                    <LandscapeIcon size={14} />
-                                    Landscape
-                                </button>
-                            </div>
-
-                            {/* Export Buttons */}
-                            <div className="flex items-center gap-2">
-                                <a href={exportUrl("pdf")} target="_blank" rel="noreferrer" className="no-underline">
+                        {/* Export Bar & Pagination — sticky di bawah agar selalu terlihat */}
+                        <div className="sticky bottom-0 z-30 -mx-1 px-1 py-2 bg-page/95 backdrop-blur-sm border-t border-stroke">
+                            <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                                {/* Orientation Toggle */}
+                                <div className="inline-flex items-center rounded-xl border-2 border-stroke overflow-hidden text-xs">
                                     <button
                                         type="button"
-                                        className="inline-flex items-center gap-2 rounded-xl border-2 border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-600 transition-all hover:bg-red-100 hover:border-red-300 hover:shadow-md active:scale-[0.97]"
+                                        onClick={() => setOrientation("portrait")}
+                                        className={`inline-flex items-center gap-1.5 px-3 py-2 font-semibold transition-all ${
+                                            orientation === "portrait"
+                                                ? "bg-primary text-white"
+                                                : "bg-card text-muted hover:text-main hover:bg-page"
+                                        }`}
                                     >
-                                        <PdfIcon size={16} />
-                                        PDF
+                                        <PortraitIcon size={14} />
+                                        Portrait
                                     </button>
-                                </a>
-                                <a href={exportUrl("excel")} target="_blank" rel="noreferrer" className="no-underline">
                                     <button
                                         type="button"
-                                        className="inline-flex items-center gap-2 rounded-xl border-2 border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-600 transition-all hover:bg-green-100 hover:border-green-300 hover:shadow-md active:scale-[0.97]"
+                                        onClick={() => setOrientation("landscape")}
+                                        className={`inline-flex items-center gap-1.5 px-3 py-2 font-semibold transition-all ${
+                                            orientation === "landscape"
+                                                ? "bg-primary text-white"
+                                                : "bg-card text-muted hover:text-main hover:bg-page"
+                                        }`}
                                     >
-                                        <ExcelIcon size={16} />
-                                        Excel
+                                        <LandscapeIcon size={14} />
+                                        Landscape
                                     </button>
-                                </a>
+                                </div>
+
+                                {/* Export Buttons */}
+                                <div className="flex items-center gap-2">
+                                    <a href={exportUrl("pdf")} target="_blank" rel="noreferrer" className="no-underline">
+                                        <button
+                                            type="button"
+                                            className="inline-flex items-center gap-2 rounded-xl border-2 border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-600 transition-all hover:bg-red-100 hover:border-red-300 hover:shadow-md active:scale-[0.97]"
+                                        >
+                                            <PdfIcon size={16} />
+                                            PDF
+                                        </button>
+                                    </a>
+                                    <a href={exportUrl("excel")} target="_blank" rel="noreferrer" className="no-underline">
+                                        <button
+                                            type="button"
+                                            className="inline-flex items-center gap-2 rounded-xl border-2 border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-600 transition-all hover:bg-green-100 hover:border-green-300 hover:shadow-md active:scale-[0.97]"
+                                        >
+                                            <ExcelIcon size={16} />
+                                            Excel
+                                        </button>
+                                    </a>
+                                </div>
                             </div>
+
+                            {/* Pagination — posisi paling bawah */}
+                            {!Array.isArray(rows) && rows ? <PaginationBar pagination={rows} /> : null}
                         </div>
-
-                        {/* Pagination — posisi paling bawah */}
-                        {!Array.isArray(rows) && rows ? <PaginationBar pagination={rows} /> : null}
                     </div>
                 ) : (
                     <Card className="py-10 text-center text-sm font-semibold text-muted">
@@ -416,9 +469,9 @@ function columns(type) {
         { key: "varian", label: "Varian Botol", render: (row) => row.botol_variant?.nama_botol || row.barang?.botol?.nama_botol || "-" },
         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
+        { key: "stok_awal_ml", label: "Stok Awal", render: (row) => number(row.stok_awal_ml) },
         { key: "total_masuk_ml", label: "Masuk ML", render: (row) => number(row.total_masuk_ml) },
         { key: "total_keluar_ml", label: "Keluar ML", render: (row) => number(row.total_keluar_ml) },
-        { key: "selisih_ml", label: "Net ML", render: (row) => number(row.selisih_ml) },
         { key: "stok_akhir_ml", label: "Stok Akhir", render: (row) => number(row.stok_akhir_ml) },
         { key: "minimum_stok_ml", label: "Minimum", render: (row) => number(row.minimum_stok_ml) },
         { key: "total_mutasi", label: "Transaksi", render: (row) => number(row.total_mutasi) },

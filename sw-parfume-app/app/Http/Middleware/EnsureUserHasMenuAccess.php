@@ -53,6 +53,7 @@ class EnsureUserHasMenuAccess
             'business.stock.index' => 'stok-gudang',
             'business.stock.low' => 'stok-menipis',
             'business.mutation.index', 'business.mutation.store' => 'mutasi-stok',
+            'business.destroy-stock.index', 'business.destroy-stock.store' => 'hancur-stock',
             'business.pembelian.index', 'business.pembelian.store' => 'pembelian',
             'business.penjualan.store' => in_array($request->input('tipe_penjualan'), ['GROSIR', 'SALES'], true) ? 'penjualan-grosir' : 'penjualan-retail',
             'business.riwayat.pembelian' => 'riwayat-pembelian',

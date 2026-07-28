@@ -8,6 +8,7 @@ use App\Models\Business\BotolKosong;
 use App\Models\Business\Brand;
 use App\Models\Business\Customer;
 use App\Models\Business\Gudang;
+use App\Models\Business\HistoriSaldoBarang;
 use App\Models\Business\Hutang;
 use App\Models\Business\KasMutasi;
 use App\Models\Business\MutasiStok;
@@ -16,10 +17,13 @@ use App\Models\Business\Penjualan;
 use App\Models\Business\Piutang;
 use App\Models\Business\PiutangSupplier;
 use App\Models\Business\Sales;
+use App\Models\Business\SaldoBarang;
 use App\Models\Business\StokGudang;
 use App\Models\Business\Supplier;
 use App\Models\Business\TokoClosing;
 use App\Models\Business\SystemDate;
+use App\Models\Business\TransaksiBotolKosong;
+use App\Models\Business\TransaksiBarangBibit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -110,7 +114,7 @@ class BusinessService
             throw ValidationException::withMessages(['items' => "Botol stok untuk {$barang->nama_barang} belum dipilih — pilih varian botol atau atur botol default di master barang."]);
         }
         $stock = StokGudang::query()->firstOrCreate(
-            ['id_gudang' => $gudangId, 'id_barang' => $barangId, 'id_botol' => $idBotol],
+            ['id_gudang' => $gudangId, 'id_barang' => $barangId, 'id_botol' => $idBotol ?: null],
             ['stok_ml' => 0, 'stok_reserved_ml' => 0, 'minimum_stok_ml' => $barang->minimum_stok_ml]
         );
 
@@ -127,8 +131,10 @@ class BusinessService
             'last_update' => now(),
         ]);
 
+        $operationalDate = $this->operationalDate()->toDateString();
+
         MutasiStok::query()->create([
-            'tanggal' => $this->operationalDate()->toDateString(),
+            'tanggal' => $operationalDate,
             'tipe_mutasi' => $qtyMl < 0 ? 'KELUAR' : 'MASUK',
             'sumber_transaksi' => $meta['sumber_transaksi'] ?? 'ADJUSTMENT',
             'no_transaksi' => $meta['no_transaksi'] ?? 'MANUAL',
@@ -142,7 +148,83 @@ class BusinessService
             'created_by' => $meta['created_by'] ?? null,
         ]);
 
+        TransaksiBarangBibit::query()->create([
+            'tanggal' => $operationalDate,
+            'id_gudang' => $gudangId,
+            'id_barang' => $barangId,
+            'id_botol' => $idBotol ?: null,
+            'tipe_mutasi' => $qtyMl < 0 ? 'KELUAR' : 'MASUK',
+            'qty_ml' => abs($qtyMl),
+            'stok_awal_ml' => $before,
+            'stok_akhir_ml' => $after,
+            'sumber_transaksi' => $meta['sumber_transaksi'] ?? 'ADJUSTMENT',
+            'no_transaksi' => $meta['no_transaksi'] ?? 'MANUAL',
+            'keterangan' => $meta['keterangan'] ?? null,
+            'created_by' => $meta['created_by'] ?? null,
+        ]);
+
+        $this->recordActiveStockBalance(
+            $operationalDate,
+            $gudangId,
+            $barangId,
+            $idBotol ?? 0,
+            $before,
+            $after,
+            $qtyMl,
+            (float) $barang->minimum_stok_ml,
+        );
+
         return $stock->refresh();
+    }
+
+    private function recordActiveStockBalance(
+        string $date,
+        int $gudangId,
+        int $barangId,
+        int $botolId,
+        float $before,
+        float $after,
+        float $quantity,
+        float $minimumStock,
+    ): void {
+        $balance = SaldoBarang::query()
+            ->where('id_gudang', $gudangId)
+            ->where('id_barang', $barangId)
+            ->where('id_botol', $botolId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $balance) {
+            $balance = SaldoBarang::query()->create([
+                'tanggal' => $date,
+                'id_gudang' => $gudangId,
+                'id_barang' => $barangId,
+                'id_botol' => $botolId,
+                'stok_awal_ml' => $before,
+                'stok_akhir_ml' => $before,
+                'minimum_stok_ml' => $minimumStock,
+            ]);
+        } elseif (! $balance->tanggal->isSameDay($date)) {
+            $balance->update([
+                'tanggal' => $date,
+                'stok_awal_ml' => $before,
+                'masuk_ml' => 0,
+                'keluar_ml' => 0,
+                'stok_akhir_ml' => $before,
+                'minimum_stok_ml' => $minimumStock,
+                'total_mutasi' => 0,
+                'terakhir_mutasi' => null,
+            ]);
+        }
+
+        $balance->update([
+            'masuk_ml' => (float) $balance->masuk_ml + max($quantity, 0),
+            'keluar_ml' => (float) $balance->keluar_ml + abs(min($quantity, 0)),
+            'stok_akhir_ml' => $after,
+            'minimum_stok_ml' => $minimumStock,
+            'total_mutasi' => $balance->total_mutasi + 1,
+            'terakhir_mutasi' => $date,
+        ]);
     }
 
     public function createStockMutation(array $payload): StokGudang
@@ -184,6 +266,88 @@ class BusinessService
         ));
     }
 
+    public function adjustBotolKosongStock(array $payload): void
+    {
+        $multiplier = ($payload['tipe_mutasi'] ?? 'MASUK') === 'KELUAR' ? -1 : 1;
+        $qty = (int) $payload['jumlah_botol'] * $multiplier;
+
+        $botol = BotolKosong::query()->findOrFail((int) $payload['id_barang']);
+
+        $after = (float) $botol->stock + $qty;
+
+        if ($after < 0) {
+            throw ValidationException::withMessages(['jumlah_botol' => 'Stok botol kosong tidak mencukupi.']);
+        }
+
+        $botol->update(['stock' => $after]);
+    }
+
+    public function backfillBotolKosongTransactions(): int
+    {
+        $purchases = DB::table('tt_pembelian_detail as detail')
+            ->join('tt_pembelian as header', 'header.id', '=', 'detail.id_pembelian')
+            ->where('detail.tipe_item', 'BOTOL')
+            ->whereNotNull('detail.item_id')
+            ->selectRaw("header.tanggal, header.id_gudang, detail.item_id as id_botol_kosong, 'PEMBELIAN' as sumber_transaksi, header.no_pembelian as no_transaksi, SUM(detail.konversi_qty_dasar) as qty_botol")
+            ->groupBy('header.tanggal', 'header.id_gudang', 'detail.item_id', 'header.no_pembelian')
+            ->get();
+        $sales = DB::table('tt_penjualan_detail as detail')
+            ->join('tt_penjualan as header', 'header.id', '=', 'detail.id_penjualan')
+            ->where('detail.tipe_item', 'BOTOL')
+            ->whereNotNull('detail.item_id')
+            ->selectRaw("header.tanggal, header.id_gudang, detail.item_id as id_botol_kosong, 'PENJUALAN' as sumber_transaksi, header.no_penjualan as no_transaksi, SUM(detail.konversi_qty_dasar) as qty_botol")
+            ->groupBy('header.tanggal', 'header.id_gudang', 'detail.item_id', 'header.no_penjualan')
+            ->get();
+
+        $inserted = 0;
+        $purchases->concat($sales)
+            ->sortBy(fn (object $row) => $row->tanggal.'-'.$row->no_transaksi)
+            ->groupBy('id_botol_kosong')
+            ->each(function ($movements) use (&$inserted): void {
+                $botol = BotolKosong::query()->find($movements->first()->id_botol_kosong);
+                if (! $botol) {
+                    return;
+                }
+
+                $netMovement = $movements->sum(fn (object $row) => $row->sumber_transaksi === 'PEMBELIAN'
+                    ? (float) $row->qty_botol
+                    : -(float) $row->qty_botol);
+                $balance = (float) $botol->stock - $netMovement;
+
+                foreach ($movements as $movement) {
+                    $quantity = (float) $movement->qty_botol;
+                    $direction = $movement->sumber_transaksi === 'PEMBELIAN' ? 1 : -1;
+                    $after = $balance + ($direction * $quantity);
+                    $exists = TransaksiBotolKosong::query()
+                        ->where('id_botol_kosong', $movement->id_botol_kosong)
+                        ->where('sumber_transaksi', $movement->sumber_transaksi)
+                        ->where('no_transaksi', $movement->no_transaksi)
+                        ->exists();
+
+                    if (! $exists) {
+                        TransaksiBotolKosong::query()->create([
+                            'tanggal' => $movement->tanggal,
+                            'id_gudang' => $movement->id_gudang,
+                            'id_botol_kosong' => $movement->id_botol_kosong,
+                            'tipe_mutasi' => $direction > 0 ? 'MASUK' : 'KELUAR',
+                            'qty_botol' => $quantity,
+                            'stok_awal' => $balance,
+                            'stok_akhir' => $after,
+                            'sumber_transaksi' => $movement->sumber_transaksi,
+                            'no_transaksi' => $movement->no_transaksi,
+                            'keterangan' => $direction > 0 ? 'Backfill pembelian supplier' : 'Backfill penjualan botol kosong',
+                            'created_by' => 'SYSTEM BACKFILL',
+                        ]);
+                        $inserted++;
+                    }
+
+                    $balance = $after;
+                }
+            });
+
+        return $inserted;
+    }
+
     private function filledBottleCount(float $stockMl, float $capacityMl): int
     {
         return $stockMl > 0 && $capacityMl > 0 ? (int) ceil($stockMl / $capacityMl) : 0;
@@ -217,16 +381,17 @@ class BusinessService
                 'id_barang' => $barang?->id ?? null,
                 'qty_input' => $qtyInput,
                 'satuan_input' => $unit,
-                'qty_ml' => $qtyBotol * (int) $botol->kapasitas,
+                'qty_ml' => 0,
                 'konversi_qty_dasar' => $qtyBotol,
                 'satuan_dasar' => 'BOTOL',
                 'harga' => $price,
-                'harga_beli_per_ml' => (float) $botol->kapasitas > 0 ? $price / (float) $botol->kapasitas : 0,
+                'harga_beli_per_ml' => 0,
                 'subtotal' => $subtotalAfterDiscount,
                 'discount' => $discount,
             ];
         }
 
+        // Pembelian BIBIT/ABSOLUTE
         $this->ensureUnit($unit, ['ML', 'LITER', 'BOTOL'], 'cairan');
         $barang = BarangBibit::query()
             ->with('botol')
@@ -307,12 +472,12 @@ class BusinessService
                 'id_barang' => $barang?->id ?? null,
                 'qty_input' => $qtyInput,
                 'satuan_input' => $unit,
-                'qty_ml' => $qtyBotol * (int) $botol->kapasitas,
+                'qty_ml' => 0,
                 'konversi_qty_dasar' => $qtyBotol,
                 'satuan_dasar' => 'BOTOL',
                 'harga' => $price,
-                'harga_beli_per_ml' => (float) $botol->kapasitas > 0 ? $beliPerBotol / (float) $botol->kapasitas : 0,
-                'harga_jual_per_ml' => (float) $botol->kapasitas > 0 ? ($unit === 'DUS' ? $jual / max(1, $qtyBotol) : $price) / (float) $botol->kapasitas : 0,
+                'harga_beli_per_ml' => 0,
+                'harga_jual_per_ml' => 0,
                 'subtotal_modal' => $modal,
                 'subtotal_jual' => $jualAfterDiscount,
                 'laba_kotor' => $jualAfterDiscount - $modal,
@@ -425,7 +590,23 @@ class BusinessService
             throw ValidationException::withMessages(['items' => "Stok {$botol->nama_botol} tidak mencukupi."]);
         }
 
+        $before = (float) $botol->stock;
+        $quantity = (float) $detail['konversi_qty_dasar'];
+
         $botol->update(['stock' => $after]);
+        TransaksiBotolKosong::query()->create([
+            'tanggal' => $this->operationalDate()->toDateString(),
+            'id_gudang' => $gudangId,
+            'id_botol_kosong' => $botol->id,
+            'tipe_mutasi' => $direction > 0 ? 'MASUK' : 'KELUAR',
+            'qty_botol' => $quantity,
+            'stok_awal' => $before,
+            'stok_akhir' => $after,
+            'sumber_transaksi' => $source,
+            'no_transaksi' => $number,
+            'keterangan' => $source === 'PEMBELIAN' ? 'Pembelian supplier' : 'Penjualan botol kosong',
+            'created_by' => $payload['created_by'] ?? auth()->user()?->name,
+        ]);
     }
 
     private function ensureUnit(string $unit, array $allowed, string $label): void
@@ -757,33 +938,110 @@ class BusinessService
                 ['tanggal_system' => Carbon::today()->toDateString()]
             );
             $businessDate = Carbon::parse($system->tanggal_system);
+            $today = Carbon::today();
 
-            if ($date && ! Carbon::parse($date)->isSameDay($businessDate)) {
-                throw ValidationException::withMessages(['tanggal_tutup' => 'Tanggal tutup harus sama dengan tanggal system.']);
+            if (! $date) {
+                $targetDate = $businessDate->copy();
+            } else {
+                $targetDate = Carbon::parse($date);
+            }
+
+            if ($targetDate->gt($today)) {
+                throw ValidationException::withMessages(['tanggal_tutup' => 'Tanggal tutup tidak boleh melebihi tanggal hari ini.']);
+            }
+
+            if ($targetDate->lt($businessDate)) {
+                throw ValidationException::withMessages(['tanggal_tutup' => 'Tanggal tutup harus sama dengan atau setelah tanggal system.']);
             }
 
             if (TokoClosing::query()->whereDate('tanggal_tutup', $businessDate)->exists()) {
                 throw ValidationException::withMessages(['tanggal_tutup' => 'Tanggal operasional ini sudah ditutup.']);
             }
 
-            $previousClosing = TokoClosing::query()->whereDate('tanggal_tutup', '<', $businessDate)->latest('tanggal_tutup')->first();
-            $saldoAwal = (float) ($previousClosing?->saldo_akhir ?? 0);
-            $cashIn = (float) KasMutasi::query()->whereDate('tanggal', $businessDate)->sum('kas_masuk');
-            $cashOut = (float) KasMutasi::query()->whereDate('tanggal', $businessDate)->sum('kas_keluar');
+            $lastClosing = null;
 
-            $closing = TokoClosing::query()->create([
-                'tanggal_tutup' => $businessDate->toDateString(),
-                'saldo_awal' => $saldoAwal,
-                'saldo_akhir' => $saldoAwal + $cashIn - $cashOut,
-                'total_penjualan' => Penjualan::query()->whereDate('tanggal', $businessDate)->sum('total_penjualan'),
-                'total_pembelian' => Pembelian::query()->whereDate('tanggal', $businessDate)->sum('total_pembelian'),
-                'keterangan' => $note,
-                'created_by' => auth()->user()?->name,
-            ]);
+            if ($targetDate->isSameDay($businessDate)) {
+                // Single day close — current behavior
+                $lastClosing = $this->closeSingleDay($businessDate->copy(), $note, $system);
+            } else {
+                // Batch close: tutup semua hari dari tanggal operasional sampai sebelum targetDate
+                $current = $businessDate->copy();
+                while ($current->lt($targetDate)) {
+                    $lastClosing = $this->closeSingleDay($current->copy(), $note, $system);
+                    $current->addDay();
+                }
+            }
 
-            $system->update(['tanggal_system' => $businessDate->copy()->addDay()->toDateString()]);
+            return $lastClosing;
+        });
+    }
 
-            return $closing;
+    private function closeSingleDay(Carbon $businessDate, ?string $note, SystemDate $system): TokoClosing
+    {
+        $previousClosing = TokoClosing::query()->whereDate('tanggal_tutup', '<', $businessDate)->latest('tanggal_tutup')->first();
+        $saldoAwal = (float) ($previousClosing?->saldo_akhir ?? 0);
+        $cashIn = (float) KasMutasi::query()->whereDate('tanggal', $businessDate)->sum('kas_masuk');
+        $cashOut = (float) KasMutasi::query()->whereDate('tanggal', $businessDate)->sum('kas_keluar');
+
+        $closing = TokoClosing::query()->create([
+            'tanggal_tutup' => $businessDate->toDateString(),
+            'saldo_awal' => $saldoAwal,
+            'saldo_akhir' => $saldoAwal + $cashIn - $cashOut,
+            'total_penjualan' => Penjualan::query()->whereDate('tanggal', $businessDate)->sum('total_penjualan'),
+            'total_pembelian' => Pembelian::query()->whereDate('tanggal', $businessDate)->sum('total_pembelian'),
+            'keterangan' => $note,
+            'created_by' => auth()->user()?->name,
+        ]);
+
+        $this->synchronizeActiveStockBalances($businessDate);
+
+        SaldoBarang::query()
+            ->whereDate('tanggal', $businessDate)
+            ->each(function (SaldoBarang $balance): void {
+                HistoriSaldoBarang::query()->updateOrCreate(
+                    [
+                        'tanggal' => $balance->tanggal->toDateString(),
+                        'id_gudang' => $balance->id_gudang,
+                        'id_barang' => $balance->id_barang,
+                        'id_botol' => $balance->id_botol,
+                    ],
+                    [
+                        'stok_awal_ml' => $balance->stok_awal_ml,
+                        'masuk_ml' => $balance->masuk_ml,
+                        'keluar_ml' => $balance->keluar_ml,
+                        'stok_akhir_ml' => $balance->stok_akhir_ml,
+                        'minimum_stok_ml' => $balance->minimum_stok_ml,
+                        'total_mutasi' => $balance->total_mutasi,
+                        'terakhir_mutasi' => $balance->terakhir_mutasi?->toDateString(),
+                        'closed_at' => now(),
+                    ],
+                );
+            });
+
+        $nextBusinessDate = $businessDate->copy()->addDay();
+        SaldoBarang::query()->delete();
+        $this->synchronizeActiveStockBalances($nextBusinessDate);
+        $system->update(['tanggal_system' => $nextBusinessDate->toDateString()]);
+
+        return $closing;
+    }
+
+    private function synchronizeActiveStockBalances(Carbon $businessDate): void
+    {
+        StokGudang::query()->each(function (StokGudang $stock) use ($businessDate): void {
+            SaldoBarang::query()->firstOrCreate(
+                [
+                    'id_gudang' => $stock->id_gudang,
+                    'id_barang' => $stock->id_barang,
+                    'id_botol' => $stock->id_botol ?? 0,
+                ],
+                [
+                    'tanggal' => $businessDate->toDateString(),
+                    'stok_awal_ml' => $stock->stok_ml,
+                    'stok_akhir_ml' => $stock->stok_ml,
+                    'minimum_stok_ml' => $stock->minimum_stok_ml,
+                ],
+            );
         });
     }
 

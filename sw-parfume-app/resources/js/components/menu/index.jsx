@@ -125,6 +125,12 @@ export const menuAdmin = [
                 href: "/admin/stok-menipis",
                 accessKey: "stok-menipis",
             },
+            {
+                label: "Hancur Stock",
+                icon: IconAlertTriangle,
+                href: "/admin/hancur-stock",
+                accessKey: "hancur-stock",
+            },
         ],
     },
     {

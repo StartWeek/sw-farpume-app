@@ -21,6 +21,8 @@ import {
 const emptyForm = {
     nama_barang: "",
     id_brand: "",
+    id_gudang: "",
+    tipe_gudang: "",
     jenis_barang: "",
     harga_beli_per_ml: "",
     harga_jual_retail_per_ml: "",
@@ -29,7 +31,7 @@ const emptyForm = {
     status: "AKTIF",
 };
 
-export default function BarangBibitPage({ rows = [], brand = [] }) {
+export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) {
     useFlashMessages();
     const { errors: pageErrors } = usePage().props;
     const errors = pageErrors || {};
@@ -51,15 +53,37 @@ export default function BarangBibitPage({ rows = [], brand = [] }) {
         })
         : tableRows;
 
+    const filteredGudang = form.tipe_gudang
+        ? gudang.filter((item) => item.tipe_gudang === form.tipe_gudang)
+        : gudang;
+
     const open = (row = null) => {
+        const selectedGudang = row?.gudang || gudang.find((item) => item.id === Number(row?.id_gudang));
         setEditing(row || {});
-        setForm(row ? { ...emptyForm, ...row } : emptyForm);
+        setForm(row ? { ...emptyForm, ...row, id_gudang: row?.id_gudang || "", tipe_gudang: selectedGudang?.tipe_gudang || "" } : { ...emptyForm, tipe_gudang: "" });
     };
     const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+    const handleGudangTypeChange = (value) => {
+        set("tipe_gudang", value);
+        if (form.id_gudang) {
+            const currentGudang = gudang.find((item) => item.id === Number(form.id_gudang));
+            if (currentGudang && currentGudang.tipe_gudang !== value) {
+                set("id_gudang", "");
+            }
+        }
+    };
+    const handleGudangChange = (value) => {
+        set("id_gudang", value);
+        const selected = gudang.find((item) => item.id === Number(value));
+        if (selected) {
+            set("tipe_gudang", selected.tipe_gudang);
+        }
+    };
     const submit = (event) => {
         event.preventDefault();
         // Konversi empty string ke null untuk numeric fields — cegah error server
         const payload = { ...form };
+        delete payload.tipe_gudang;
         ["harga_beli_per_ml", "harga_jual_retail_per_ml", "harga_jual_grosir_per_ml", "minimum_stok_ml"].forEach((key) => {
             if (payload[key] === "") payload[key] = null;
         });
@@ -109,6 +133,19 @@ export default function BarangBibitPage({ rows = [], brand = [] }) {
                                     {brand.map((item) => <option key={item.id} value={item.id}>{item.nama_brand}</option>)}
                                 </Select>
                             </Field>
+                            <Field label="Tipe Gudang">
+                                <Select value={form.tipe_gudang || ""} onChange={(event) => handleGudangTypeChange(event.target.value)} error={errors.tipe_gudang}>
+                                    <option value="">Pilih tipe gudang</option>
+                                    <option value="BIBIT">BIBIT</option>
+                                    <option value="BOTOL">BOTOL</option>
+                                </Select>
+                            </Field>
+                            <Field label="Gudang">
+                                <Select value={form.id_gudang || ""} onChange={(event) => handleGudangChange(event.target.value)} error={errors.id_gudang}>
+                                    <option value="">Pilih gudang</option>
+                                    {filteredGudang.map((item) => <option key={item.id} value={item.id}>{item.nama_gudang}</option>)}
+                                </Select>
+                            </Field>
                             <Field label="Status">
                                 <Select value={form.status || "AKTIF"} onChange={(event) => set("status", event.target.value)} error={errors.status}>
                                     <option>AKTIF</option>
@@ -138,6 +175,7 @@ export default function BarangBibitPage({ rows = [], brand = [] }) {
                     columns={[
                         { key: "kode_barang", label: "Kode" },
                         { key: "nama_barang", label: "Barang" },
+                        { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
                         { key: "jenis_barang", label: "Jenis" },
                         { key: "harga_beli_per_ml", label: "Beli/ML", render: (row) => money(row.harga_beli_per_ml) },
                         { key: "harga_jual_retail_per_ml", label: "Retail/ML", render: (row) => money(row.harga_jual_retail_per_ml) },

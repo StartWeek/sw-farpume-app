@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\Business\SystemDate;
+use App\Models\Business\TokoClosing;
 use App\Models\User;
 use App\Services\Business\BusinessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Carbon;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class StoreClosingGuardTest extends TestCase
@@ -39,7 +41,12 @@ class StoreClosingGuardTest extends TestCase
 
         $this->actingAs($this->superAdmin())
             ->get('/admin/utility')
-            ->assertOk();
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/business/UtilityPage', false)
+                ->where('operationalDate', '2026-06-26')
+                ->where('currentDate', '2026-06-27')
+                ->where('requiresStoreClosing', true));
     }
 
     public function test_application_is_available_again_after_overdue_store_is_closed(): void
@@ -52,6 +59,67 @@ class StoreClosingGuardTest extends TestCase
         app(BusinessService::class)->closeStore('2026-06-26');
 
         $this->get('/admin/dashboard')->assertOk();
+    }
+
+    public function test_batch_close_all_missed_days_when_store_is_multiple_days_behind(): void
+    {
+        Carbon::setTestNow('2026-07-05 09:00:00');
+        SystemDate::query()->updateOrCreate(['id' => 1], ['tanggal_system' => '2026-06-30']);
+        $user = $this->superAdmin();
+
+        $this->actingAs($user);
+
+        // Batch close from June 30 to July 4 (5 days, target date = today July 5)
+        app(BusinessService::class)->closeStore('2026-07-05');
+
+        // After batch close, system date should advance to July 5 (today)
+        $systemDate = SystemDate::query()->first();
+        $this->assertEquals('2026-07-05', $systemDate->tanggal_system->toDateString());
+
+        // All intermediate TokoClosing records should exist
+        $expectedDates = ['2026-06-30', '2026-07-01', '2026-07-02', '2026-07-03', '2026-07-04'];
+        foreach ($expectedDates as $date) {
+            $this->assertTrue(
+                TokoClosing::query()->whereDate('tanggal_tutup', $date)->exists(),
+                "Missing TokoClosing for date: {$date}"
+            );
+        }
+
+        // Should not close today (July 5)
+        $this->assertFalse(
+            TokoClosing::query()->whereDate('tanggal_tutup', '2026-07-05')->exists(),
+            'Should not have TokoClosing for today (July 5)'
+        );
+
+        // Application should be accessible now
+        $this->get('/admin/dashboard')->assertOk();
+    }
+
+    public function test_batch_close_shows_correct_message_on_utility_page(): void
+    {
+        Carbon::setTestNow('2026-07-05 09:00:00');
+        SystemDate::query()->updateOrCreate(['id' => 1], ['tanggal_system' => '2026-06-30']);
+
+        $this->actingAs($this->superAdmin())
+            ->get('/admin/utility')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/business/UtilityPage', false)
+                ->where('operationalDate', '2026-06-30')
+                ->where('currentDate', '2026-07-05')
+                ->where('requiresStoreClosing', true)
+                ->where('missedDays', 5));
+    }
+
+    public function test_cannot_close_date_before_operational_date(): void
+    {
+        Carbon::setTestNow('2026-07-05 09:00:00');
+        SystemDate::query()->updateOrCreate(['id' => 1], ['tanggal_system' => '2026-07-03']);
+
+        $this->actingAs($this->superAdmin());
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        app(BusinessService::class)->closeStore('2026-07-01');
     }
 
     public function test_customer_can_be_saved_without_a_receivable_limit(): void

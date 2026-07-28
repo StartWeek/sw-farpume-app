@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Business;
 use App\Http\Controllers\Controller;
 use App\Models\Business\BarangBibit;
 use App\Models\Business\Brand;
+use App\Models\Business\Gudang;
 use App\Services\Business\BusinessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,11 +20,12 @@ class BarangBibitController extends Controller
     {
         return Inertia::render('admin/business/BarangBibitPage', [
             'rows' => BarangBibit::query()
-                ->with(['brand'])
+                ->with(['brand', 'gudang'])
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
             'brand' => Brand::query()->where('status', 'AKTIF')->orderBy('nama_brand')->get(),
+            'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(['id', 'kode_gudang', 'nama_gudang', 'tipe_gudang']),
         ]);
     }
 
@@ -61,6 +63,7 @@ class BarangBibitController extends Controller
         return [
             'nama_barang' => ['required', 'string', 'max:255'],
             'id_brand' => ['required', 'exists:tm_brand,id'],
+            'id_gudang' => ['nullable', 'exists:tm_gudang,id'],
             'id_botol' => ['nullable', 'exists:tm_botol,id'],
             'jenis_barang' => ['required', 'in:BIBIT,ABSOLUTE'],
             'harga_beli_per_ml' => ['required', 'numeric', 'min:0.01'],
@@ -77,6 +80,7 @@ class BarangBibitController extends Controller
             'required' => 'Kolom ini wajib diisi.',
             'nama_barang.required' => 'Nama barang belum diisi.',
             'id_brand.required' => 'Brand belum dipilih.',
+            'id_gudang.required' => 'Gudang belum dipilih.',
             'id_botol.required' => 'Botol stok belum dipilih.',
             'harga_beli_per_ml.required' => 'Harga beli per ML belum diisi.',
             'harga_beli_per_ml.numeric' => 'Harga beli per ML harus berupa angka.',

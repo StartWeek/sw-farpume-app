@@ -8,6 +8,7 @@ use App\Models\Business\Botol;
 use App\Models\Business\BotolKosong;
 use App\Models\Business\Customer;
 use App\Models\Business\Gudang;
+use App\Models\Business\HistoriSaldoBarang;
 use App\Models\Business\Hutang;
 use App\Models\Business\KasMutasi;
 use App\Models\Business\MutasiStok;
@@ -15,8 +16,10 @@ use App\Models\Business\Pembelian;
 use App\Models\Business\Penjualan;
 use App\Models\Business\Piutang;
 use App\Models\Business\PiutangSupplier;
+use App\Models\Business\SaldoBarang;
 use App\Models\Business\StokGudang;
 use App\Models\Business\Supplier;
+use App\Models\Business\TransaksiBotolKosong;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -51,7 +54,7 @@ class ReportController extends Controller
             'penjualan', 'laba-kotor' => $this->applySalesFilters(Penjualan::query()->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong']), $filters)->latest('id'),
             'stok' => null,
             'mutasi-stok' => $this->applyMutationFilters(MutasiStok::query()->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant']), $filters)->latest('id'),
-            'barang-summary' => $this->stockSummaryQuery($filters),
+            'barang-summary' => null,
             'hutang' => $this->applyDebtFilters(Hutang::query()->with('supplier'), $filters)->latest('id'),
             'piutang' => $this->applyReceivableFilters(Piutang::query()->with('customer'), $filters)->latest('id'),
             'piutang-supplier' => $this->applySupplierReceivableFilters(PiutangSupplier::query()->with('supplier'), $filters)->latest('id'),
@@ -59,9 +62,11 @@ class ReportController extends Controller
             default => abort(404),
         };
 
-        $allRows = $searched
-            ? collect($type === 'stok' ? $this->stockReportRows($filters) : (clone $rows)->get())
-            : collect();
+        $allRows = $searched ? collect(match ($type) {
+            'stok' => $this->stockReportRows($filters),
+            'barang-summary' => $this->stockSummaryRows($filters),
+            default => (clone $rows)->get(),
+        }) : collect();
         $summary = $this->reportSummary($type, $allRows);
         $groups = $this->reportGroups($type, $allRows);
 
@@ -108,8 +113,12 @@ class ReportController extends Controller
             'searched' => $searched,
             'filters' => $filters,
             'refs' => $this->refs(),
-            'rows' => $searched ? ($type === 'stok' ? $this->paginateRows($this->stockReportRows($filters)) : $rows->paginate($this->perPage())->withQueryString()) : [],
+            'rows' => $searched ? match ($type) {
+                'stok', 'barang-summary' => $this->paginateRows($allRows->all()),
+                default => $rows->paginate($this->perPage())->withQueryString(),
+            } : [],
             'botolStock' => $searched && $type === 'stok' ? $this->botolStockRows($filters) : [],
+            'botolSummary' => $searched && $type === 'barang-summary' ? $this->botolSummaryRows($filters) : [],
             'summary' => $summary,
             'groups' => $groups,
         ]);
@@ -124,7 +133,7 @@ class ReportController extends Controller
             'piutang', 'piutang-supplier' => ['Total Piutang' => $rows->sum('total_piutang'), 'Sisa Piutang' => $rows->sum('sisa_piutang')],
             'kas' => $this->cashSummary($rows),
             'mutasi-stok' => ['Total ML' => $rows->sum('qty_ml')],
-            'barang-summary' => ['Total Masuk ML' => $rows->sum('total_masuk_ml'), 'Total Keluar ML' => $rows->sum('total_keluar_ml'), 'Total Stok Akhir ML' => $rows->sum('stok_akhir_ml')],
+            'barang-summary' => ['Total Stok Awal ML' => $rows->sum('stok_awal_ml'), 'Total Masuk ML' => $rows->sum('total_masuk_ml'), 'Total Keluar ML' => $rows->sum('total_keluar_ml'), 'Total Stok Akhir ML' => $rows->sum('stok_akhir_ml')],
             'stok' => ['Total Stok Cairan (ML)' => $rows->sum('stok_ml'), 'Total Botol Isi/Terpakai' => $rows->sum('stok_botol_isi')],
             default => [],
         };
@@ -160,7 +169,7 @@ class ReportController extends Controller
         return [
             'barang' => BarangBibit::query()->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'id_botol', 'nama_barang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(['id', 'nama_botol', 'varian_ml']),
-            'botol_kosong' => BotolKosong::query()->where('status', 'AKTIF')->orderBy('nama_botol')->get(['id', 'nama_botol', 'kapasitas']),
+            'botol_kosong' => BotolKosong::query()->where('status', 'AKTIF')->orderBy('nama_botol')->get(['id', 'nama_botol']),
             'customer' => Customer::query()->where('status', 'AKTIF')->orderBy('nama_customer')->get(['id', 'nama_customer', 'tipe_customer']),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(['id', 'nama_gudang']),
             'supplier' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
@@ -262,6 +271,10 @@ class ReportController extends Controller
 
     private function stockReportRows(array $filters): array
     {
+        if (($filters['jenis_barang'] ?? null) === 'BOTOL') {
+            return [];
+        }
+
         $rows = [];
 
         $stocks = $this->applyStockFilters(
@@ -292,6 +305,10 @@ class ReportController extends Controller
 
     private function botolStockRows(array $filters): array
     {
+        if (! empty($filters['jenis_barang']) && $filters['jenis_barang'] !== 'BOTOL') {
+            return [];
+        }
+
         $query = BotolKosong::query()->with('gudang')->orderBy('nama_botol');
 
         if (!empty($filters['id_botol'])) {
@@ -312,6 +329,42 @@ class ReportController extends Controller
             ->all();
     }
 
+    private function botolSummaryRows(array $filters): array
+    {
+        if (! empty($filters['jenis_barang']) && $filters['jenis_barang'] !== 'BOTOL') {
+            return [];
+        }
+
+        return TransaksiBotolKosong::query()
+            ->with(['gudang', 'botol'])
+            ->when($filters['tanggal_dari'] ?? null, fn (Builder $query, string $value) => $query->whereDate('tanggal', '>=', $value))
+            ->when($filters['tanggal_sampai'] ?? null, fn (Builder $query, string $value) => $query->whereDate('tanggal', '<=', $value))
+            ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('id_gudang', $value))
+            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->where('id_botol_kosong', $value))
+            ->orderBy('tanggal')
+            ->orderBy('id')
+            ->get()
+            ->groupBy(fn (TransaksiBotolKosong $row) => $row->id_gudang.':'.$row->id_botol_kosong)
+            ->map(function ($items): array {
+                $first = $items->first();
+                $last = $items->last();
+
+                return [
+                    'id' => 'botol-summary-'.$first->id_gudang.'-'.$first->id_botol_kosong,
+                    'nama_item' => $first->botol?->nama_botol ?? '-',
+                    'gudang' => $first->gudang?->nama_gudang ?? '-',
+                    'stok_awal' => (float) $first->stok_awal,
+                    'total_masuk' => (float) $items->where('tipe_mutasi', 'MASUK')->sum('qty_botol'),
+                    'total_keluar' => (float) $items->where('tipe_mutasi', 'KELUAR')->sum('qty_botol'),
+                    'stok_akhir' => (float) $last->stok_akhir,
+                    'total_mutasi' => $items->count(),
+                    'terakhir_mutasi' => $last->tanggal->toDateString(),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     private function applyMutationFilters(Builder $query, array $filters): Builder
     {
         return $this->applyDateRange($query, $filters)
@@ -321,37 +374,51 @@ class ReportController extends Controller
             ->when($filters['tipe_mutasi'] ?? null, fn (Builder $query, string $value) => $query->where('tipe_mutasi', $value));
     }
 
-    private function stockSummaryQuery(array $filters): Builder
+    private function stockSummaryRows(array $filters): array
     {
-        return MutasiStok::query()
-                ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
-                ->leftJoin('tt_stok_gudang', function ($join) {
-                    $join->on('tt_stok_gudang.id_gudang', '=', 'tt_mutasi_stok.id_gudang')
-                        ->on('tt_stok_gudang.id_barang', '=', 'tt_mutasi_stok.id_barang')
-                        ->on(DB::raw('COALESCE(tt_stok_gudang.id_botol, 0)'), '=', DB::raw('COALESCE(tt_mutasi_stok.id_botol, 0)'));
-                })
-                ->select([
-                    'tt_mutasi_stok.id_barang',
-                    'tt_mutasi_stok.id_gudang',
-                    'tt_mutasi_stok.id_botol',
-                ])
-                ->selectRaw('MIN(tt_mutasi_stok.id) as id')
-                ->selectRaw("SUM(CASE WHEN tt_mutasi_stok.tipe_mutasi = 'MASUK' THEN tt_mutasi_stok.qty_ml ELSE 0 END) as total_masuk_ml")
-                ->selectRaw("SUM(CASE WHEN tt_mutasi_stok.tipe_mutasi = 'KELUAR' THEN tt_mutasi_stok.qty_ml ELSE 0 END) as total_keluar_ml")
-                ->selectRaw("SUM(CASE WHEN tt_mutasi_stok.tipe_mutasi = 'MASUK' THEN tt_mutasi_stok.qty_ml ELSE -tt_mutasi_stok.qty_ml END) as selisih_ml")
-                ->selectRaw('COUNT(tt_mutasi_stok.id) as total_mutasi')
-                ->selectRaw('MAX(tt_mutasi_stok.tanggal) as terakhir_mutasi')
-                ->selectRaw('MAX(tt_stok_gudang.stok_ml) as stok_akhir_ml')
-                ->selectRaw('MAX(tt_stok_gudang.minimum_stok_ml) as minimum_stok_ml')
-            ->when($filters['tanggal_dari'] ?? null, fn (Builder $query, string $value) => $query->whereDate('tt_mutasi_stok.tanggal', '>=', $value))
-            ->when($filters['tanggal_sampai'] ?? null, fn (Builder $query, string $value) => $query->whereDate('tt_mutasi_stok.tanggal', '<=', $value))
-            ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.id_gudang', $value))
-            ->when($filters['id_barang'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.id_barang', $value))
-            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.id_botol', $value))
-            ->when($filters['tipe_mutasi'] ?? null, fn (Builder $query, string $value) => $query->where('tt_mutasi_stok.tipe_mutasi', $value))
-            ->groupBy('tt_mutasi_stok.id_barang', 'tt_mutasi_stok.id_gudang', 'tt_mutasi_stok.id_botol')
-            ->orderByDesc(DB::raw('MAX(tt_mutasi_stok.tanggal)'))
-            ->orderBy('tt_mutasi_stok.id_barang');
+        if (($filters['jenis_barang'] ?? null) === 'BOTOL') {
+            return [];
+        }
+
+        $relations = ['gudang', 'barang.brand', 'barang.botol', 'botolVariant'];
+        $active = $this->applyStockBalanceFilters(SaldoBarang::query()->with($relations), $filters)->get();
+        $history = $this->applyStockBalanceFilters(HistoriSaldoBarang::query()->with($relations), $filters)->get();
+
+        return $history->concat($active)
+            ->groupBy(fn ($row) => implode(':', [$row->id_gudang, $row->id_barang, $row->id_botol]))
+            ->map(function ($items) {
+                $ordered = $items->sortBy(fn ($row) => $row->tanggal->format('Y-m-d'))->values();
+                $first = $ordered->first();
+                $last = $ordered->last();
+                $row = clone $first;
+                $totalIn = (float) $ordered->sum('masuk_ml');
+                $totalOut = (float) $ordered->sum('keluar_ml');
+
+                $row->setAttribute('stok_awal_ml', (float) $first->stok_awal_ml);
+                $row->setAttribute('total_masuk_ml', $totalIn);
+                $row->setAttribute('total_keluar_ml', $totalOut);
+                $row->setAttribute('selisih_ml', $totalIn - $totalOut);
+                $row->setAttribute('stok_akhir_ml', (float) $last->stok_akhir_ml);
+                $row->setAttribute('minimum_stok_ml', (float) $last->minimum_stok_ml);
+                $row->setAttribute('total_mutasi', (int) $ordered->sum('total_mutasi'));
+                $row->setAttribute('terakhir_mutasi', $ordered->pluck('terakhir_mutasi')->filter()->last()?->toDateString());
+
+                return $row;
+            })
+            ->sortByDesc('terakhir_mutasi')
+            ->values()
+            ->all();
+    }
+
+    private function applyStockBalanceFilters(Builder $query, array $filters): Builder
+    {
+        return $query
+            ->when($filters['tanggal_dari'] ?? null, fn (Builder $query, string $value) => $query->whereDate('tanggal', '>=', $value))
+            ->when($filters['tanggal_sampai'] ?? null, fn (Builder $query, string $value) => $query->whereDate('tanggal', '<=', $value))
+            ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('id_gudang', $value))
+            ->when($filters['id_barang'] ?? null, fn (Builder $query, string $value) => $query->where('id_barang', $value))
+            ->when($filters['id_botol'] ?? null, fn (Builder $query, string $value) => $query->where('id_botol', $value))
+            ->when(in_array($filters['jenis_barang'] ?? null, ['BIBIT', 'ABSOLUTE'], true), fn (Builder $query) => $query->whereHas('barang', fn (Builder $barang) => $barang->where('jenis_barang', $filters['jenis_barang'])));
     }
 
     private function applyDebtFilters(Builder $query, array $filters): Builder
@@ -474,9 +541,9 @@ class ReportController extends Controller
             ['label' => 'Varian Botol', 'format' => fn($row) => $row->botolVariant?->nama_botol ?? $row->barang?->botol?->nama_botol ?? '-'],
             ['label' => 'Barang', 'format' => fn($row) => $row->barang?->nama_barang ?? '-'],
             ['label' => 'Gudang', 'format' => fn($row) => $row->gudang?->nama_gudang ?? '-'],
+            ['label' => 'Stok Awal', 'format' => fn($row) => $this->fmt((float) $row->stok_awal_ml)],
             ['label' => 'Masuk ML', 'format' => fn($row) => $this->fmt((float) $row->total_masuk_ml)],
             ['label' => 'Keluar ML', 'format' => fn($row) => $this->fmt((float) $row->total_keluar_ml)],
-            ['label' => 'Net ML', 'format' => fn($row) => $this->fmt((float) $row->selisih_ml)],
             ['label' => 'Stok Akhir', 'format' => fn($row) => $this->fmt((float) $row->stok_akhir_ml)],
             ['label' => 'Minimum', 'format' => fn($row) => $this->fmt((float) $row->minimum_stok_ml)],
             ['label' => 'Transaksi', 'format' => fn($row) => $this->fmt((float) $row->total_mutasi)],

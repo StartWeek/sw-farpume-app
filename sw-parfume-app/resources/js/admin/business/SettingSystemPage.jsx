@@ -101,6 +101,7 @@ export default function SettingSystemPage() {
                                 currentPath={settings.logo_path}
                                 accept=".jpg,.jpeg,.png,.gif,.webp,.svg"
                                 maxSizeMB={2}
+                                uploadType="sidebar_logo"
                             />
                             <ImageUpload
                                 label="Logo Halaman Login"
@@ -110,6 +111,7 @@ export default function SettingSystemPage() {
                                 currentPath={settings.login_logo_path}
                                 accept=".jpg,.jpeg,.png,.gif,.webp,.svg"
                                 maxSizeMB={2}
+                                uploadType="login_logo"
                             />
                         </div>
                         <div className="mt-5 max-w-md">

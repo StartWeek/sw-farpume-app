@@ -1,8 +1,8 @@
 import ProtectedLayout from "@/components/layouts/ProtectedLayout";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { router, usePage } from "@inertiajs/react";
 import Button from "@/components/common/Button";
-import { IconDotsVertical, IconPencil, IconPlus, IconPrinter, IconTrash, IconX } from "@tabler/icons-react";
+import { IconDotsVertical, IconFileTypePdf, IconPencil, IconPlus, IconPrinter, IconTrash, IconX } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, formatInputNumber, money, number, todayDate, useFlashMessages } from "./_components";
 import {
@@ -34,6 +34,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         id_customer: "",
         manual_customer_name: "",
         id_sales: "",
+        tipe_gudang: "",
         id_gudang: "",
         metode_pembayaran: "CASH",
         jumlah_bayar: "",
@@ -80,6 +81,26 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     }, [flash.receipt]);
 
     const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+    const visibleGudang = (refs.gudang || []).filter((row) => !form.tipe_gudang || row.tipe_gudang === form.tipe_gudang);
+    const visibleSupplier = (refs.supplier || []).filter((row) => {
+        if (!form.id_gudang) return false;
+        const selectedGudang = (refs.gudang || []).find((g) => String(g.id) === String(form.id_gudang));
+        if (!selectedGudang) return false;
+        return !row.id_gudang || String(row.id_gudang) === String(selectedGudang.id);
+    });
+    const handleGudangTypeChange = (value) => {
+        set("tipe_gudang", value);
+        set("id_gudang", "");
+        set("id_supplier", "");
+    };
+    const handleGudangChange = (value) => {
+        set("id_gudang", value);
+        set("id_supplier", "");
+        const selected = (refs.gudang || []).find((row) => String(row.id) === String(value));
+        if (selected) {
+            set("tipe_gudang", selected.tipe_gudang || "");
+        }
+    };
     const updateItem = (index, key, value) => setForm((prev) => ({ ...prev, items: prev.items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item) }));
     const updateItemQty = (index, value) => setForm((prev) => ({
         ...prev,
@@ -191,13 +212,30 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                     <form onSubmit={submit} className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-4">
                             {isBuy ? (
-                                <Field label="Supplier">
-                                    <Select error={!!errors.id_supplier} value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}>
-                                        <option value="">Pilih supplier</option>
-                                        {(refs.supplier || []).map((row) => <option key={row.id} value={row.id}>{row.kode_supplier} — {row.nama_supplier}</option>)}
-                                    </Select>
-                                    {errors.id_supplier && <div className="mt-1 text-xs text-red-500">{errors.id_supplier}</div>}
-                                </Field>
+                                <>
+                                    <Field label="Tipe Gudang">
+                                        <Select error={!!errors.tipe_gudang} value={form.tipe_gudang || ""} onChange={(event) => handleGudangTypeChange(event.target.value)}>
+                                            <option value="">Pilih tipe gudang</option>
+                                            <option value="BIBIT">BIBIT</option>
+                                            <option value="BOTOL">BOTOL</option>
+                                        </Select>
+                                    </Field>
+                                    <Field label="Gudang">
+                                        <Select error={!!errors.id_gudang} value={form.id_gudang} onChange={(event) => handleGudangChange(event.target.value)}>
+                                            <option value="">Pilih gudang</option>
+                                            {visibleGudang.map((row) => <option key={row.id} value={row.id}>{row.nama_gudang}</option>)}
+                                        </Select>
+                                        {errors.id_gudang && <div className="mt-1 text-xs text-red-500">{errors.id_gudang}</div>}
+                                    </Field>
+                                    <Field label="Supplier">
+                                        <Select error={!!errors.id_supplier} value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}>
+                                            <option value="">Pilih supplier</option>
+                                            {visibleSupplier.map((row) => <option key={row.id} value={row.id}>{row.kode_supplier} — {row.nama_supplier}</option>)}
+                                            {!form.id_gudang && <option value="" disabled>Silakan pilih gudang dulu</option>}
+                                        </Select>
+                                        {errors.id_supplier && <div className="mt-1 text-xs text-red-500">{errors.id_supplier}</div>}
+                                    </Field>
+                                </>
                             ) : (
                                 <>
                                     <Field label="Customer">
@@ -214,13 +252,6 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                 </>
                             )}
                             {!isBuy ? <Field label="Sales"><Select error={!!errors.id_sales} value={form.id_sales || ""} onChange={(event) => set("id_sales", event.target.value)}><option value="">Tanpa sales</option>{(refs.sales || []).map((row) => <option key={row.id} value={row.id}>{row.nama_sales}{row.no_hp ? ` — ${row.no_hp}` : ""}</option>)}</Select>{errors.id_sales && <div className="mt-1 text-xs text-red-500">{errors.id_sales}</div>}</Field> : null}
-                            <Field label="Gudang">
-                                <Select error={!!errors.id_gudang} value={form.id_gudang} onChange={(event) => set("id_gudang", event.target.value)}>
-                                    <option value="">Pilih gudang</option>
-                                    {(refs.gudang || []).map((row) => <option key={row.id} value={row.id}>{row.nama_gudang}</option>)}
-                                </Select>
-                                {errors.id_gudang && <div className="mt-1 text-xs text-red-500">{errors.id_gudang}</div>}
-                            </Field>
                             <Field label="Metode Bayar">
                                 <Select error={!!errors.metode_pembayaran} value={form.metode_pembayaran} onChange={(event) => set("metode_pembayaran", event.target.value)}>{(isBuy || isWholesale ? payments : retailPayments).map((payment) => <option key={payment}>{payment}</option>)}</Select>
                                 {errors.metode_pembayaran && <div className="mt-1 text-xs text-red-500">{errors.metode_pembayaran}</div>}
@@ -538,15 +569,27 @@ function canPayTempo(row, isBuy) {
 
 function KebabMenu({ row, isBuy, onPrint, onPayTempo }) {
     const [open, setOpen] = useState(false);
+    const [dropUp, setDropUp] = useState(false);
+    const buttonRef = useRef(null);
+
+    const toggle = () => {
+        if (!open && buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            // If the button is in the bottom 200px of the viewport, open upward
+            setDropUp(window.innerHeight - rect.bottom < 200);
+        }
+        setOpen(!open);
+    };
+
     return (
-        <div className="relative inline-block">
-            <button type="button" onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-muted hover:bg-page hover:text-main transition-colors">
+        <div className="relative inline-block" ref={buttonRef}>
+            <button type="button" onClick={toggle} className="rounded-lg p-1.5 text-muted hover:bg-page hover:text-main transition-colors">
                 <IconDotsVertical size={16} />
             </button>
             {open && (
                 <>
                     <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-                    <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-stroke bg-card py-1.5 shadow-premium text-sm">
+                    <div className={`absolute right-0 z-20 w-44 rounded-xl border border-stroke bg-card py-1.5 shadow-premium text-sm ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                         <button type="button" onClick={() => { onPrint(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left font-medium text-main hover:bg-page transition-colors">
                             <IconPrinter size={14} className="text-muted" /> Reprint Nota
                         </button>
@@ -731,6 +774,13 @@ function ReceiptModal({ receipt, onClose, onBluetooth, bluetoothLoading }) {
                             >
                                 Print
                             </Button>
+                            {receipt.type === 'pembelian' && receipt.id ? (
+                                <a href={`/admin/pembelian/${receipt.id}/pdf`} className="no-underline">
+                                    <Button icon={IconFileTypePdf} variant="outline">
+                                        PDF
+                                    </Button>
+                                </a>
+                            ) : null}
                             <Button variant="ghost" onClick={onClose}>
                                 Tutup
                             </Button>
@@ -749,6 +799,7 @@ function ReceiptModal({ receipt, onClose, onBluetooth, bluetoothLoading }) {
 function buildReceiptFromRow(row, isBuy) {
     if (isBuy) {
         return {
+            id: row.id,
             type: "pembelian",
             title: "NOTA PEMBELIAN",
             number: row.no_pembelian,
@@ -787,6 +838,7 @@ function buildReceiptFromRow(row, isBuy) {
     }
 
     return {
+        id: row.id,
         type: "penjualan",
         title: "NOTA PENJUALAN",
         number: row.no_penjualan,

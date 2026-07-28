@@ -18,6 +18,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class TransactionController extends Controller
 {
@@ -115,6 +116,22 @@ class TransactionController extends Controller
         ]);
     }
 
+    public function notaPdf(int $id): SymfonyResponse
+    {
+        $pembelian = Pembelian::with(['supplier', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant'])->findOrFail($id);
+        $receipt = $this->receiptPayload($pembelian, 'pembelian');
+        $settings = app(\App\Services\SettingsService::class)->get();
+
+        $title = 'NOTA PEMBELIAN ' . $pembelian->no_pembelian;
+        $filename = str($title)->slug();
+
+        return \Barryvdh\DomPDF\Facade\Pdf::loadView('exports.nota', [
+            'title' => $title,
+            'receipt' => $receipt,
+            'settings' => $settings,
+        ])->setPaper([0, 0, 226.77, 600], 'portrait')->download($filename . '.pdf');
+    }
+
     public function storePembelian(Request $request): RedirectResponse
     {
         $pembelian = $this->business->createPembelian($this->uppercase($request->validate($this->pembelianRules(), $this->validationMessages())));
@@ -195,6 +212,7 @@ class TransactionController extends Controller
 
         if ($type === 'pembelian') {
             return [
+                'id' => $transaction->id,
                 'type' => 'pembelian',
                 'title' => 'NOTA PEMBELIAN',
                 'number' => $transaction->no_pembelian,
@@ -236,6 +254,7 @@ class TransactionController extends Controller
         }
 
         return [
+            'id' => $transaction->id,
             'type' => 'penjualan',
             'title' => 'NOTA PENJUALAN',
             'number' => $transaction->no_penjualan,
