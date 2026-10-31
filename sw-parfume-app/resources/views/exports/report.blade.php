@@ -83,9 +83,12 @@
 
     <div class="header">
         <h1>{{ $title }}</h1>
-        <p>Dicetak pada: {{ \Carbon\Carbon::now()->format('d-m-Y H:i') }}</p>
+        <p>Dicetak pada: {{ \Carbon\Carbon::now()->timezone('Asia/Jakarta')->format('d-m-Y H:i').' WIB' }}</p>
     </div>
 
+    @if(array_key_exists('Pengajuan Menunggu', $summary ?? []))
+        <p style="font-size:10px; padding:8px; background:#f1f5f9;">@foreach($summary as $label => $value)<strong>{{ $label }}:</strong> {{ $value }} &nbsp;&nbsp; @endforeach</p>
+    @endif
     @if(count($filters) > 0)
     <table class="filter-table">
         <tbody>
@@ -107,6 +110,34 @@
     </table>
     @endif
 
+    @if(!empty($botolSummaryColumns))
+        <h3>SUMMARY BOTOL KOSONG</h3>
+        <table class="data-table">
+            <thead><tr>
+                @foreach($botolSummaryColumns as $col)<th>{{ $col['label'] }}</th>@endforeach
+            </tr></thead>
+            <tbody>
+                @forelse($botolSummary as $row)
+                    <tr>
+                        @foreach($botolSummaryColumns as $col)
+                            <td>{{ data_get($row, $col['key']) ?? '-' }}</td>
+                        @endforeach
+                    </tr>
+                @empty
+                    <tr><td colspan="{{ count($botolSummaryColumns) }}">Data botol kosong tidak tersedia.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+    @endif
+
+    @if(!empty($botolStockColumns))
+        <h3>STOK ISI / CAIRAN</h3>
+        <p>Persediaan bibit dan absolute dalam ML. Perkiraan botol isi dihitung dari volume dibagi kapasitas botol, dibulatkan ke atas. Botol terakhir bisa terisi sebagian.</p>
+    @endif
+
+    @if($portraitValidation ?? false)
+        @include('exports.validation_report_portrait')
+    @else
     <table class="data-table">
         <thead>
             <tr>
@@ -133,7 +164,7 @@
                             $isNumeric = is_numeric($val) || (is_string($val) && preg_match('/^Rp\s/', $val));
                             $isCenter = isset($col['key']) && preg_match('/status|tipe/i', $col['key']);
                         @endphp
-                        <td class="{{ $isNumeric ? 'text-right' : '' }}{{ $isCenter ? 'text-center' : '' }}">
+                        <td @if(array_key_exists('Pengajuan Menunggu', $summary ?? [])) data-type="s" @endif class="{{ $isNumeric ? 'text-right' : '' }}{{ $isCenter ? 'text-center' : '' }}">
                             {{ $display }}
                         </td>
                     @endforeach
@@ -144,7 +175,7 @@
                 </tr>
             @endforelse
         </tbody>
-        @if(!empty($summary))
+        @if(!empty($summary) && !array_key_exists('Pengajuan Menunggu', $summary))
         <tfoot>
             <tr style="background-color: #e9ecef; font-weight: bold;">
                 <td style="text-transform: uppercase;">GRAND TOTAL</td>
@@ -155,7 +186,16 @@
                         $display = '';
                         // Only try to match on numeric/value columns (skip label/id columns)
                         $skipPattern = '/^(No\.?\s|No\s)/i';
-                        if (!preg_match($skipPattern, $colLabel)) {
+                        if (!empty($botolStockColumns)) {
+                            $summaryKey = match ($columns[$c]['key'] ?? '') {
+                                'stok_ml' => 'Total Stok Cairan (ML)',
+                                'stok_botol_isi' => 'Total Perkiraan Botol Isi',
+                                default => null,
+                            };
+                            if ($summaryKey !== null) {
+                                $display = preg_replace('/,00$/', '', number_format((float) ($summary[$summaryKey] ?? 0), 2, ',', '.'));
+                            }
+                        } elseif (!preg_match($skipPattern, $colLabel)) {
                             foreach($summary as $summaryKey => $summaryVal) {
                                 $searchKey = str_replace(['Total ', ' ML'], '', $summaryKey);
                                 $colClean = str_replace(['Qty ', 'Total '], '', $colLabel);
@@ -178,9 +218,11 @@
         </tfoot>
         @endif
     </table>
+    @endif
 
     @if(!empty($botolStockColumns))
         <h3 style="margin-top: 25px; padding-top: 15px; border-top: 2px solid #222;">STOK BOTOL KOSONG</h3>
+        <p>Persediaan kemasan botol tanpa isi, dicatat dalam buah (PCS).</p>
         <table class="data-table">
             <thead>
                 <tr>
@@ -203,7 +245,7 @@
                                 $display = is_string($val) ? mb_strtoupper($val) : ($val ?? '-');
                                 $isNumeric = is_numeric($val) || (is_string($val) && preg_match('/^Rp\s/', $val));
                             @endphp
-                            <td class="{{ $isNumeric ? 'text-right' : '' }}">
+                            <td @if(array_key_exists('Pengajuan Menunggu', $summary ?? [])) data-type="s" @endif class="{{ $isNumeric ? 'text-right' : '' }}">
                                 {{ $display }}
                             </td>
                         @endforeach
@@ -214,6 +256,12 @@
                     </tr>
                 @endforelse
             </tbody>
+            <tfoot>
+                <tr style="background-color: #e9ecef; font-weight: bold;">
+                    <td colspan="{{ count($botolStockColumns) - 1 }}">TOTAL BOTOL KOSONG (PCS)</td>
+                    <td class="text-right">{{ preg_replace('/,00$/', '', number_format(array_sum(array_column($botolStock, 'stok_botol')), 2, ',', '.')) }}</td>
+                </tr>
+            </tfoot>
         </table>
     @endif
 

@@ -11,9 +11,13 @@ use App\Models\Business\Gudang;
 use App\Models\Business\Pembelian;
 use App\Models\Business\Penjualan;
 use App\Models\Business\Sales;
-use App\Models\Business\Supplier;
 use App\Models\Business\StokGudang;
+use App\Models\Business\Supplier;
 use App\Services\Business\BusinessService;
+use App\Services\Business\PaymentHistoryService;
+use App\Services\Business\TransactionValidationService;
+use App\Services\SettingsService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -22,17 +26,17 @@ use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class TransactionController extends Controller
 {
-    public function __construct(private readonly BusinessService $business) {}
+    public function __construct(private readonly BusinessService $business, private readonly TransactionValidationService $validations, private readonly PaymentHistoryService $paymentHistory) {}
 
     public function pembelian(): Response
     {
         return Inertia::render('admin/business/TransactionPage', [
             'type' => 'pembelian',
-            'rows' => Pembelian::query()
+            'rows' => $this->paymentHistory->attach(Pembelian::query()
                 ->with(['supplier', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'hutang'])
                 ->latest('id')
                 ->paginate($this->perPage())
-                ->withQueryString(),
+                ->withQueryString(), 'bayar-hutang', 'hutang'),
             'refs' => $this->refs(),
             'operationalDate' => $this->business->operationalDate()->toDateString(),
         ]);
@@ -45,12 +49,12 @@ class TransactionController extends Controller
 
         return Inertia::render('admin/business/TransactionPage', [
             'type' => $type === 'grosir' ? 'sales' : $type,
-            'rows' => Penjualan::query()
+            'rows' => $this->paymentHistory->attach(Penjualan::query()
                 ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
                 ->where('tipe_penjualan', $salesType)
                 ->latest('id')
                 ->paginate($this->perPage())
-                ->withQueryString(),
+                ->withQueryString(), 'bayar-piutang', 'piutang'),
             'refs' => $this->refs(),
             'operationalDate' => $this->business->operationalDate()->toDateString(),
         ]);
@@ -60,12 +64,12 @@ class TransactionController extends Controller
     {
         return Inertia::render('admin/business/TransactionPage', [
             'type' => 'botol-kosong',
-            'rows' => Penjualan::query()
+            'rows' => $this->paymentHistory->attach(Penjualan::query()
                 ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
                 ->where('tipe_penjualan', 'BOTOL_KOSONG')
                 ->latest('id')
                 ->paginate($this->perPage())
-                ->withQueryString(),
+                ->withQueryString(), 'bayar-piutang', 'piutang'),
             'refs' => $this->refs('BOTOL'),
             'operationalDate' => $this->business->operationalDate()->toDateString(),
         ]);
@@ -86,7 +90,7 @@ class TransactionController extends Controller
         return Inertia::render('admin/business/TransactionPage', [
             'type' => 'pembelian',
             'mode' => 'history',
-            'rows' => $rows,
+            'rows' => $this->paymentHistory->attach($rows, 'bayar-hutang', 'hutang'),
             'refs' => $this->refs(),
             'operationalDate' => $this->business->operationalDate()->toDateString(),
         ]);
@@ -110,7 +114,7 @@ class TransactionController extends Controller
         return Inertia::render('admin/business/TransactionPage', [
             'type' => $type === 'grosir' ? 'sales' : $type,
             'mode' => 'history',
-            'rows' => $rows,
+            'rows' => $this->paymentHistory->attach($rows, 'bayar-piutang', 'piutang'),
             'refs' => $this->refs(),
             'operationalDate' => $this->business->operationalDate()->toDateString(),
         ]);
@@ -118,42 +122,64 @@ class TransactionController extends Controller
 
     public function notaPdf(int $id): SymfonyResponse
     {
+        $access = request()->user()->akses_menu;
+        abort_if(! in_array(request()->user()->role, ['superadmin', 'owner'], true) && is_array($access) && $access !== [] && ! array_intersect($access, ['pembelian', 'riwayat-pembelian', 'laporan-pembelian']), 403);
         $pembelian = Pembelian::with(['supplier', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant'])->findOrFail($id);
         $receipt = $this->receiptPayload($pembelian, 'pembelian');
-        $settings = app(\App\Services\SettingsService::class)->get();
+        $settings = app(SettingsService::class)->get();
 
-        $title = 'NOTA PEMBELIAN ' . $pembelian->no_pembelian;
+        $title = 'NOTA PEMBELIAN '.$pembelian->no_pembelian;
         $filename = str($title)->slug();
 
-        return \Barryvdh\DomPDF\Facade\Pdf::loadView('exports.nota', [
+        return Pdf::loadView('exports.nota', [
             'title' => $title,
             'receipt' => $receipt,
             'settings' => $settings,
-        ])->setPaper([0, 0, 226.77, 600], 'portrait')->download($filename . '.pdf');
+        ])->setPaper('a4', 'portrait')->stream($filename.'.pdf');
+    }
+
+    public function salesPdf(Request $request, int $id): SymfonyResponse
+    {
+        $sale = Penjualan::query()->findOrFail($id);
+        $access = $request->user()->akses_menu;
+        $required = in_array($sale->tipe_penjualan, ['GROSIR', 'SALES'], true) ? 'penjualan-grosir' : 'penjualan-retail';
+        abort_if(! in_array($request->user()->role, ['superadmin', 'owner'], true) && is_array($access) && $access !== [] && ! array_intersect($access, [$required, 'riwayat-penjualan', 'laporan-penjualan']), 403);
+        $receipt = $this->receiptPayload($sale, 'penjualan');
+
+        if ($request->routeIs('business.penjualan.slip')) {
+            return response()->view('exports.customer_slip', [
+                'receipt' => $receipt, 'settings' => app(SettingsService::class)->get(),
+            ]);
+        }
+
+        return Pdf::loadView('exports.nota', [
+            'title' => 'NOTA PENJUALAN '.$sale->no_penjualan, 'receipt' => $receipt,
+            'settings' => app(SettingsService::class)->get(),
+        ])->setPaper('a4', 'portrait')->stream(strtolower($sale->no_penjualan).'.pdf');
     }
 
     public function storePembelian(Request $request): RedirectResponse
     {
-        $pembelian = $this->business->createPembelian($this->uppercase($request->validate($this->pembelianRules(), $this->validationMessages())));
+        $validation = $this->validations->submit('pembelian', $this->uppercase($request->validate($this->pembelianRules(), $this->validationMessages())), $request->user());
 
         return redirect()
             ->route('business.pembelian.index')
-            ->with('success', 'Pembelian berhasil disimpan.')
-            ->with('receipt', $this->receiptPayload($pembelian, 'pembelian'));
+            ->with('success', TransactionValidationService::SUBMITTED_MESSAGE)
+            ->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
     }
 
     public function storePenjualan(Request $request): RedirectResponse
     {
         $validated = $this->uppercase($request->validate($this->penjualanRules(), $this->validationMessages()));
-        if ($validated['tipe_penjualan'] === 'RETAIL' && ! in_array($validated['metode_pembayaran'], ['CASH', 'TRANSFER'], true)) {
+        if ($validated['tipe_penjualan'] === 'RETAIL' && ! in_array($validated['metode_pembayaran'], ['CASH', 'TRANSFER', 'SPLIT'], true)) {
             return back()->withErrors(['metode_pembayaran' => 'Penjualan retail tidak boleh menggunakan tempo.'])->withInput();
         }
-        $penjualan = $this->business->createPenjualan($validated);
+        $validation = $this->validations->submit($validated['tipe_penjualan'] === 'RETAIL' ? 'penjualan-retail' : 'penjualan-sales', $validated, $request->user());
 
         return redirect()
-            ->route('business.penjualan.index', $penjualan->tipe_penjualan === 'GROSIR' ? 'sales' : 'retail')
-            ->with('success', 'Penjualan berhasil disimpan.')
-            ->with('receipt', $this->receiptPayload($penjualan, 'penjualan'));
+            ->route('business.penjualan.index', $validated['tipe_penjualan'] === 'RETAIL' ? 'retail' : 'sales')
+            ->with('success', TransactionValidationService::SUBMITTED_MESSAGE)
+            ->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
     }
 
     public function storePenjualanBotolKosong(Request $request): RedirectResponse
@@ -164,12 +190,12 @@ class TransactionController extends Controller
             ->map(fn (array $item) => [...$item, 'tipe_item' => 'BOTOL'])
             ->all();
 
-        $penjualan = $this->business->createPenjualan($validated);
+        $validation = $this->validations->submit('penjualan-botol', $validated, $request->user());
 
         return redirect()
             ->route('business.penjualan-botol-kosong.index')
-            ->with('success', 'Penjualan botol kosong berhasil disimpan.')
-            ->with('receipt', $this->receiptPayload($penjualan, 'penjualan'));
+            ->with('success', TransactionValidationService::SUBMITTED_MESSAGE)
+            ->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
     }
 
     private function refs(string $gudangTipe = ''): array
@@ -187,7 +213,7 @@ class TransactionController extends Controller
             'supplier' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(),
             'customer' => Customer::query()->where('status', 'AKTIF')->orderBy('nama_customer')->get(),
             'sales' => Sales::query()->where('status', 'AKTIF')->orderBy('nama_sales')->get(),
-            'stok_gudang' => StokGudang::query()->get(['id_gudang', 'id_barang', 'stok_ml']),
+            'stok_gudang' => StokGudang::query()->get(['id_gudang', 'id_barang', 'id_botol', 'stok_ml']),
         ];
     }
 
@@ -214,14 +240,20 @@ class TransactionController extends Controller
             return [
                 'id' => $transaction->id,
                 'type' => 'pembelian',
-                'title' => 'NOTA PEMBELIAN',
+                'title' => 'Pembelian Supplier',
                 'number' => $transaction->no_pembelian,
                 'date' => optional($transaction->tanggal)->format('d/m/Y'),
                 'party_label' => 'Supplier',
                 'party_name' => $transaction->supplier?->nama_supplier ?? '-',
                 'warehouse' => $transaction->gudang?->nama_gudang ?? '-',
                 'payment_method' => $transaction->metode_pembayaran,
+                'payment_details' => $transaction->payment_details,
                 'payment_status' => $transaction->status_pembayaran,
+                'amount_paid' => (float) $transaction->jumlah_bayar,
+                'remaining' => max(0, (float) $transaction->total_pembelian - (float) $transaction->jumlah_bayar),
+                'jatuh_tempo' => optional($transaction->jatuh_tempo)->format('d/m/Y'),
+                'notes' => $transaction->keterangan,
+                'pdf_url' => route('business.pembelian.pdf', $transaction->id),
                 'items' => $transaction->details->map(function ($detail) {
                     $variant = $detail->botolVariant;
                     $isBotolUnit = $detail->satuan_input === 'BOTOL';
@@ -234,11 +266,15 @@ class TransactionController extends Controller
                     $variantLabel = $variant ? $variant->nama_botol : null;
 
                     return [
+                        'code' => $detail->tipe_item === 'BOTOL'
+                            ? ($detail->botolKosong?->kode_botol ?? $detail->botol?->kode_botol)
+                            : $detail->barang?->kode_barang,
                         'name' => $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botolKosong?->nama_botol ?? $detail->botol?->nama_botol ?? '-',
                         'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
                         'unit' => $unitLabel,
                         'variant' => $variantLabel,
                         'price' => (float) ($detail->harga ?: $detail->harga_beli_per_ml),
+                        'price_unit' => $detail->satuan_dasar === 'ML' ? 'ML' : ($detail->satuan_input ?? 'BOTOL'),
                         'subtotal' => (float) $detail->subtotal,
                         'discount' => (float) $detail->discount,
                         'capacity_ml' => $capacityMl,
@@ -249,14 +285,18 @@ class TransactionController extends Controller
                 'total_bottle' => (float) $transaction->total_qty_botol,
                 'discount' => (float) $transaction->discount,
                 'total' => (float) $transaction->total_pembelian,
-                'store_name' => app(\App\Services\SettingsService::class)->get()['store_name'],
+                'store_name' => app(SettingsService::class)->get()['store_name'],
             ];
         }
 
         return [
             'id' => $transaction->id,
             'type' => 'penjualan',
-            'title' => 'NOTA PENJUALAN',
+            'title' => match ($transaction->tipe_penjualan) {
+                'BOTOL_KOSONG' => 'Penjualan Botol Kosong',
+                'GROSIR', 'SALES' => 'Penjualan Sales',
+                default => 'Penjualan Retail',
+            },
             'number' => $transaction->no_penjualan,
             'date' => optional($transaction->tanggal)->format('d/m/Y'),
             'party_label' => 'Customer',
@@ -264,27 +304,36 @@ class TransactionController extends Controller
             'sales' => $transaction->sales?->nama_sales ?? '-',
             'warehouse' => $transaction->gudang?->nama_gudang ?? '-',
             'payment_method' => $transaction->metode_pembayaran,
+            'payment_details' => $transaction->payment_details,
             'payment_status' => $transaction->status_pembayaran,
+            'amount_paid' => (float) $transaction->jumlah_bayar,
+            'remaining' => max(0, (float) $transaction->total_penjualan - (float) $transaction->jumlah_bayar),
+            'notes' => $transaction->keterangan,
             'items' => $transaction->details->map(function ($detail) {
-                    $variant = $detail->botolVariant;
-                    return [
-                        'name' => $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botolKosong?->nama_botol ?? $detail->botol?->nama_botol ?? '-',
-                        'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
-                        'unit' => $detail->satuan_input ?? 'ML',
-                        'variant' => $variant ? $variant->nama_botol : null,
-                        'price' => (float) ($detail->harga ?: $detail->harga_jual_per_ml),
-                        'subtotal' => (float) $detail->subtotal_jual,
-                        'discount' => (float) $detail->discount,
-                        'capacity_ml' => $detail->satuan_dasar === 'BOTOL' ? (float) $detail->qty_ml : null,
-                        'price_per_ml' => (float) $detail->harga_jual_per_ml,
-                    ];
-                })->values()->all(),
-                'total_qty' => (float) $transaction->total_qty_ml,
-                'total_bottle' => (float) $transaction->total_qty_botol,
-                'discount' => (float) $transaction->discount,
-                'jatuh_tempo' => $transaction->metode_pembayaran === 'TEMPO' && $transaction->jatuh_tempo ? optional($transaction->jatuh_tempo)->format('d/m/Y') : null,
+                $variant = $detail->botolVariant;
+
+                return [
+                    'code' => $detail->tipe_item === 'BOTOL'
+                        ? ($detail->botolKosong?->kode_botol ?? $detail->botol?->kode_botol)
+                        : $detail->barang?->kode_barang,
+                    'name' => $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botolKosong?->nama_botol ?? $detail->botol?->nama_botol ?? '-',
+                    'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
+                    'unit' => $detail->satuan_input ?? 'ML',
+                    'variant' => $variant ? $variant->nama_botol : null,
+                    'price' => (float) ($detail->harga ?: $detail->harga_jual_per_ml),
+                    'price_unit' => $detail->satuan_dasar === 'ML' ? 'ML' : ($detail->satuan_input ?? 'BOTOL'),
+                    'subtotal' => (float) $detail->subtotal_jual,
+                    'discount' => (float) $detail->discount,
+                    'capacity_ml' => $detail->satuan_dasar === 'BOTOL' ? (float) $detail->qty_ml : null,
+                    'price_per_ml' => (float) $detail->harga_jual_per_ml,
+                ];
+            })->values()->all(),
+            'total_qty' => (float) $transaction->total_qty_ml,
+            'total_bottle' => (float) $transaction->total_qty_botol,
+            'discount' => (float) $transaction->discount,
+            'jatuh_tempo' => in_array($transaction->metode_pembayaran, ['TEMPO', 'DP'], true) && $transaction->jatuh_tempo ? optional($transaction->jatuh_tempo)->format('d/m/Y') : null,
             'total' => (float) $transaction->total_penjualan,
-            'store_name' => app(\App\Services\SettingsService::class)->get()['store_name'],
+            'store_name' => app(SettingsService::class)->get()['store_name'],
         ];
     }
 
@@ -294,7 +343,9 @@ class TransactionController extends Controller
             'tanggal' => ['nullable', 'date'],
             'id_supplier' => ['required', 'exists:tm_supplier,id'],
             'id_gudang' => ['required', 'exists:tm_gudang,id'],
-            'metode_pembayaran' => ['required', 'in:CASH,TRANSFER,TEMPO,DP'],
+            'metode_pembayaran' => ['required', 'in:CASH,TRANSFER,SPLIT,TEMPO,DP'],
+            'cash_amount' => ['nullable', 'required_if:metode_pembayaran,SPLIT', 'numeric', 'min:0.01'],
+            'transfer_amount' => ['nullable', 'required_if:metode_pembayaran,SPLIT', 'numeric', 'min:0.01'],
             'jumlah_bayar' => ['nullable', 'numeric', 'min:0'],
             'discount' => ['nullable', 'numeric', 'min:0'],
             'jatuh_tempo' => ['nullable', 'date'],
@@ -319,7 +370,9 @@ class TransactionController extends Controller
             'manual_customer_name' => ['nullable', 'string', 'max:255'],
             'id_sales' => ['nullable', 'exists:tm_sales,id'],
             'id_gudang' => ['required', 'exists:tm_gudang,id'],
-            'metode_pembayaran' => ['required', 'in:CASH,TRANSFER,TEMPO,DP'],
+            'metode_pembayaran' => ['required', 'in:CASH,TRANSFER,SPLIT,TEMPO,DP'],
+            'cash_amount' => ['nullable', 'required_if:metode_pembayaran,SPLIT', 'numeric', 'min:0.01'],
+            'transfer_amount' => ['nullable', 'required_if:metode_pembayaran,SPLIT', 'numeric', 'min:0.01'],
             'jumlah_bayar' => ['nullable', 'numeric', 'min:0'],
             'discount' => ['nullable', 'numeric', 'min:0'],
             'jatuh_tempo' => ['nullable', 'date'],
@@ -342,7 +395,9 @@ class TransactionController extends Controller
             'tipe_penjualan' => ['required', 'in:RETAIL,GROSIR,SALES'],
             'id_sales' => ['nullable', 'exists:tm_sales,id'],
             'id_gudang' => ['required', 'exists:tm_gudang,id'],
-            'metode_pembayaran' => ['required', 'in:CASH,TRANSFER,TEMPO,DP'],
+            'metode_pembayaran' => ['required', 'in:CASH,TRANSFER,SPLIT,TEMPO,DP'],
+            'cash_amount' => ['nullable', 'required_if:metode_pembayaran,SPLIT', 'numeric', 'min:0.01'],
+            'transfer_amount' => ['nullable', 'required_if:metode_pembayaran,SPLIT', 'numeric', 'min:0.01'],
             'jumlah_bayar' => ['nullable', 'numeric', 'min:0'],
             'discount' => ['nullable', 'numeric', 'min:0'],
             'jatuh_tempo' => ['nullable', 'date'],
@@ -351,6 +406,7 @@ class TransactionController extends Controller
             'items.*.tipe_item' => ['required', 'in:BIBIT,ABSOLUTE'],
             'items.*.item_id' => ['required', 'integer'],
             'items.*.id_barang' => ['nullable', 'exists:tm_barang_bibit,id'],
+            'items.*.id_botol' => ['nullable', 'exists:tm_botol,id'],
             'items.*.qty_input' => ['required', 'numeric', 'min:0.01'],
             'items.*.satuan_input' => ['required', 'in:ML,LITER,BOTOL,DUS'],
             'items.*.harga' => ['nullable', 'numeric', 'min:0.01'],

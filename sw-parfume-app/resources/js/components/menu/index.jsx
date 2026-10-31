@@ -7,6 +7,7 @@ import {
     IconChartBar,
     IconChartHistogram,
     IconClipboardData,
+    IconClipboardCheck,
     IconComponents,
     IconCreditCardPay,
     IconCreditCardRefund,
@@ -189,6 +190,12 @@ export const menuAdmin = [
         ],
     },
     {
+        label: "Validasi Transaksi",
+        icon: IconClipboardCheck,
+        href: "/admin/validasi-transaksi",
+        accessAnyOf: ["pembelian", "penjualan-retail", "penjualan-grosir", "mutasi-stok", "hancur-stock", "hutang", "piutang", "piutang-supplier", "kas"],
+    },
+    {
         label: "Riwayat Transaksi",
         icon: IconClipboardData,
         children: [
@@ -210,6 +217,12 @@ export const menuAdmin = [
         label: "Laporan",
         icon: IconReportAnalytics,
         children: [
+            {
+                label: "Validasi Transaksi",
+                href: "/admin/laporan/validasi-transaksi",
+                accessKey: "laporan-validasi-transaksi",
+                icon: IconClipboardCheck,
+            },
             {
                 label: "Pembelian Supplier",
                 icon: IconFileAnalytics,

@@ -1,11 +1,18 @@
 import ProtectedLayout from "@/components/layouts/ProtectedLayout";
-import React, { useState } from "react";
-import { router } from "@inertiajs/react";
+import React, { useEffect, useState } from "react";
+import { router, usePage } from "@inertiajs/react";
 import toast from "react-hot-toast";
 import Button from "@/components/common/Button";
-import { Card, Field, Input, PageHeader, PaginationBar, Select, SimpleTable, money, number, todayDate, useFlashMessages } from "./_components";
+import AsyncSelectInput from "@/components/input/AsyncSelectInput";
+import { Card, Field, Input, PageHeader, PaginationBar, Select, SimpleTable, formatBusinessDate, money, number, todayDate, useFlashMessages } from "./_components";
+import { transactionItemCode } from "./barcode";
 
+const validationStatuses = { PENDING: "Menunggu", APPROVED: "Disetujui", REJECTED: "Ditolak" };
+const reportData = (rows) => Array.isArray(rows) ? rows : rows?.data || [];
+const reportTotal = (rows) => Array.isArray(rows) ? rows.length : Number(rows?.total || 0);
+const grossProfitFilterKeys = ["tanggal_dari", "tanggal_sampai", "id_gudang", "tipe_penjualan"];
 const titles = {
+    "validasi-transaksi": "Laporan Validasi Transaksi",
     pembelian: "Laporan Pembelian",
     penjualan: "Laporan Penjualan",
     stok: "Laporan Stok",
@@ -50,47 +57,62 @@ const LandscapeIcon = ({ size = 14 }) => (
     </svg>
 );
 
-export default function ReportPage({ type, rows = [], botolStock = [], botolSummary = [], filters = {}, refs = {}, searched = false, summary = {}, groups = [] }) {
+export default function ReportPage({ type, rows = [], botolStock = [], botolStockTotal = 0, botolSummary = [], filters = {}, refs = {}, searched = false, reportAvailable, summary = {}, groups = [] }) {
     useFlashMessages();
+    useEffect(() => {
+        if (searched || typeof reportAvailable !== "boolean") return;
+        const options = { id: "report-availability" };
+        if (reportAvailable) {
+            toast.success("Laporan tersedia sesuai periode dan filter awal. Klik Cari Laporan untuk menampilkan.", options);
+        } else {
+            toast.error("Laporan tidak tersedia sesuai periode dan filter awal. Coba ubah periode atau filter.", options);
+        }
+    }, [type, searched, reportAvailable]);
+    const { systemDate, errors = {} } = usePage().props;
     const [orientation, setOrientation] = useState("landscape");
     const [form, setForm] = useState({
-        tanggal_dari: filters.tanggal_dari || todayDate(),
-        tanggal_sampai: filters.tanggal_sampai || todayDate(),
+        tanggal_dari: filters.tanggal_dari ?? (searched ? "" : systemDate || todayDate()),
+        tanggal_sampai: filters.tanggal_sampai ?? (searched ? "" : systemDate || todayDate()),
         id_supplier: filters.id_supplier || "",
         id_customer: filters.id_customer || "",
         tipe_gudang: filters.tipe_gudang || "",
         id_gudang: filters.id_gudang || "",
         id_barang: filters.id_barang || "",
         status: filters.status || "",
+        validation_type: filters.validation_type || "",
         tipe_mutasi: filters.tipe_mutasi || "",
         tipe_penjualan: filters.tipe_penjualan || "",
         stok_status: filters.stok_status || "",
         jenis_barang: filters.jenis_barang || "",
         id_botol: filters.id_botol || "",
+        barcode: filters.barcode || "",
     });
     const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
-    const visibleGudang = (refs.gudang || []).filter((row) => !form.tipe_gudang || row.tipe_gudang === form.tipe_gudang);
     const handleGudangTypeChange = (value) => {
         set("tipe_gudang", value);
-        if (form.id_gudang) {
-            const currentGudang = (refs.gudang || []).find((row) => String(row.id) === String(form.id_gudang));
-            if (currentGudang && currentGudang.tipe_gudang !== value) {
-                set("id_gudang", "");
-            }
-        }
+        set("id_gudang", "");
     };
-    const handleGudangChange = (value) => {
+    const handleGudangChange = (value, option) => {
         set("id_gudang", value);
-        const selected = (refs.gudang || []).find((row) => String(row.id) === String(value));
-        if (selected) {
-            set("tipe_gudang", selected.tipe_gudang || "");
-        }
+        if (option) set("tipe_gudang", option.tipe_gudang || "");
     };
+    const masterFilter = (resource, field, label, onChange = (value) => set(field, value)) => (
+        <ReportMasterSelect
+            key={`${type}-${resource}`}
+            type={type}
+            resource={resource}
+            label={label}
+            value={form[field]}
+            initialRows={refs[resource] || []}
+            warehouseType={resource === "gudang" && type !== "laba-kotor" ? form.tipe_gudang : ""}
+            onChange={onChange}
+        />
+    );
 
     const submit = (event) => {
         event.preventDefault();
         const params = Object.fromEntries(
-            Object.entries({ ...form, search: 1 })
+            Object.entries({ ...(type === "laba-kotor" ? Object.fromEntries(grossProfitFilterKeys.map((key) => [key, form[key]])) : form), search: 1, per_page: rows?.per_page || 10 })
                 .filter(([, value]) => value !== "" && value !== null && value !== undefined),
         );
 
@@ -98,13 +120,15 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
             preserveScroll: true,
             preserveState: true,
             replace: true,
+            onError: () => toast.error("Filter laporan tidak valid. Periksa pesan di bawah form."),
             onSuccess: (page) => {
                 const fetchedRows = page.props.rows || [];
-                const dataArray = Array.isArray(fetchedRows) ? fetchedRows : (fetchedRows.data || []);
-                if (dataArray.length > 0) {
+                const hasBottleStock = type === "stok" && reportTotal(page.props.botolStock) > 0;
+                const hasBottleSummary = type === "barang-summary" && reportTotal(page.props.botolSummary) > 0;
+                if (reportTotal(fetchedRows) > 0 || hasBottleStock || hasBottleSummary) {
                     toast.success("Laporan tersedia.");
                 } else {
-                    toast.error("Laporan tidak tersedia.");
+                    toast.error("Laporan tidak tersedia sesuai periode dan filter yang dipilih.");
                 }
             }
         });
@@ -119,28 +143,37 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
 
     const exportUrl = (format) => {
         const params = new URLSearchParams(window.location.search);
+        if (type === "laba-kotor") {
+            for (const key of [...params.keys()]) {
+                if (!grossProfitFilterKeys.includes(key)) params.delete(key);
+            }
+        }
         params.set("export", format);
         params.set("orientation", orientation);
+        params.set("search", "1");
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== "" && value != null) params.set(key, String(value));
+        });
+        ["page", "botol_page", "groups_page", "per_page"].forEach((key) => params.delete(key));
         return `${window.location.pathname}?${params.toString()}`;
     };
 
-    let dynamicSubtitle = "Data laporan mengikuti transaksi dan inventory terbaru.";
+    let dynamicSubtitle = "Atur filter lalu tekan Cari Laporan untuk memuat data.";
     if (searched) {
-        if (form.id_supplier) {
-            const sup = refs.supplier?.find((s) => String(s.id) === String(form.id_supplier));
+        dynamicSubtitle = `Menampilkan hasil sesuai filter untuk ${titles[type] || "laporan"}.`;
+        if (filters.id_supplier) {
+            const sup = refs.supplier?.find((s) => String(s.id) === String(filters.id_supplier));
             if (sup) dynamicSubtitle = `Menampilkan laporan untuk Supplier: ${sup.nama_supplier}`;
-        } else if (form.id_customer) {
-            const cus = refs.customer?.find((c) => String(c.id) === String(form.id_customer));
+        } else if (filters.id_customer) {
+            const cus = refs.customer?.find((c) => String(c.id) === String(filters.id_customer));
             if (cus) dynamicSubtitle = `Menampilkan laporan untuk Customer: ${cus.nama_customer}`;
-        } else {
-            dynamicSubtitle = `Menampilkan seluruh data untuk Laporan ${titles[type]?.replace("Laporan ", "") || ""}.`;
         }
     }
 
-    const rowsArray = Array.isArray(rows) ? rows : rows?.data || [];
+    const rowsArray = reportData(rows);
     const summaryFooter = type === "barang-summary" && rowsArray.length > 0 ? (
         <tr className="bg-amber-50 dark:bg-amber-900/20 font-semibold">
-            <td className="px-4 py-2 text-center text-[11px] uppercase tracking-widest text-muted" colSpan={3}>GRAND TOTAL</td>
+            <td className="px-4 py-2 text-center text-[11px] uppercase tracking-widest text-muted" colSpan={4}>GRAND TOTAL</td>
             <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Stok Awal ML"] || 0)}</td>
             <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Masuk ML"] || 0)}</td>
             <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Keluar ML"] || 0)}</td>
@@ -155,27 +188,38 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
         <ProtectedLayout title={titles[type] || "Laporan"}>
             <div className="space-y-5">
                 <PageHeader title={titles[type] || "Laporan"} subtitle={dynamicSubtitle} />
+                {type === "barang-summary" && (
+                    <Card className="space-y-2 text-sm">
+                        <h2 className="font-bold text-main">Ringkasan Pergerakan Stok</h2>
+                        <p className="text-muted">Melihat saldo awal, barang masuk, barang keluar, dan saldo akhir per barang, gudang, dan varian botol selama periode yang dipilih.</p>
+                        <p className="font-semibold text-main">Stok awal + masuk − keluar = stok akhir.</p>
+                        <p className="text-xs text-muted">Periode awal mengikuti tanggal operasional toko, bukan tanggal perangkat. Cairan dihitung dalam ML; botol kosong dalam PCS. Transaksi yang belum disetujui tidak menambah pergerakan stok.</p>
+                    </Card>
+                )}
                 <Card>
                     <form onSubmit={submit} className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-4">
                             {dateFilters(type, form, set)}
+                            {["stok", "mutasi-stok", "barang-summary"].includes(type) && (
+                                <Field label="Kode / Barcode">
+                                    <Input value={form.barcode} onChange={(event) => set("barcode", event.target.value)} placeholder="Scan atau isi kode lengkap, lalu Cari" />
+                                </Field>
+                            )}
+                            {type === "validasi-transaksi" && <>
+                                <Field label="Jenis Transaksi"><Select value={form.validation_type} onChange={(event) => set("validation_type", event.target.value)}><option value="">Semua transaksi</option>{(refs.validation_types || []).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</Select></Field>
+                                <Field label="Status Validasi"><Select value={form.status} onChange={(event) => set("status", event.target.value)}><option value="">Semua status</option>{Object.entries(validationStatuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></Field>
+                            </>}
                             {type === "pembelian" || type === "hutang" || type === "piutang-supplier" ? (
                                 <Field label="Supplier">
-                                    <Select value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}>
-                                        <option value="">Semua supplier</option>
-                                        {(refs.supplier || []).map((row) => <option key={row.id} value={row.id}>{row.nama_supplier}</option>)}
-                                    </Select>
+                                    {masterFilter("supplier", "id_supplier", "Supplier")}
                                 </Field>
                             ) : null}
-                            {type === "penjualan" || type === "laba-kotor" || type === "piutang" ? (
+                            {type === "penjualan" || type === "piutang" ? (
                                 <Field label="Customer">
-                                    <Select value={form.id_customer} onChange={(event) => set("id_customer", event.target.value)}>
-                                        <option value="">Semua customer</option>
-                                        {(refs.customer || []).map((row) => <option key={row.id} value={row.id}>{row.nama_customer} ({row.tipe_customer})</option>)}
-                                    </Select>
+                                    {masterFilter("customer", "id_customer", "Customer")}
                                 </Field>
                             ) : null}
-                            {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
+                            {["pembelian", "penjualan", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
                                 <Field label="Tipe Gudang">
                                     <Select value={form.tipe_gudang} onChange={(event) => handleGudangTypeChange(event.target.value)}>
                                         <option value="">Semua tipe</option>
@@ -186,23 +230,17 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
                             ) : null}
                             {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
                                 <Field label="Gudang">
-                                    <Select value={form.id_gudang} onChange={(event) => handleGudangChange(event.target.value)}>
-                                        <option value="">Semua gudang</option>
-                                        {visibleGudang.map((row) => <option key={row.id} value={row.id}>{row.nama_gudang}</option>)}
-                                    </Select>
+                                    {masterFilter("gudang", "id_gudang", "Gudang", handleGudangChange)}
                                 </Field>
                             ) : null}
-                            {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
+                            {["pembelian", "penjualan", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
                                 <Field label="Barang">
-                                    <Select value={form.id_barang} onChange={(event) => set("id_barang", event.target.value)}>
-                                        <option value="">Semua barang</option>
-                                        {(refs.barang || []).map((row) => <option key={row.id} value={row.id}>{row.nama_barang}</option>)}
-                                    </Select>
+                                    {masterFilter("barang", "id_barang", "Barang")}
                                 </Field>
                             ) : null}
-                            {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
+                            {["pembelian", "penjualan", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
                                 <Field label="Jenis Barang">
-                                    <Select value={form.jenis_barang} onChange={(event) => set("jenis_barang", event.target.value)}>
+                                    <Select value={form.jenis_barang} onChange={(event) => { set("jenis_barang", event.target.value); set("id_botol", ""); }}>
                                         <option value="">Semua jenis</option>
                                         <option value="BIBIT">Cairan/Bibit</option>
                                         <option value="ABSOLUTE">Absolute</option>
@@ -210,15 +248,12 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
                                     </Select>
                                 </Field>
                             ) : null}
-                            {["pembelian", "penjualan", "laba-kotor", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
+                            {["pembelian", "penjualan", "stok", "mutasi-stok", "barang-summary"].includes(type) ? (
                                 <Field label="Varian Botol">
-                                    <Select value={form.id_botol} onChange={(event) => set("id_botol", event.target.value)}>
-                                        <option value="">Semua botol</option>
-                                        {((form.jenis_barang === "BOTOL" ? refs.botol_kosong : refs.botol) || []).map((row) => <option key={row.id} value={row.id}>{row.nama_botol}</option>)}
-                                    </Select>
+                                    {masterFilter(form.jenis_barang === "BOTOL" ? "botol_kosong" : "botol", "id_botol", "Botol")}
                                 </Field>
                             ) : null}
-                            {["pembelian", "penjualan", "laba-kotor"].includes(type) ? (
+                            {["pembelian", "penjualan"].includes(type) ? (
                                 <Field label="Status Bayar">
                                     <Select value={form.status} onChange={(event) => set("status", event.target.value)}>
                                         <option value="">Semua status</option>
@@ -288,14 +323,20 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
                                 <Field label="Status Stok">
                                     <Select value={form.stok_status} onChange={(event) => set("stok_status", event.target.value)}>
                                         <option value="">Semua stok</option>
-                                        <option value="TERSEDIA">TERSEDIA</option>
-                                        <option value="MENIPIS">MENIPIS</option>
+                                        <option value="TERSEDIA">Ada Stok</option>
+                                        <option value="HABIS">Stok Habis</option>
                                     </Select>
+                                    <p className="text-xs text-muted">Ada Stok: jumlah lebih dari 0. Stok Habis: jumlah 0.</p>
                                 </Field>
                             ) : null}
                         </div>
 
+                        {Object.keys(errors).length > 0 && <div role="alert" className="space-y-1 rounded-lg bg-red-50 p-3 text-sm text-red-700">{Object.entries(errors).map(([key, message]) => <p key={key}>{message}</p>)}</div>}
                         <div className="flex flex-wrap justify-end gap-2">
+                            {type === "laba-kotor" && <Button variant="outline" onClick={() => {
+                                const date = systemDate || todayDate();
+                                setForm((previous) => ({ ...previous, tanggal_dari: date, tanggal_sampai: date }));
+                            }}>Hari Ini</Button>}
                             <Button variant="outline" onClick={reset}>Reset</Button>
                             <Button type="submit">Cari Laporan</Button>
                         </div>
@@ -304,21 +345,78 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
 
                 {searched ? (
                     <div className="space-y-3 pb-4">
-                        {type === "stok" && botolStock.length > 0 && (
-                            <Card>
-                                <div className="mb-3 text-sm font-bold">Stok Botol Kosong</div>
-                                <SimpleTable rows={botolStock} columns={[
-                                    { key: "nama_item", label: "Botol" },
-                                    { key: "gudang", label: "Gudang" },
-                                    { key: "stok_botol", label: "Stok Botol", render: (row) => number(row.stok_botol) },
-                                ]} />
+                        {type === "laba-kotor" && <GrossProfitSummary summary={summary} filters={filters} systemDate={systemDate} />}
+                        {type === "kas" && (
+                            <>
+                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                    {Object.entries(summary).map(([label, value]) => <Card key={label}><p className="text-sm text-muted">{label}</p><p className="mt-2 text-xl font-extrabold tabular-nums text-main">{money(value)}</p></Card>)}
+                                </div>
+                                <p className="text-xs text-muted">Saldo awal dan akhir mengikuti catatan kas pertama dan terakhir sesuai filter; bukan hanya halaman ini. Jika Jenis Kas dipilih, Kas Masuk/Keluar hanya menjumlahkan jenis tersebut, sedangkan saldo merupakan saldo toko yang tercatat pada transaksi.</p>
+                            </>
+                        )}
+                        {type !== "barang-summary" && reportTotal(rows) === 0 && reportTotal(botolStock) === 0 && reportTotal(groups) === 0 && (
+                            <Card className="space-y-2 border-amber-200 text-sm">
+                                <h2 className="font-bold text-main">Belum ada data laporan sesuai filter</h2>
+                                {type !== "stok" && <p className="text-muted">Periode: {formatBusinessDate(filters.tanggal_dari)} sampai {formatBusinessDate(filters.tanggal_sampai)}. Tanggal kosong berarti tanpa batas tanggal.</p>}
+                                <p className="text-muted">Coba perluas periode atau hapus filter, lalu tekan Cari Laporan. Reset mengembalikan periode ke tanggal operasional toko.</p>
+                                {type !== "validasi-transaksi" && <p className="text-xs text-muted">Transaksi yang belum disetujui belum masuk ke laporan operasional. Hasil kosong bukan error sistem.</p>}
                             </Card>
                         )}
+                        {type === "barang-summary" && reportTotal(rows) === 0 && reportTotal(botolSummary) === 0 && (
+                            <Card className="space-y-2 border-amber-200 text-sm">
+                                <h2 className="font-bold text-main">Belum ada saldo atau pergerakan stok sesuai filter</h2>
+                                <p className="text-muted">Periode: {formatBusinessDate(filters.tanggal_dari)} sampai {formatBusinessDate(filters.tanggal_sampai)}. Coba perluas tanggal atau hapus filter barang/gudang, lalu tekan Cari Laporan.</p>
+                                <p className="text-xs text-muted">Periksa juga apakah transaksi sudah disetujui. Hasil kosong bukan berarti seluruh stok gudang habis; gunakan Laporan Stok untuk melihat stok saat ini.</p>
+                            </Card>
+                        )}
+                        {type === "validasi-transaksi" && <>
+                            <div className="grid gap-3 sm:grid-cols-3">{Object.entries(summary).map(([label, value]) => <Card key={label}><p className="text-sm text-muted">{label}</p><p className="mt-2 text-2xl font-extrabold tabular-nums text-main">{number(value)}</p></Card>)}</div>
+                            <p className="text-sm text-muted">Riwayat pengajuan sesuai tanggal operasional. Pengajuan menunggu dan ditolak hanya tampil di laporan validasi; laporan operasional berubah setelah disetujui.</p>
+                        </>}
+                        {type === "stok" && (
+                            <>
+                                <Card>
+                                    <section aria-labelledby="stock-content-heading" className="space-y-4">
+                                        <div className="flex flex-wrap items-start justify-between gap-4">
+                                            <div>
+                                                <h2 id="stock-content-heading" className="text-lg font-extrabold text-main">Stok Isi / Cairan</h2>
+                                                <p className="mt-1 text-sm text-muted">Stok ditampilkan per barang dan gudang dalam mililiter (ML).</p>
+                                            </div>
+                                        </div>
+                                        <SimpleTable rows={rows} columns={columns("stok")} hidePagination />
+                                        <p className="text-xs leading-5 text-muted">Jumlah isi menunjukkan stok di tiap barang dan gudang. Perkiraan wadah adalah jumlah botol untuk menampung stok; botol terakhir bisa terisi sebagian.</p>
+                                        {!Array.isArray(rows) && rows ? <PaginationBar pagination={rows} /> : null}
+                                    </section>
+                                </Card>
+                                <Card>
+                                    <section aria-labelledby="stock-empty-heading" className="space-y-4">
+                                        <div className="flex flex-wrap items-start justify-between gap-4">
+                                            <div>
+                                                <h2 id="stock-empty-heading" className="text-lg font-extrabold text-main">Stok Botol Kosong</h2>
+                                                <p className="mt-1 text-sm text-muted">Persediaan kemasan botol tanpa isi, dicatat dalam buah (PCS).</p>
+                                            </div>
+                                            <div className="rounded-xl border border-stroke bg-page px-4 py-3">
+                                                <div className="text-xs font-bold text-muted">Total botol kosong sesuai filter</div>
+                                                <div className="mt-1 text-xl font-extrabold tabular-nums text-main">{number(botolStockTotal)} <span className="text-sm">PCS</span></div>
+                                            </div>
+                                        </div>
+                                        <SimpleTable rows={botolStock} columns={[
+                                            { key: "kode_botol", label: "Kode / Barcode" },
+                                            { key: "nama_item", label: "Nama Botol Kosong" },
+                                            { key: "gudang", label: "Gudang" },
+                                            { key: "stok_botol", label: "Stok Kosong (PCS)", render: (row) => <span className="block text-right font-bold tabular-nums">{number(row.stok_botol)}</span> },
+                                        ]} hidePagination />
+                                        {!Array.isArray(botolStock) && <PaginationBar pagination={botolStock} pageName="botol_page" label="Halaman stok botol kosong" />}
+                                    </section>
+                                </Card>
+                            </>
+                        )}
 
-                        {type === "barang-summary" && botolSummary.length > 0 && (
+                        {type === "barang-summary" && reportTotal(botolSummary) > 0 && (
                             <Card>
                                 <div className="mb-3 text-sm font-bold">Summary Botol Kosong</div>
                                 <SimpleTable rows={botolSummary} columns={[
+                                    { key: "kode_botol", label: "Kode / Barcode" },
                                     { key: "nama_item", label: "Botol" },
                                     { key: "gudang", label: "Gudang" },
                                     { key: "stok_awal", label: "Stok Awal", render: (row) => number(row.stok_awal) },
@@ -327,33 +425,41 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
                                     { key: "stok_akhir", label: "Stok Akhir", render: (row) => number(row.stok_akhir) },
                                     { key: "total_mutasi", label: "Transaksi", render: (row) => number(row.total_mutasi) },
                                     { key: "terakhir_mutasi", label: "Terakhir" },
-                                ]} />
+                                ]} hidePagination />
+                                {!Array.isArray(botolSummary) && <PaginationBar pagination={botolSummary} pageName="botol_page" label="Halaman summary botol kosong" />}
                             </Card>
                         )}
 
-                        {groups.length > 0 && (
+                        {reportTotal(groups) > 0 && (
                             <Card>
                                 <div className="mb-3 text-sm font-bold">Rekap per Customer/Supplier</div>
                                 <SimpleTable rows={groups} columns={[
                                     { key: "pihak", label: "Customer/Supplier" },
                                     { key: "total", label: "Total", render: (row) => money(row.total) },
                                     { key: "sisa", label: "Sisa", render: (row) => money(row.sisa) },
-                                ]} />
+                                ]} hidePagination />
+                                {!Array.isArray(groups) && <PaginationBar pagination={groups} pageName="groups_page" label="Halaman rekap customer/supplier" />}
                             </Card>
                         )}
 
                         {/* Main data table — tanpa pagination, pagination render manual di paling bawah */}
-                        <div className="uppercase"><SimpleTable rows={rows} columns={columns(type)} hidePagination footer={summaryFooter} /></div>
+                        {type === "laba-kotor" ? (
+                            <Card className="space-y-3">
+                                <h2 className="text-sm font-bold text-main">Rincian laba per transaksi</h2>
+                                <SimpleTable rows={rows} columns={columns(type)} hidePagination />
+                            </Card>
+                        ) : type !== "stok" && <div className="uppercase"><SimpleTable rows={rows} columns={columns(type)} hidePagination footer={summaryFooter} /></div>}
 
                         {/* Export Bar & Pagination — sticky di bawah agar selalu terlihat */}
                         <div className="sticky bottom-0 z-30 -mx-1 px-1 py-2 bg-page/95 backdrop-blur-sm border-t border-stroke">
                             <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
                                 {/* Orientation Toggle */}
-                                <div className="inline-flex items-center rounded-xl border-2 border-stroke overflow-hidden text-xs">
+                                <div className="inline-flex items-center rounded-xl border border-stroke overflow-hidden text-xs">
                                     <button
                                         type="button"
                                         onClick={() => setOrientation("portrait")}
-                                        className={`inline-flex items-center gap-1.5 px-3 py-2 font-semibold transition-all ${
+                                        aria-pressed={orientation === "portrait"}
+                                        className={`inline-flex min-h-10 items-center gap-1.5 px-3 py-2 font-semibold transition-colors ${
                                             orientation === "portrait"
                                                 ? "bg-primary text-white"
                                                 : "bg-card text-muted hover:text-main hover:bg-page"
@@ -365,7 +471,8 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
                                     <button
                                         type="button"
                                         onClick={() => setOrientation("landscape")}
-                                        className={`inline-flex items-center gap-1.5 px-3 py-2 font-semibold transition-all ${
+                                        aria-pressed={orientation === "landscape"}
+                                        className={`inline-flex min-h-10 items-center gap-1.5 px-3 py-2 font-semibold transition-colors ${
                                             orientation === "landscape"
                                                 ? "bg-primary text-white"
                                                 : "bg-card text-muted hover:text-main hover:bg-page"
@@ -378,38 +485,86 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolSumm
 
                                 {/* Export Buttons */}
                                 <div className="flex items-center gap-2">
-                                    <a href={exportUrl("pdf")} target="_blank" rel="noreferrer" className="no-underline">
-                                        <button
-                                            type="button"
-                                            className="inline-flex items-center gap-2 rounded-xl border-2 border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-600 transition-all hover:bg-red-100 hover:border-red-300 hover:shadow-md active:scale-[0.97]"
-                                        >
-                                            <PdfIcon size={16} />
-                                            PDF
-                                        </button>
+                                    <a href={exportUrl("pdf")} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-600 no-underline transition-colors hover:bg-red-100 hover:border-red-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
+                                        <PdfIcon size={16} />
+                                        PDF
                                     </a>
-                                    <a href={exportUrl("excel")} target="_blank" rel="noreferrer" className="no-underline">
-                                        <button
-                                            type="button"
-                                            className="inline-flex items-center gap-2 rounded-xl border-2 border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-600 transition-all hover:bg-green-100 hover:border-green-300 hover:shadow-md active:scale-[0.97]"
-                                        >
-                                            <ExcelIcon size={16} />
-                                            Excel
-                                        </button>
+                                    <a href={exportUrl("excel")} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-600 no-underline transition-colors hover:bg-green-100 hover:border-green-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600">
+                                        <ExcelIcon size={16} />
+                                        Excel
                                     </a>
                                 </div>
                             </div>
 
                             {/* Pagination — posisi paling bawah */}
-                            {!Array.isArray(rows) && rows ? <PaginationBar pagination={rows} /> : null}
+                            {type !== "stok" && !Array.isArray(rows) && rows ? <PaginationBar pagination={rows} /> : null}
                         </div>
                     </div>
                 ) : (
                     <Card className="py-10 text-center text-sm font-semibold text-muted">
-                        Data laporan belum dicari.
+                        Pilih periode dan filter, lalu tekan Cari Laporan. Data dan total belum dimuat.
                     </Card>
                 )}
             </div>
         </ProtectedLayout>
+    );
+}
+
+export function GrossProfitSummary({ summary, filters, systemDate }) {
+    const profit = Number(summary["Laba Kotor"] || 0);
+    const singleDay = Boolean(filters.tanggal_dari && filters.tanggal_dari === filters.tanggal_sampai);
+    const period = singleDay ? formatBusinessDate(filters.tanggal_dari)
+        : `${filters.tanggal_dari ? formatBusinessDate(filters.tanggal_dari) : "Awal data"} sampai ${filters.tanggal_sampai ? formatBusinessDate(filters.tanggal_sampai) : "Akhir data"}`;
+    const title = singleDay ? filters.tanggal_dari === systemDate ? "Laba Kotor Hari Ini" : "Laba Kotor Harian" : "Laba Kotor Periode";
+    return (
+        <section aria-label="Ringkasan laba kotor" className="space-y-3">
+            <div className="grid gap-3 lg:grid-cols-3">
+                <Card>
+                    <h2 className="text-sm font-bold text-main">{title}</h2>
+                    <p className="mt-2 break-words text-xl font-extrabold tabular-nums text-main">{money(profit)}</p>
+                    <p className="mt-2 text-xs text-muted">{profit < 0 ? "Rugi kotor" : "Sebelum biaya operasional"}</p>
+                    <p className="mt-1 text-xs text-muted">Periode: {period}</p>
+                </Card>
+                <Card><p className="text-sm font-bold text-main">Penjualan Setelah Diskon</p><p className="mt-2 break-words text-xl font-extrabold tabular-nums">{money(summary["Total Penjualan"])}</p></Card>
+                <Card><p className="text-sm font-bold text-main">Modal Barang Terjual (HPP)</p><p className="mt-2 break-words text-xl font-extrabold tabular-nums">{money(summary.Modal)}</p></Card>
+            </div>
+            <details className="text-xs text-muted">
+                <summary className="w-fit cursor-pointer py-2 font-semibold">Cara baca</summary>
+                <div className="space-y-1 pb-2">
+                    <p>Laba kotor = penjualan setelah diskon - modal barang terjual.</p>
+                    <p>Belum laba bersih: biaya operasional belum dikurangi. Penjualan belum lunas tetap termasuk.</p>
+                    <p>Total mencakup seluruh hasil filter, bukan hanya halaman ini. Hari Ini memakai tanggal operasional toko; klik Cari Laporan untuk menerapkan.</p>
+                </div>
+            </details>
+        </section>
+    );
+}
+
+function ReportMasterSelect({ type, resource, label, value, initialRows, warehouseType, onChange }) {
+    const mapOption = (row) => {
+        const name = row.nama_barang || row.nama_supplier || row.nama_customer || row.nama_gudang || row.nama_botol;
+        const code = row.kode_barang || row.kode_botol || row.kode_gudang;
+        return { value: String(row.id), label: `${code ? `${code} - ` : ""}${name}${row.tipe_customer ? ` (${row.tipe_customer})` : ""}`, tipe_gudang: row.tipe_gudang };
+    };
+    const [chosen, setChosen] = useState(null);
+    const selected = chosen?.value === String(value) ? chosen : initialRows.find((row) => String(row.id) === String(value));
+    const params = new URLSearchParams({ options: resource });
+    if (warehouseType) params.set("tipe_gudang", warehouseType);
+    return (
+        <AsyncSelectInput
+            value={value ? (selected?.label ? selected : selected ? mapOption(selected) : null) : null}
+            onChange={(option) => { setChosen(option); onChange(option?.value || "", option); }}
+            loadOptionsUrl={`/admin/laporan/${type}?${params.toString()}`}
+            mapOption={mapOption}
+            ariaLabel={label}
+            placeholder={resource === "gudang" ? "Semua gudang · klik untuk memilih" : `Semua ${label.toLowerCase()} · ketik untuk mencari`}
+            defaultOptions={false}
+            cacheOptions={false}
+            loadOnMenuOpen={resource === "gudang"}
+            minInputLength={1}
+            searchDelay={300}
+            isClearable
+        />
     );
 }
 
@@ -428,7 +583,22 @@ function dateFilters(type, form, set) {
     );
 }
 
+function validationTime(value) {
+    return value ? new Intl.DateTimeFormat("id-ID", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(value)) : "-";
+}
+
 function columns(type) {
+    if (type === "validasi-transaksi") return [
+        { key: "number", label: "No / Tanggal", render: (row) => <><p className="font-bold">{row.number}</p><p className="mt-1 text-xs text-muted">{formatBusinessDate(row.operational_date)}</p></> },
+        { key: "type", label: "Transaksi", render: (row) => <><p>{row.snapshot?.label}</p><p className="mt-1 text-xs text-muted">{row.snapshot?.party || "-"}</p><p className="text-xs text-muted">{row.snapshot?.warehouse}</p></> },
+        { key: "items", label: "Detail Barang / Barcode", render: (row) => (row.snapshot?.items || []).map((item, index) => <p key={index}>[{item.code || "-"}] {item.name}</p>) },
+        { key: "amount", label: "Nilai / Jumlah", render: (row) => row.snapshot?.amount != null ? money(row.snapshot.amount) : (row.snapshot?.items || []).map((item, index) => <p key={index}>{item.name}: {number(item.qty)} {item.unit}</p>) },
+        { key: "status", label: "Status", render: (row) => <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-bold ${row.status === "APPROVED" ? "bg-green-50 text-green-800" : row.status === "REJECTED" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}`}>{validationStatuses[row.status]}</span> },
+        { key: "submitted_by_name", label: "Pengaju", render: (row) => <>{row.submitted_by_name}<p className="mt-1 text-xs text-muted">{validationTime(row.created_at)}</p></> },
+        { key: "reviewed_by_name", label: "Pemeriksa", render: (row) => <>{row.reviewed_by_name || "-"}<p className="mt-1 text-xs text-muted">{validationTime(row.reviewed_at)}</p></> },
+        { key: "result", label: "Hasil / Catatan", render: (row) => <><p>{row.result?.number || "-"}</p><p className="mt-1 max-w-56 whitespace-pre-wrap break-words text-xs text-muted">{row.rejection_reason}</p></> },
+        { key: "pdf_url", label: "Bukti", render: (row) => <a href={row.receipt_url || row.pdf_url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-stroke px-3 py-2 font-bold text-primary">{row.type.startsWith("penjualan-") || row.type === "bayar-piutang" ? "Cetak Slip" : "Bukti PDF"}</a> },
+    ];
     if (type === "pembelian") return [
         { key: "no_pembelian", label: "No Pembelian" },
         { key: "supplier", label: "Supplier", render: (row) => row.supplier?.nama_supplier || "-" },
@@ -440,7 +610,15 @@ function columns(type) {
         { key: "total_pembelian", label: "Total", render: (row) => money(row.total_pembelian) },
         { key: "status_pembayaran", label: "Status" },
     ];
-    if (type === "penjualan" || type === "laba-kotor") return [
+    if (type === "laba-kotor") return [
+        { key: "tanggal", label: "Tanggal", render: (row) => formatBusinessDate(row.tanggal) },
+        { key: "no_penjualan", label: "No Penjualan" },
+        { key: "customer", label: "Customer", render: (row) => row.customer?.nama_customer || row.manual_customer_name || "-" },
+        { key: "total_penjualan", label: "Penjualan Setelah Diskon", render: (row) => <span className="block text-right tabular-nums">{money(row.total_penjualan)}</span> },
+        { key: "total_modal", label: "Modal Barang (HPP)", render: (row) => <span className="block text-right tabular-nums">{money(row.total_modal)}</span> },
+        { key: "laba_kotor", label: "Laba Kotor", render: (row) => <span className="block text-right font-bold tabular-nums text-main">{money(row.laba_kotor)}</span> },
+    ];
+    if (type === "penjualan") return [
         { key: "no_penjualan", label: "No Penjualan" },
         { key: "customer", label: "Customer", render: (row) => row.customer?.nama_customer || "-" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
@@ -451,21 +629,23 @@ function columns(type) {
         { key: "laba_kotor", label: "Laba", render: (row) => money(row.laba_kotor) },
     ];
     if (type === "stok") return [
+        { key: "kode_barang", label: "Kode / Barcode" },
         { key: "nama_item", label: "Barang" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
-        { key: "botol", label: "Varian Botol", render: (row) => row.botol?.nama_botol || "-" },
-        { key: "stok_ml", label: "Stok Cairan (ML)", render: (row) => number(row.stok_ml) },
-        { key: "stok_botol_isi", label: "Botol Isi/Terpakai", render: (row) => number(row.stok_botol_isi) },
-        { key: "minimum_stok_ml", label: "Minimum", render: (row) => row.minimum_stok_ml ? number(row.minimum_stok_ml) : "-" },
+        { key: "botol", label: "Kapasitas Botol", render: (row) => row.botol?.nama_botol || "-" },
+        { key: "stok_ml", label: "Jumlah Isi (ML)", render: (row) => <span className="block text-right font-bold tabular-nums">{number(row.stok_ml)} ML</span> },
+        { key: "stok_botol_isi", label: "Perkiraan Wadah", render: (row) => <span className="block text-right tabular-nums">{Number(row.botol?.varian_ml) > 0 ? `${number(row.stok_botol_isi)} botol` : "-"}</span> },
     ];
     if (type === "mutasi-stok") return [
         { key: "tanggal", label: "Tanggal" },
         { key: "no_transaksi", label: "No Transaksi" },
+        { key: "barcode", label: "Kode / Barcode", render: (row) => row.barang?.kode_barang || "-" },
         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
         { key: "tipe_mutasi", label: "Tipe" },
         { key: "qty_ml", label: "Qty ML", render: (row) => number(row.qty_ml) },
     ];
     if (type === "barang-summary") return [
+        { key: "barcode", label: "Kode / Barcode", render: (row) => row.barang?.kode_barang || "-" },
         { key: "varian", label: "Varian Botol", render: (row) => row.botol_variant?.nama_botol || row.barang?.botol?.nama_botol || "-" },
         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
@@ -515,10 +695,11 @@ function columns(type) {
 function detailItems(row) {
     return (row.details || []).map((item) => {
         const name = item.nama_item || item.barang?.nama_barang || item.botol?.nama_botol || "-";
+        const code = transactionItemCode(item);
         const qty = Number(item.konversi_qty_dasar || item.qty_ml || 0);
         const unit = item.satuan_dasar || "ML";
         const ml = Number(item.qty_ml || 0);
         const perMl = Number(item.harga_jual_per_ml || item.harga_beli_per_ml || 0);
-        return `${name}: ${number(qty)} ${unit}${unit === "BOTOL" ? ` / ${number(ml)} ML` : ""}${perMl ? ` @ ${money(perMl)}/ML` : ""}`;
+        return `${code ? `[${code}] ` : ""}${name}: ${number(qty)} ${unit}${unit === "BOTOL" ? ` / ${number(ml)} ML` : ""}${perMl ? ` @ ${money(perMl)}/ML` : ""}`;
     }).join("; ") || "-";
 }

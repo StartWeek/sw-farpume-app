@@ -22,13 +22,11 @@ const emptyForm = {
     nama_barang: "",
     id_brand: "",
     id_gudang: "",
-    tipe_gudang: "",
     jenis_barang: "",
     harga_beli_per_ml: "",
     harga_jual_retail_per_ml: "",
     harga_jual_grosir_per_ml: "",
     minimum_stok_ml: "",
-    status: "AKTIF",
 };
 
 export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) {
@@ -53,37 +51,17 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) 
         })
         : tableRows;
 
-    const filteredGudang = form.tipe_gudang
-        ? gudang.filter((item) => item.tipe_gudang === form.tipe_gudang)
-        : gudang;
-
     const open = (row = null) => {
-        const selectedGudang = row?.gudang || gudang.find((item) => item.id === Number(row?.id_gudang));
         setEditing(row || {});
-        setForm(row ? { ...emptyForm, ...row, id_gudang: row?.id_gudang || "", tipe_gudang: selectedGudang?.tipe_gudang || "" } : { ...emptyForm, tipe_gudang: "" });
+        setForm(row ? { ...emptyForm, ...row, id_gudang: row?.id_gudang || "" } : { ...emptyForm });
     };
     const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-    const handleGudangTypeChange = (value) => {
-        set("tipe_gudang", value);
-        if (form.id_gudang) {
-            const currentGudang = gudang.find((item) => item.id === Number(form.id_gudang));
-            if (currentGudang && currentGudang.tipe_gudang !== value) {
-                set("id_gudang", "");
-            }
-        }
-    };
-    const handleGudangChange = (value) => {
-        set("id_gudang", value);
-        const selected = gudang.find((item) => item.id === Number(value));
-        if (selected) {
-            set("tipe_gudang", selected.tipe_gudang);
-        }
-    };
     const submit = (event) => {
         event.preventDefault();
         // Konversi empty string ke null untuk numeric fields — cegah error server
         const payload = { ...form };
         delete payload.tipe_gudang;
+        delete payload.status;
         ["harga_beli_per_ml", "harga_jual_retail_per_ml", "harga_jual_grosir_per_ml", "minimum_stok_ml"].forEach((key) => {
             if (payload[key] === "") payload[key] = null;
         });
@@ -98,7 +76,7 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) 
     return (
         <ProtectedLayout title="Barang Bibit">
             <div className="space-y-5">
-                <PageHeader title="Barang Bibit" />
+                <PageHeader title="Barang Bibit" subtitle="Stok saat ini adalah total cairan di semua gudang dan varian botol. Pengajuan yang belum disetujui belum dihitung." />
                 <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium" style={{ backgroundColor: "var(--color-card)" }}>
                     <div className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between border-b border-stroke">
                         <div className="relative">
@@ -133,24 +111,15 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) 
                                     {brand.map((item) => <option key={item.id} value={item.id}>{item.nama_brand}</option>)}
                                 </Select>
                             </Field>
-                            <Field label="Tipe Gudang">
-                                <Select value={form.tipe_gudang || ""} onChange={(event) => handleGudangTypeChange(event.target.value)} error={errors.tipe_gudang}>
-                                    <option value="">Pilih tipe gudang</option>
-                                    <option value="BIBIT">BIBIT</option>
-                                    <option value="BOTOL">BOTOL</option>
+                            <Field label="Gudang Cairan">
+                                <Select value={form.id_gudang || ""} onChange={(event) => set("id_gudang", event.target.value)} error={errors.id_gudang}>
+                                    <option value="">Pilih gudang cairan</option>
+                                    {gudang.map((item) => <option key={item.id} value={item.id}>{item.nama_gudang}</option>)}
                                 </Select>
-                            </Field>
-                            <Field label="Gudang">
-                                <Select value={form.id_gudang || ""} onChange={(event) => handleGudangChange(event.target.value)} error={errors.id_gudang}>
-                                    <option value="">Pilih gudang</option>
-                                    {filteredGudang.map((item) => <option key={item.id} value={item.id}>{item.nama_gudang}</option>)}
-                                </Select>
-                            </Field>
-                            <Field label="Status">
-                                <Select value={form.status || "AKTIF"} onChange={(event) => set("status", event.target.value)} error={errors.status}>
-                                    <option>AKTIF</option>
-                                    <option>NONAKTIF</option>
-                                </Select>
+                                <p className="text-xs text-muted">Untuk Bibit dan Absolute. Botol kosong dikelola di menu Botol Kosong.</p>
+                                {form.id_gudang && !gudang.some((item) => Number(item.id) === Number(form.id_gudang)) && (
+                                    <p className="text-xs text-red-600">Gudang lama tidak sesuai atau tidak aktif. Pilih gudang cairan yang aktif sebelum menyimpan.</p>
+                                )}
                             </Field>
                             <Field label="Jenis Barang">
                                 <Select value={form.jenis_barang || ""} onChange={(event) => set("jenis_barang", event.target.value)} error={errors.jenis_barang}>
@@ -173,15 +142,20 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) 
                 <SimpleTable
                     rows={search ? filteredRows : rows}
                     columns={[
-                        { key: "kode_barang", label: "Kode" },
+                        { key: "kode_barang", label: "Kode / Barcode" },
                         { key: "nama_barang", label: "Barang" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
                         { key: "jenis_barang", label: "Jenis" },
+                        { key: "stok_saat_ini_ml", label: "Stok Saat Ini (ML)", render: (row) => (
+                            <div className="text-right tabular-nums">
+                                <span className="whitespace-nowrap font-bold">{number(row.stok_saat_ini_ml ?? 0)} ML</span>
+                                {Number(row.stok_saat_ini_ml ?? 0) === 0 && <span className="ml-2 text-xs text-muted">Habis</span>}
+                            </div>
+                        ) },
                         { key: "harga_beli_per_ml", label: "Beli/ML", render: (row) => money(row.harga_beli_per_ml) },
                         { key: "harga_jual_retail_per_ml", label: "Retail/ML", render: (row) => money(row.harga_jual_retail_per_ml) },
                         { key: "harga_jual_grosir_per_ml", label: "Sales/ML", render: (row) => money(row.harga_jual_grosir_per_ml) },
                         { key: "minimum_stok_ml", label: "Min Stok", render: (row) => number(row.minimum_stok_ml) },
-                        { key: "status", label: "Status" },
                     ]}
                     renderActions={(row) => (
                         <RowActions onEdit={() => open(row)} onDelete={() => submitDelete(`/admin/barang-bibit/${row.id}`, `Hapus ${row.kode_barang}?`)} />

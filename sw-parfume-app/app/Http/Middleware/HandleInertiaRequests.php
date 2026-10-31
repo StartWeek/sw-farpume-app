@@ -51,6 +51,9 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
                 'receipt' => fn () => $request->session()->get('receipt'),
+                'transactionPdf' => fn () => $request->session()->get('transactionPdf'),
+                'pendingValidation' => fn () => $request->session()->get('pendingValidation'),
+                'bulkValidationResult' => fn () => $request->session()->get('bulkValidationResult'),
             ],
             'csrf_token' => fn() => csrf_token(),
             'ziggy' => fn() => [

@@ -2,16 +2,22 @@ import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import React, { useState } from "react";
 import { router } from "@inertiajs/react";
 import Button from "@/components/common/Button";
-import Modal from "@/components/common/Modal";
 import { usePage } from "@inertiajs/react";
-import { Field, Input, PageHeader, Select, SimpleTable, number, useFlashMessages } from "./_components";
+import { BarcodeField, Field, Input, PageHeader, Select, SimpleTable, number, useFlashMessages } from "./_components";
+import toast from "react-hot-toast";
+import { automaticWarehouse, availableBarcodeItems, barcodeMatches } from "./barcode";
+import BarcodeLookup from "./BarcodeLookup";
+import { TransactionDialog } from "./TransactionDialogs";
+import useTransactionSubmissionOptions from "./useTransactionSubmissionOptions";
 
 export default function InventoryPage({ mode, rows = [], barang = [], botol = [], gudang = [], stokGudangMap = {}, botolKosong = [], stokGudangList = [] }) {
     useFlashMessages();
+    const submissionOptions = useTransactionSubmissionOptions();
     const { errors: pageErrors } = usePage().props;
     const errors = pageErrors || {};
-    const emptyForm = { tipe_mutasi: "MASUK", jumlah_botol: "", qty_ml: "", id_barang: "", id_botol: "", id_gudang: "", tipe_gudang: "", keterangan: "" };
+    const emptyForm = { tipe_mutasi: "MASUK", jumlah_botol: "", qty_ml: "", id_barang: "", id_botol: "", id_gudang: "", tipe_gudang: "", jenis_barang: "BIBIT", keterangan: "" };
     const [form, setForm] = useState(emptyForm);
+    const [barcode, setBarcode] = useState("");
     const [showModal, setShowModal] = useState(false);
     const [kodeGudang, setKodeGudang] = useState("");
     const isMutation = mode === "mutations";
@@ -27,10 +33,11 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
             : parsed.toFixed(2).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
     };
 
-    const visibleGudang = gudang.filter((item) => !form.tipe_gudang || item.tipe_gudang === form.tipe_gudang);
-    const selectedBarang = barang.find((item) => item.id === Number(form.id_barang));
-    const selectedGudang = visibleGudang.find((item) => item.id === Number(form.id_gudang));
-    const isGudangBotol = selectedGudang?.tipe_gudang === 'BOTOL';
+    const isGudangBotol = form.jenis_barang === "BOTOL";
+    const isAbsolute = form.jenis_barang === "ABSOLUTE";
+    const selectedBarang = !isGudangBotol
+        ? barang.find((item) => item.id === Number(form.id_barang))
+        : null;
     const selectedBotolKosong = isGudangBotol
         ? botolKosong.find((item) => item.id === Number(form.id_barang))
         : null;
@@ -46,33 +53,29 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
         ? barang.filter((item) => item.kode_barang?.toLowerCase().includes(kodeGudang.toLowerCase()))
         : barang;
 
-    const allowedBarangIds = form.id_gudang && !isGudangBotol
-        ? barang
-            .filter((item) => Number(item.id_gudang) === Number(form.id_gudang))
-            .map((item) => Number(item.id))
-        : [];
-
-    const filteredBarang = (() => {
-        if (form.id_gudang && !isGudangBotol) {
-            return barangByType.filter((item) => allowedBarangIds.includes(Number(item.id)));
-        }
-        return barangByType;
-    })();
-
-    const showNoBarangMessage = form.id_gudang && !isGudangBotol && filteredBarang.length === 0;
-
-    // Untuk gudang BOTOL: tampilkan botol kosong yang sesuai dengan gudang terpilih
-    const filteredBotolKosong = (() => {
-        let items = botolKosong;
-        if (isGudangBotol && form.id_gudang) {
-            items = items.filter((bk) => String(bk.id_gudang) === String(form.id_gudang));
-        }
-        // Untuk mutasi KELUAR: hanya tampilkan botol yang masih ada stok
-        if (isMutation && form.tipe_mutasi === 'KELUAR') {
-            items = items.filter((bk) => Number(bk.stock) > 0);
-        }
-        return items;
-    })();
+    const filteredBarang = barangByType.filter((item) => item.jenis_barang === form.jenis_barang);
+    const showNoBarangMessage = !isGudangBotol && filteredBarang.length === 0;
+    const filteredBotolKosong = botolKosong;
+    const selectItem = (id, bottle) => {
+        const item = (bottle ? botolKosong : barang).find((row) => Number(row.id) === Number(id));
+        if (!item) { setForm((previous) => ({ ...previous, id_barang: "", id_gudang: "", id_botol: "" })); return false; }
+        try {
+            const location = automaticWarehouse(item, bottle, gudang, stokGudangList);
+            setForm((previous) => ({ ...previous, jenis_barang: bottle ? "BOTOL" : item.jenis_barang, id_barang: item.id, id_gudang: location.id, tipe_gudang: location.tipe_gudang, id_botol: bottle ? "" : item.id_botol || "" }));
+            return true;
+        } catch (failure) { toast.error(failure.message); return false; }
+    };
+    const applyBarcode = (code) => {
+        if (!code.trim()) return false;
+        const matches = [...barang.map((item) => ({ item, bottle: false })), ...botolKosong.map((item) => ({ item, bottle: true }))].filter(({ item }) => barcodeMatches(item, code));
+        if (matches.length !== 1) { toast.error(matches.length ? "Kode barcode ganda. Perbaiki master barang." : "Barcode tidak ditemukan."); return false; }
+        const { item, bottle } = matches[0];
+        if (!selectItem(item.id, bottle)) return false;
+        setBarcode("");
+        return true;
+    };
+    const scanBarcode = () => applyBarcode(barcode);
+    const barcodeItems = availableBarcodeItems({ barang, bottles: botolKosong, warehouses: gudang, stocks: stokGudangList });
 
     const filteredRows = kodeGudang
         ? (Array.isArray(rows) ? rows : rows.data || []).filter((row) => row.barang?.kode_barang?.toLowerCase().includes(kodeGudang.toLowerCase()))
@@ -80,23 +83,25 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
 
     const openModal = () => {
         setForm(isStock ? { ...emptyForm, tipe_mutasi: "MASUK" } : emptyForm);
+        setBarcode("");
         setShowModal(true);
     };
 
     const submit = (event) => {
         event.preventDefault();
-        const payload = isStock ? { ...form, tipe_mutasi: "MASUK" } : isDestroyStock ? { ...form, tipe_mutasi: "KELUAR" } : form;
+        const payload = isStock ? { ...form, tipe_mutasi: "MASUK" } : isDestroyStock ? { ...form, tipe_mutasi: "KELUAR" } : { ...form };
         delete payload.tipe_gudang;
+        delete payload.jenis_barang;
         const route = isDestroyStock ? "/admin/hancur-stock" : "/admin/mutasi-stok";
-        router.post(route, payload, {
+        router.post(route, payload, submissionOptions(route, {
             preserveScroll: true,
+            onError: (values) => { if (values.items) toast.error(values.items, { duration: 8000 }); },
             onSuccess: () => {
                 setShowModal(false);
                 setForm(emptyForm);
                 setKodeGudang("");
-                router.reload({ preserveScroll: true, preserveState: true });
             },
-        });
+        }));
     };
 
     const btnLabel = isStock ? "Tambah Stok" : isDestroyStock ? "Catat Hancur Stock" : "Tambah Mutasi";
@@ -121,11 +126,10 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                 )}
 
                 {showModal && (
-                    <Modal
+                    <TransactionDialog
                         title={modalTitle}
                         onClose={() => setShowModal(false)}
                         width="max-w-3xl"
-                        position="center"
                     >
                         <form onSubmit={submit} className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                             {errors.items && (
@@ -133,30 +137,22 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                                     {errors.items}
                                 </div>
                             )}
-                            {(isStock || isMutation || isDestroyStock) && (
-                                <Field label="Tipe Gudang">
-                                    <Select value={form.tipe_gudang || ""} onChange={(event) => {
-                                        set("tipe_gudang", event.target.value);
-                                        set("id_gudang", "");
-                                        set("id_barang", "");
-                                        set("id_botol", "");
-                                    }} error={errors.tipe_gudang}>
-                                        <option value="">Pilih tipe gudang</option>
-                                        <option value="BIBIT">BIBIT</option>
-                                        <option value="BOTOL">BOTOL</option>
-                                    </Select>
-                                </Field>
-                            )}
-                            <Field label="Gudang">
-                                <Select value={form.id_gudang} onChange={(event) => { set("id_gudang", event.target.value); set("id_barang", ""); set("id_botol", ""); }} error={errors.id_gudang}>
-                                    <option value="">Pilih gudang</option>
-                                    {visibleGudang.map((item) => <option key={item.id} value={item.id}>{item.nama_gudang}</option>)}
-                                </Select>
-                            </Field>
+                            <div className="md:col-span-2 lg:col-span-3"><Field label="Scan Barcode">
+                                <div className="flex flex-wrap items-start gap-2">
+                                    <div className="flex min-w-0 flex-1 gap-2"><Input value={barcode} onChange={(event) => setBarcode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); scanBarcode(); } }} placeholder="Scan barcode dengan scanner, lalu Enter" /><Button onClick={scanBarcode}>Gunakan Kode</Button></div>
+                                    <BarcodeLookup items={barcodeItems} onSelect={(item) => applyBarcode(item.code)} />
+                                </div>
+                            </Field></div>
+                            <Field label="Jenis Barang"><Select value={form.jenis_barang} onChange={(event) => {
+                                const jenisBarang = event.target.value;
+                                setForm((previous) => ({ ...previous, jenis_barang: jenisBarang, tipe_gudang: "", id_barang: "", id_gudang: "", id_botol: "", jumlah_botol: "", qty_ml: "" }));
+                                setBarcode("");
+                            }}><option value="BIBIT">Bibit</option><option value="ABSOLUTE">Absolute</option><option value="BOTOL">Botol Kosong</option></Select></Field>
+                            {errors.id_gudang && <p role="alert" className="text-sm text-red-600">{errors.id_gudang}</p>}
                             <Field label={isGudangBotol ? "Botol Kosong" : "Barang"}>
                                 {isGudangBotol ? (
                                     <>
-                                        <Select value={form.id_barang} onChange={(event) => set("id_barang", event.target.value)} error={errors.id_barang}>
+                                        <Select value={form.id_barang} onChange={(event) => selectItem(event.target.value, isGudangBotol)} error={errors.id_barang}>
                                             <option value="">Pilih botol kosong</option>
                                             {filteredBotolKosong.map((item) => (
                                                 <option key={item.id} value={item.id}>{item.kode_botol} - {item.nama_botol} (Stok: {formatDisplayNumber(item.stock)})</option>
@@ -170,25 +166,22 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                                     </>
                                 ) : (
                                     <>
-                                        <Select value={form.id_barang} onChange={(event) => set("id_barang", event.target.value)} error={errors.id_barang}>
+                                        <Select value={form.id_barang} onChange={(event) => selectItem(event.target.value, isGudangBotol)} error={errors.id_barang}>
                                             <option value="">Pilih barang</option>
-                                            {filteredBarang.map((item) => {
-                                                const typeInfo = item.jenis_barang === "ABSOLUTE" ? " [Absolute]" : "";
-                                                return <option key={item.id} value={item.id}>{item.kode_barang} - {item.nama_barang}{typeInfo}</option>;
-                                            })}
+                                            {filteredBarang.map((item) => <option key={item.id} value={item.id}>{item.kode_barang} - {item.nama_barang}</option>)}
                                         </Select>
                                         {showNoBarangMessage && (
                                             <p className="mt-1 text-[11px] font-medium text-amber-600">
-                                                {isMutation && form.tipe_mutasi === "KELUAR"
-                                                    ? "Tidak ada barang dengan stok di gudang ini."
-                                                    : "Tidak ada barang yang terikat ke gudang ini."
-                                                }
+                                                Tidak ada barang {isAbsolute ? "Absolute" : "Bibit"} yang sesuai dengan pilihan dan pencarian.
                                             </p>
                                         )}
                                     </>
                                 )}
                             </Field>
-                            {!isGudangBotol && selectedBarang?.jenis_barang !== "ABSOLUTE" && (isStock || form.tipe_mutasi === "MASUK") && (
+                            {(selectedBarang || selectedBotolKosong) && (
+                                <BarcodeField code={isGudangBotol ? selectedBotolKosong?.kode_botol : selectedBarang?.kode_barang} />
+                            )}
+                            {!isGudangBotol && !isAbsolute && (isStock || form.tipe_mutasi === "MASUK") && (
                                 <Field label="Varian Botol">
                                     <Select value={form.id_botol || ""} onChange={(event) => set("id_botol", event.target.value)} error={errors.id_botol}>
                                         <option value="">Pilih varian botol</option>
@@ -218,20 +211,20 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                                 <Field label="Jumlah Botol"><Input type="number" min="1" value={form.jumlah_botol} onChange={(event) => set("jumlah_botol", event.target.value)} error={errors.jumlah_botol} /></Field>
                             ) : isDestroyStock ? (
                                 <Field label="Jumlah Hancur ML">
-                                    <Input type="number" min="0.01" step="1" max={availableStockMl || undefined} value={form.qty_ml} onChange={(event) => set("qty_ml", event.target.value)} error={errors.qty_ml} />
+                                    <Input type="number" min="0.01" step="0.01" max={availableStockMl || undefined} value={form.qty_ml} onChange={(event) => set("qty_ml", event.target.value)} error={errors.qty_ml} />
                                 </Field>
                             ) : isStock || form.tipe_mutasi === "MASUK" ? (
-                                <Field label={selectedBarang?.jenis_barang === "ABSOLUTE" ? "Jumlah ML" : "Jumlah Botol"}><Input type="number" min="1" value={form.jumlah_botol} onChange={(event) => set("jumlah_botol", event.target.value)} error={errors.jumlah_botol} /></Field>
+                                <Field label={isAbsolute ? "Jumlah ML" : "Jumlah Botol"}><Input type="number" min="1" value={form.jumlah_botol} onChange={(event) => set("jumlah_botol", event.target.value)} error={errors.jumlah_botol} /></Field>
                             ) : (
                                 <Field label="Jumlah Keluar ML"><Input type="number" min="0.01" step="0.01" value={form.qty_ml} onChange={(event) => set("qty_ml", event.target.value)} error={errors.qty_ml} /></Field>
                             )}
                             <Field label="Keterangan"><Input value={form.keterangan} onChange={(event) => set("keterangan", event.target.value)} error={errors.keterangan} /></Field>
                             <div className="flex justify-end gap-2 border-t border-stroke pt-4 md:col-span-2 lg:col-span-3">
                                 <Button variant="outline" size="sm" type="button" onClick={() => setShowModal(false)}>Batal</Button>
-                                <Button type="submit" size="sm">{isDestroyStock ? "Simpan Hancur Stock" : isStock ? "Simpan Stok" : "Simpan Mutasi"}</Button>
+                                <Button type="submit" size="sm">Ajukan Validasi</Button>
                             </div>
                         </form>
-                    </Modal>
+                    </TransactionDialog>
                 )}
 
                 <SimpleTable
@@ -239,6 +232,7 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                     columns={isMutation ? [
                         { key: "tanggal", label: "Tanggal" },
                         { key: "no_transaksi", label: "No Transaksi" },
+                        { key: "barcode", label: "Kode / Barcode", render: (row) => row.barang?.kode_barang || "-" },
                         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
                         { key: "varian", label: "Varian Botol", render: (row) => row.botol_variant?.nama_botol || row.barang?.botol?.nama_botol || "-" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
@@ -246,6 +240,7 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                         { key: "qty_ml", label: "Qty ML", render: (row) => number(row.qty_ml) },
                         { key: "stok_sesudah_ml", label: "Stok Akhir", render: (row) => number(row.stok_sesudah_ml) },
                     ] : [
+                        { key: "barcode", label: "Kode / Barcode", render: (row) => row.barang?.kode_barang || "-" },
                         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
                         { key: "varian", label: "Varian Botol", render: (row) => row.botol_variant?.nama_botol || row.barang?.botol?.nama_botol || "-" },

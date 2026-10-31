@@ -35,26 +35,29 @@ export function useFlashMessages() {
 
 export function PageHeader({ title, subtitle, actionLabel, onAction }) {
     return (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
             <section
-                className="flex min-h-14 items-center rounded-2xl border border-stroke px-6 py-4 shadow-premium"
-                style={{ backgroundColor: "var(--color-card-header)" }}
+                className="relative flex items-center overflow-hidden rounded-xl border border-white/10 px-4 py-2.5 shadow-premium"
+                style={{ backgroundColor: "var(--color-sidebar, #0f172a)" }}
             >
-                <h1 className="text-base font-bold text-white text-balance">{title}</h1>
-            </section>
-            {subtitle || actionLabel ? (
-                <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
-                    {subtitle ? (
-                        <p className="text-[13px] font-medium leading-relaxed text-muted text-pretty">{subtitle}</p>
-                    ) : (
-                        <span />
-                    )}
+                {/* Amber accent bar on left */}
+                <span className="absolute left-0 top-0 h-full w-1 rounded-l-xl bg-amber-400/90" />
+
+                {/* Decorative background glow */}
+                <span className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-amber-400/10 blur-2xl" />
+
+                <div className="flex flex-1 items-center justify-between gap-3 pl-1">
+                    <h1 className="text-sm font-bold tracking-tight text-white">{title}</h1>
                     {actionLabel ? (
-                        <Button icon={IconPlus} size="sm" onClick={onAction}>
+                        <Button icon={IconPlus} size="sm" onClick={onAction}
+                            className="shrink-0 border border-amber-300/40 bg-amber-400/15 text-amber-100 hover:bg-amber-400/25">
                             {actionLabel}
                         </Button>
                     ) : null}
                 </div>
+            </section>
+            {subtitle ? (
+                <p className="px-1 text-xs font-medium leading-relaxed text-muted">{subtitle}</p>
             ) : null}
         </div>
     );
@@ -117,6 +120,24 @@ export function Input({ className = "", type = "text", error, ...props }) {
             />
             {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
         </div>
+    );
+}
+
+export function BarcodeField({ code }) {
+    return (
+        <Field label="Kode Barcode">
+            <Input
+                value={code || ""}
+                readOnly
+                onFocus={(event) => event.target.select()}
+                placeholder="Tersedia setelah data disimpan"
+                className="font-mono"
+            />
+            <p className="text-xs text-muted">
+                Barcode menggunakan kode barang yang dibuat otomatis saat disimpan.
+                Gunakan kode ini pada kolom scan transaksi.
+            </p>
+        </Field>
     );
 }
 
@@ -350,7 +371,7 @@ function tableRowKey(row, index) {
         ?? `${row?.name || row?.nama_item || row?.kode_barang || "row"}-${index}`;
 }
 
-export function PaginationBar({ pagination }) {
+export function PaginationBar({ pagination, pageName = "page", label = "Navigasi halaman" }) {
     const page = Number(pagination.current_page || 1);
     const lastPage = Number(pagination.last_page || 1);
     const perPage = Number(pagination.per_page || 10);
@@ -360,7 +381,10 @@ export function PaginationBar({ pagination }) {
 
     const visit = (nextPage, nextPerPage = perPage) => {
         const params = new URLSearchParams(window.location.search);
-        params.set("page", String(nextPage));
+        if (nextPerPage !== perPage) {
+            ["page", "botol_page", "groups_page"].forEach((key) => params.delete(key));
+        }
+        params.set(pageName, String(nextPage));
         params.set("per_page", String(nextPerPage));
 
         router.get(`${window.location.pathname}?${params.toString()}`, {}, {
@@ -371,7 +395,7 @@ export function PaginationBar({ pagination }) {
     };
 
     return (
-        <div className="flex items-center justify-between gap-3 text-sm text-muted">
+        <nav aria-label={label} className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
             <div className="text-xs font-medium tracking-wide text-muted">
                 Menampilkan{" "}
                 <span className="font-bold text-main">{from}</span>
@@ -379,19 +403,23 @@ export function PaginationBar({ pagination }) {
                 <span className="font-bold text-main">{to}</span>{" dari "}
                 <span className="font-bold text-main">{total}</span>{" data"}
             </div>
-            <div className="flex items-center gap-1.5">
-                <span className="mr-1 text-[10px] font-semibold tracking-wide text-muted">Per halaman</span>
-                <select
-                    value={perPage}
-                    onChange={(event) => visit(1, Number(event.target.value))}
-                    className="rounded-lg border border-stroke bg-card px-2 py-1 text-xs font-medium text-main outline-none focus:border-primary"
-                >
-                    {[10, 25, 50].map((value) => (
-                        <option key={value} value={value}>{value}</option>
-                    ))}
-                </select>
+            <div className="flex flex-wrap items-center gap-1.5">
+                <label className="flex items-center gap-1.5">
+                    <span className="mr-1 text-[10px] font-semibold tracking-wide text-muted">Per halaman</span>
+                    <select
+                        value={perPage}
+                        onChange={(event) => visit(1, Number(event.target.value))}
+                        className="min-h-10 rounded-lg border border-stroke bg-card px-2 py-1 text-xs font-medium text-main outline-none focus:border-primary"
+                    >
+                        {[10, 25, 50].map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                        ))}
+                    </select>
+                </label>
                 <Button
                     size="sm"
+                    iconOnly
+                    aria-label="Halaman sebelumnya"
                     variant="outline"
                     disabled={page <= 1}
                     onClick={() => visit(page - 1)}
@@ -403,6 +431,8 @@ export function PaginationBar({ pagination }) {
                 </span>
                 <Button
                     size="sm"
+                    iconOnly
+                    aria-label="Halaman berikutnya"
                     variant="outline"
                     disabled={page >= lastPage}
                     onClick={() => visit(page + 1)}
@@ -410,7 +440,7 @@ export function PaginationBar({ pagination }) {
                     ›
                 </Button>
             </div>
-        </div>
+        </nav>
     );
 }
 

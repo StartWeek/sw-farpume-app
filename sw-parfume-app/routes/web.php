@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\Business\InventoryController;
 use App\Http\Controllers\Admin\Business\MasterController;
 use App\Http\Controllers\Admin\Business\ReportController;
 use App\Http\Controllers\Admin\Business\TransactionController;
+use App\Http\Controllers\Admin\Business\TransactionValidationController;
 use App\Http\Controllers\Admin\Business\UtilityController;
 use App\Http\Controllers\Admin\System\SettingsController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
@@ -66,6 +67,10 @@ Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group
 
     Route::get('/pembelian', [TransactionController::class, 'pembelian'])->name('business.pembelian.index');
     Route::post('/pembelian', [TransactionController::class, 'storePembelian'])->name('business.pembelian.store');
+    Route::get('/penjualan-nota/{id}/slip', [TransactionController::class, 'salesPdf'])->whereNumber('id')->name('business.penjualan.slip');
+    Route::get('/penjualan-nota/{id}/pdf', [TransactionController::class, 'salesPdf'])->whereNumber('id')->name('business.penjualan.pdf');
+    Route::get('/keuangan-nota/{type}/{id}/slip', [FinanceController::class, 'pdf'])->whereNumber('id')->name('business.finance.slip');
+    Route::get('/keuangan-nota/{type}/{id}/pdf', [FinanceController::class, 'pdf'])->whereNumber('id')->name('business.finance.pdf');
     Route::get('/pembelian/{id}/pdf', [TransactionController::class, 'notaPdf'])->name('business.pembelian.pdf');
     Route::get('/penjualan-botol-kosong', [TransactionController::class, 'penjualanBotolKosong'])->name('business.penjualan-botol-kosong.index');
     Route::post('/penjualan-botol-kosong', [TransactionController::class, 'storePenjualanBotolKosong'])->name('business.penjualan-botol-kosong.store');
@@ -76,6 +81,7 @@ Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group
     Route::get('/riwayat-penjualan/{type}', [TransactionController::class, 'riwayatPenjualan'])->name('business.riwayat.penjualan');
 
     Route::get('/hutang', [FinanceController::class, 'hutang'])->name('business.hutang.index');
+    Route::post('/hutang', [FinanceController::class, 'storeHutang'])->name('business.hutang.store');
     Route::post('/hutang/{hutang}/bayar', [FinanceController::class, 'payHutang'])->name('business.hutang.pay');
     Route::get('/piutang', [FinanceController::class, 'piutang'])->name('business.piutang.index');
     Route::post('/piutang/{piutang}/bayar', [FinanceController::class, 'payPiutang'])->name('business.piutang.pay');
@@ -87,6 +93,13 @@ Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group
     Route::post('/kas', [\App\Http\Controllers\Admin\Business\KasController::class, 'store'])->name('business.kas.store');
 
     Route::get('/laporan/{type}', [ReportController::class, 'show'])->name('business.report.show');
+
+    Route::get('/validasi-transaksi/{id}/slip', [TransactionValidationController::class, 'pdf'])->whereNumber('id')->name('business.validation.slip');
+    Route::get('/validasi-transaksi/{id}/pdf', [TransactionValidationController::class, 'pdf'])->whereNumber('id')->name('business.validation.pdf');
+    Route::get('/validasi-transaksi', [TransactionValidationController::class, 'index'])->name('business.validation.index');
+    Route::post('/validasi-transaksi/setujui-terpilih', [TransactionValidationController::class, 'approveSelected'])->name('business.validation.approve-selected');
+    Route::post('/validasi-transaksi/{id}/setujui', [TransactionValidationController::class, 'approve'])->whereNumber('id')->name('business.validation.approve');
+    Route::post('/validasi-transaksi/{id}/tolak', [TransactionValidationController::class, 'reject'])->whereNumber('id')->name('business.validation.reject');
 
     Route::get('/utility', [UtilityController::class, 'index'])->name('business.utility.index');
     Route::post('/utility/tutup-toko', [UtilityController::class, 'close'])->name('business.utility.close');

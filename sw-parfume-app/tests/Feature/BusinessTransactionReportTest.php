@@ -342,19 +342,19 @@ class BusinessTransactionReportTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->has('rows.data', 0)
-                ->has('botolStock', 1)
-                ->where('botolStock.0.stok_botol', 110)
+                ->has('botolStock.data', 1)
+                ->where('botolStock.data.0.stok_botol', 110)
             );
 
         $this->get('/admin/laporan/barang-summary?search=1&jenis_barang=BOTOL')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->has('rows.data', 0)
-                ->has('botolSummary', 1)
-                ->where('botolSummary.0.stok_awal', 100)
-                ->where('botolSummary.0.total_masuk', 10)
-                ->where('botolSummary.0.total_keluar', 0)
-                ->where('botolSummary.0.stok_akhir', 110)
+                ->has('botolSummary.data', 1)
+                ->where('botolSummary.data.0.stok_awal', 100)
+                ->where('botolSummary.data.0.total_masuk', 10)
+                ->where('botolSummary.data.0.total_keluar', 0)
+                ->where('botolSummary.data.0.stok_akhir', 110)
             );
 
         $this->get('/admin/laporan/stok?search=1&jenis_barang=BIBIT')
@@ -362,7 +362,7 @@ class BusinessTransactionReportTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->has('rows.data', 1)
                 ->where('rows.data.0.nama_item', $barang->nama_barang)
-                ->has('botolStock', 0)
+                ->has('botolStock.data', 0)
             );
 
         $this->get('/admin/laporan/barang-summary?search=1&jenis_barang=BIBIT')
@@ -370,7 +370,7 @@ class BusinessTransactionReportTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->has('rows.data', 1)
                 ->where('rows.data.0.barang.id', $barang->id)
-                ->has('botolSummary', 0)
+                ->has('botolSummary.data', 0)
             );
     }
 

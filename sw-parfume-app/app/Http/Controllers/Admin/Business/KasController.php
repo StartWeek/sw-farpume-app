@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Business;
 use App\Http\Controllers\Controller;
 use App\Models\Business\KasMutasi;
 use App\Services\Business\BusinessService;
+use App\Services\Business\TransactionValidationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -12,7 +13,7 @@ use Inertia\Response;
 
 class KasController extends Controller
 {
-    public function __construct(private readonly BusinessService $business) {}
+    public function __construct(private readonly BusinessService $business, private readonly TransactionValidationService $validations) {}
 
     public function index(): Response
     {
@@ -46,11 +47,12 @@ class KasController extends Controller
             'min' => 'Nilai minimal :min.',
         ]);
 
-        $this->business->createManualCash($this->uppercase($validated));
+        $validation = $this->validations->submit('kas', $this->uppercase($validated), $request->user());
 
         return redirect()
             ->route('business.kas.index')
-            ->with('success', 'Transaksi kas berhasil disimpan.');
+            ->with('success', TransactionValidationService::SUBMITTED_MESSAGE)
+            ->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
     }
 
     private function perPage(): int

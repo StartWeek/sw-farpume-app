@@ -2,24 +2,33 @@ import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { router, usePage } from "@inertiajs/react";
 import Button from "@/components/common/Button";
-import { IconDotsVertical, IconFileTypePdf, IconPencil, IconPlus, IconPrinter, IconTrash, IconX } from "@tabler/icons-react";
+import { IconCreditCard, IconDotsVertical, IconPencil, IconPlus, IconFileTypePdf, IconTrash, IconUser, IconUsers, IconX } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, formatInputNumber, money, number, todayDate, useFlashMessages } from "./_components";
-import {
-    renderReceiptTemplate,
-    renderItemTemplate,
-    withReceiptSettings,
-} from "./receiptSettings";
-
-const liquidUnits = ["ML", "LITER"];
+import { TransactionChoiceButton, TransactionDialog, TransactionPickerModal } from "./TransactionDialogs";
+import { automaticWarehouse, availableBarcodeItems, barcodeMatches, defaultTransactionUnit, transactionItemCode } from "./barcode";
+import BarcodeLookup from "./BarcodeLookup";
+import { openCustomerSlip } from "./CustomerSlipModal";
+import useTransactionSubmissionOptions from "./useTransactionSubmissionOptions";
+import { PaymentAmountEntry, PaymentBreakdown, PaymentHistory, PaymentSummary, PaymentTable } from "./PaymentDetails";
+const liquidUnits = ["ML", "LITER", "BOTOL"];
 const purchaseLiquidUnits = ["ML", "LITER", "BOTOL"];
 const bottleUnits = ["BOTOL", "DUS"];
-const payments = ["CASH", "TRANSFER", "TEMPO", "DP"];
-const retailPayments = ["CASH", "TRANSFER"];
+const payments = ["CASH", "TRANSFER", "SPLIT", "TEMPO", "DP"];
+const retailPayments = ["CASH", "TRANSFER", "SPLIT"];
+const paymentLabels = {
+    CASH: { label: "Tunai", description: "Bayar lunas dengan uang tunai" },
+    TRANSFER: { label: "Transfer", description: "Bayar lunas melalui transfer" },
+    SPLIT: { label: "Cash + Transfer", description: "Gabungkan tunai dan transfer, tetap lunas" },
+    TEMPO: { label: "Tempo", description: "Bayar pada tanggal jatuh tempo" },
+    DP: { label: "Uang Muka / DP", description: "Bayar sebagian terlebih dahulu" },
+};
+const paymentErrorKeys = ["metode_pembayaran", "jumlah_bayar", "cash_amount", "transfer_amount", "jatuh_tempo", "discount"];
 
 export default function TransactionPage({ type, mode = "form", rows = [], refs = {}, operationalDate = todayDate() }) {
     useFlashMessages();
-    const { flash = {}, errors = {}, appSettings = {} } = usePage().props;
+    const submissionOptions = useTransactionSubmissionOptions();
+    const { errors = {} } = usePage().props;
     const isHistory = mode === "history";
     const isBuy = type === "pembelian";
     const isBottleSale = type === "botol-kosong";
@@ -27,17 +36,19 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     const title = isHistory
         ? (isBuy ? "Riwayat Pembelian Supplier" : isWholesale ? "Riwayat Penjualan Sales" : "Riwayat Penjualan Retail")
         : (isBuy ? "Pembelian Supplier" : isBottleSale ? "Penjualan Botol Kosong" : isWholesale ? "Penjualan Sales" : "Penjualan Retail");
-    const emptyItem = { tipe_item: isBottleSale ? "BOTOL" : "BIBIT", item_id: "", qty_input: 1, satuan_input: isBottleSale ? "BOTOL" : "ML", harga: "", discount: "" };
+    const emptyItem = { tipe_item: isBottleSale ? "BOTOL" : "BIBIT", item_id: "", qty_input: 1, satuan_input: isBottleSale ? "BOTOL" : "ML", harga: "" };
     const initial = {
         tanggal: operationalDate,
         id_supplier: "",
         id_customer: "",
         manual_customer_name: "",
         id_sales: "",
-        tipe_gudang: "",
+        tipe_gudang: isBuy ? "" : isBottleSale ? "BOTOL" : "BIBIT",
         id_gudang: "",
         metode_pembayaran: "CASH",
         jumlah_bayar: "",
+        cash_amount: "",
+        transfer_amount: "",
         discount: "",
         jatuh_tempo: operationalDate,
         tipe_penjualan: isBottleSale ? "BOTOL_KOSONG" : isWholesale ? "SALES" : "RETAIL",
@@ -45,13 +56,14 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         items: [],
     };
     const [form, setForm] = useState(initial);
-    const [receipt, setReceipt] = useState(flash.receipt || null);
-    const printableReceipt = receipt
-        ? withReceiptSettings(receipt, appSettings)
-        : null;
+    const [submitting, setSubmitting] = useState(false);
+    const [paymentOpen, setPaymentOpen] = useState(false);
+    const [addedPayment, setAddedPayment] = useState(null);
+    const [picker, setPicker] = useState(null);
+    const [barcode, setBarcode] = useState("");
+    const [salesChosen, setSalesChosen] = useState(false);
     const [tempoPayment, setTempoPayment] = useState(null);
     const [tempoAmount, setTempoAmount] = useState("");
-    const [bluetoothLoading, setBluetoothLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [modalForm, setModalForm] = useState(emptyItem);
     const [editingIndex, setEditingIndex] = useState(null);
@@ -74,33 +86,13 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         router.get(window.location.pathname, {}, { preserveScroll: true, replace: true });
     };
 
-    useEffect(() => {
-        if (flash.receipt) {
-            setReceipt(flash.receipt);
-        }
-    }, [flash.receipt]);
-
     const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-    const visibleGudang = (refs.gudang || []).filter((row) => !form.tipe_gudang || row.tipe_gudang === form.tipe_gudang);
     const visibleSupplier = (refs.supplier || []).filter((row) => {
-        if (!form.id_gudang) return false;
+        if (!form.id_gudang) return true;
         const selectedGudang = (refs.gudang || []).find((g) => String(g.id) === String(form.id_gudang));
         if (!selectedGudang) return false;
         return !row.id_gudang || String(row.id_gudang) === String(selectedGudang.id);
     });
-    const handleGudangTypeChange = (value) => {
-        set("tipe_gudang", value);
-        set("id_gudang", "");
-        set("id_supplier", "");
-    };
-    const handleGudangChange = (value) => {
-        set("id_gudang", value);
-        set("id_supplier", "");
-        const selected = (refs.gudang || []).find((row) => String(row.id) === String(value));
-        if (selected) {
-            set("tipe_gudang", selected.tipe_gudang || "");
-        }
-    };
     const updateItem = (index, key, value) => setForm((prev) => ({ ...prev, items: prev.items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item) }));
     const updateItemQty = (index, value) => setForm((prev) => ({
         ...prev,
@@ -117,7 +109,9 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         }),
     }));
     const openAddModal = () => {
-        if (!form.id_gudang) { toast.error("Pilih gudang terlebih dahulu."); return; }
+        if (!isBuy && !salesChosen) { setPicker("sales"); return; }
+        if (!isBuy && !form.id_customer && !form.manual_customer_name.trim()) { setPicker("customer"); return; }
+        if (isBuy && !form.id_supplier) { toast.error("Pilih supplier terlebih dahulu."); return; }
         setEditingIndex(null);
         setModalForm(emptyItem);
         setModalOpen(true);
@@ -126,66 +120,194 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     const saveModalItem = () => {
         const selected = findSelectedItem(refs, modalForm);
         if (!modalForm.item_id) { toast.error("Pilih barang terlebih dahulu."); return; }
-        if (isBuy && modalForm.tipe_item !== "BOTOL" && modalForm.satuan_input === "BOTOL" && !modalForm.id_botol) { toast.error("Pilih varian botol terlebih dahulu."); return; }
+        if (modalForm.tipe_item !== "BOTOL" && modalForm.satuan_input === "BOTOL" && !modalForm.id_botol && !selected?.botol?.varian_ml) { toast.error("Pilih varian botol terlebih dahulu."); return; }
         if (!modalForm.qty_input || Number(modalForm.qty_input) <= 0) { toast.error("Jumlah harus lebih dari 0."); return; }
+        let location;
+        try { location = automaticWarehouse(selected, modalForm.tipe_item === "BOTOL", refs.gudang || [], refs.stok_gudang || []); }
+        catch (failure) { toast.error(failure.message); return; }
+
+        const supplier = (refs.supplier || []).find((value) => Number(value.id) === Number(form.id_supplier));
+        if (isBuy && supplier?.id_gudang && Number(supplier.id_gudang) !== Number(location.id)) { toast.error("Supplier tidak sesuai dengan gudang barang. Pilih supplier yang sesuai."); return; }
+        if (form.items.some((_, index) => index !== editingIndex) && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return; }
+        setForm((previous) => ({ ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang }));
         if (editingIndex !== null) {
             setForm((prev) => ({ ...prev, items: prev.items.map((item, i) => i === editingIndex ? modalForm : item) }));
         } else {
             setForm((prev) => ({ ...prev, items: [...prev.items, modalForm] }));
         }
         setModalOpen(false);
+        toast.success(editingIndex !== null ? "Barang berhasil diperbarui." : "Barang berhasil ditambahkan.");
     };
-    const removeItem = (index) => setForm((prev) => ({ ...prev, items: prev.items.filter((_, itemIndex) => itemIndex !== index) }));
+    const removeItem = (index) => setForm((previous) => {
+        const items = previous.items.filter((_, itemIndex) => itemIndex !== index);
+        return { ...previous, items, ...(items.length ? {} : { id_gudang: "", tipe_gudang: isBuy ? "" : isBottleSale ? "BOTOL" : "BIBIT" }) };
+    });
     const customers = useMemo(() => (refs.customer || []).filter((row) => isWholesale ? ["SALES"].includes(row.tipe_customer) : row.tipe_customer === "RETAIL"), [refs.customer, isWholesale]);
+    const selectedCustomer = customers.find((row) => String(row.id) === String(form.id_customer));
+    const selectedSales = (refs.sales || []).find((row) => String(row.id) === String(form.id_sales));
+    const customerName = selectedCustomer?.nama_customer || form.manual_customer_name || "Pilih customer";
+    const transactionSubtotal = form.items.reduce((sum, item) => {
+        const selected = findSelectedItem(refs, item);
+        const price = Number(item.harga || defaultItemPrice(selected, item, isBuy, isWholesale) || 0);
+        const qty = item.tipe_item === "BOTOL" && item.satuan_input === "DUS"
+            ? Number(item.qty_input || 0)
+            : convertQty(item, selected, refs);
+        return sum + qty * price;
+    }, 0);
+    const paymentTitle = `Pembayaran ${title}`;
+    const paymentTotal = Math.max(0, Math.round((transactionSubtotal - (Number(form.discount) || 0)) * 100) / 100);
+    const enteredPayment = Number(form.jumlah_bayar || 0);
+    const splitCash = Number(form.cash_amount || 0);
+    const splitTransfer = Number(form.transfer_amount || 0);
+    const remainingCash = Math.max(0, Math.round((paymentTotal - splitTransfer) * 100) / 100);
+    const receivedPayment = form.metode_pembayaran === "SPLIT" ? splitCash + splitTransfer : enteredPayment;
+    const allowsChange = ["CASH", "SPLIT"].includes(form.metode_pembayaran);
+    const plannedPayment = form.metode_pembayaran === "TEMPO" ? 0 : allowsChange ? Math.min(receivedPayment, paymentTotal) : receivedPayment;
+    const change = allowsChange ? Math.max(0, Math.round((receivedPayment - paymentTotal) * 100) / 100) : 0;
+    const paymentEntryKey = JSON.stringify([form.metode_pembayaran, form.jumlah_bayar, form.cash_amount, form.transfer_amount, form.jatuh_tempo, paymentTotal]);
+    const paymentAdded = addedPayment?.key === paymentEntryKey;
+    const paymentIssue = form.metode_pembayaran === "CASH" && receivedPayment < paymentTotal
+        ? "Uang cash belum cukup. Pembayaran sebagian hanya melalui DP."
+        : form.metode_pembayaran === "TRANSFER" && receivedPayment !== paymentTotal
+            ? "Nominal transfer harus sama dengan total tagihan. Pembayaran sebagian hanya melalui DP."
+            : form.metode_pembayaran === "SPLIT" && (splitCash <= 0 || splitTransfer <= 0 || splitTransfer >= paymentTotal || receivedPayment < paymentTotal)
+                ? "Isi cash dan transfer lebih dari nol; transfer harus kurang dari total dan gabungannya harus melunasi tagihan."
+                : form.metode_pembayaran === "DP" && (enteredPayment <= 0 || enteredPayment > paymentTotal)
+                    ? "DP harus lebih dari nol dan tidak melebihi total tagihan." : "";
+    const selectPayment = (method) => setForm((previous) => ({ ...previous, metode_pembayaran: method, jumlah_bayar: "", cash_amount: "", transfer_amount: "" }));
+    const addPayment = () => {
+        if (paymentIssue) { toast.error(paymentIssue); return; }
+        if (["TEMPO", "DP"].includes(form.metode_pembayaran) && !form.jatuh_tempo) { toast.error("Isi jatuh tempo terlebih dahulu."); return; }
+        const rows = form.metode_pembayaran === "SPLIT"
+            ? [{ label: "Cash", amount: splitCash }, { label: "Transfer", amount: splitTransfer }]
+            : [{ label: paymentLabels[form.metode_pembayaran].label, amount: form.metode_pembayaran === "TEMPO" ? 0 : receivedPayment }];
+        setAddedPayment({ key: paymentEntryKey, rows });
+    };
+    const selectCustomer = (value) => {
+        setForm((previous) => ({ ...previous, id_customer: value, manual_customer_name: "" }));
+        setPicker(null);
+    };
+    const selectCustomerName = (name) => {
+        setForm((previous) => ({ ...previous, id_customer: "", manual_customer_name: name }));
+        setPicker(null);
+    };
 
     const submit = (event) => {
         event.preventDefault();
-        if (!checkStock()) return;
-        router.post(isBuy ? "/admin/pembelian" : isBottleSale ? "/admin/penjualan-botol-kosong" : "/admin/penjualan", {
+        if (submitting) return;
+        if (!isBuy && !salesChosen) { setPicker("sales"); return; }
+        if (!form.items.length) { toast.error("Tambahkan barang terlebih dahulu."); return; }
+        if (!isBuy && !form.id_customer && !form.manual_customer_name.trim()) {
+            setPaymentOpen(false);
+            setPicker("customer");
+            return;
+        }
+        if (!paymentOpen) {
+            setPaymentOpen(true);
+            return;
+        }
+        if (paymentIssue) { toast.error(paymentIssue); return; }
+        if (!paymentAdded) { toast.error("Klik tombol + untuk memasukkan pembayaran ke tabel."); return; }
+        const url = isBuy ? "/admin/pembelian" : isBottleSale ? "/admin/penjualan-botol-kosong" : "/admin/penjualan";
+        router.post(url, {
             ...form,
+            items: form.items.map((item) => ({ ...item, discount: 0 })),
+            jumlah_bayar: ["CASH", "TRANSFER", "DP"].includes(form.metode_pembayaran) ? form.jumlah_bayar : null,
+            cash_amount: form.metode_pembayaran === "SPLIT" ? form.cash_amount : null,
+            transfer_amount: form.metode_pembayaran === "SPLIT" ? form.transfer_amount : null,
             jatuh_tempo: ["TEMPO", "DP"].includes(form.metode_pembayaran) ? form.jatuh_tempo : null,
             id_sales: form.id_sales || null,
-        }, { preserveScroll: true, onSuccess: () => setForm(initial) });
+        }, submissionOptions(url, {
+            preserveScroll: true,
+            onStart: () => setSubmitting(true),
+            onSuccess: () => {
+                setPaymentOpen(false);
+                setForm(initial);
+                setAddedPayment(null);
+                setSalesChosen(false);
+                setBarcode("");
+            },
+            onError: (validationErrors) => {
+                if (validationErrors.items) toast.error(validationErrors.items, { duration: 8000 });
+                if (Object.keys(validationErrors).some((key) => !paymentErrorKeys.includes(key))) setPaymentOpen(false);
+                if (validationErrors.id_customer || validationErrors.manual_customer_name) setPicker("customer");
+                else if (validationErrors.id_sales) setPicker("sales");
+            },
+            onFinish: () => setSubmitting(false),
+        }));
     };
 
-    const checkStock = () => {
-        if (isBuy) return true;
-        const insufficientStock = form.items.filter((item) => {
-            if (!item.item_id) return false;
-            if (item.tipe_item === "BOTOL") {
-                const selected = findSelectedItem(refs, item);
-                return selected && Number(selected.stock || 0) < Number(convertQty(item, selected, refs));
-            }
-            const selected = findSelectedItem(refs, item);
-            if (!selected) return false;
-            const convertedQty = Number(convertQty(item, selected, refs));
-            const stock = refs.stok_gudang?.filter((s) => Number(s.id_barang) === Number(selected.id) && Number(s.id_gudang) === Number(form.id_gudang)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0) || 0;
-            return stock < convertedQty;
-        });
-        if (insufficientStock.length > 0) {
-            const names = insufficientStock.map((item) => {
-                const selected = findSelectedItem(refs, item);
-                if (item.tipe_item === "BOTOL") {
-                    return `${selected?.nama_botol || "Botol kosong"} (stok: ${number(selected?.stock || 0)} BOTOL)`;
-                }
-                const stock = refs.stok_gudang?.filter((s) => Number(s.id_barang) === Number(selected?.id) && Number(s.id_gudang) === Number(form.id_gudang)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0) || 0;
-                const available = stock ? Number(stock.stok_ml) : 0;
-                return `${selected?.nama_barang || "?"} (stok: ${number(available)} ML)`;
-            }).join(", ");
-            toast.error(`Stok tidak mencukupi: ${names}`);
-            return false;
-        }
+    const prepareBarcodeSelection = () => {
+        if (isBuy && !form.id_supplier) { toast.error("Pilih supplier terlebih dahulu."); return false; }
+        if (!isBuy && !salesChosen) { setPicker("sales"); return false; }
+        if (!isBuy && !form.id_customer && !form.manual_customer_name.trim()) { setPicker("customer"); return false; }
         return true;
     };
+    const addBarcode = (value) => {
+        const code = value.trim();
+        if (!code || !prepareBarcodeSelection()) return false;
+        const candidates = [
+            ...(!isBottleSale ? (refs.barang || []).map((row) => ({ row, type: row.jenis_barang === "ABSOLUTE" ? "ABSOLUTE" : "BIBIT" })) : []),
+            ...((isBuy || isBottleSale) ? (refs.botol_kosong || []).map((row) => ({ row, type: "BOTOL" })) : []),
+        ].filter(({ row }) => barcodeMatches(row, code));
+        if (candidates.length !== 1) { toast.error(candidates.length ? "Kode barcode ganda. Perbaiki kode di master barang." : "Barcode tidak ditemukan untuk jenis transaksi ini."); return false; }
+        const { row, type: itemType } = candidates[0];
+        let location;
+        try { location = automaticWarehouse(row, itemType === "BOTOL", refs.gudang || [], refs.stok_gudang || []); }
+        catch (failure) { toast.error(failure.message); return false; }
+
+        const supplier = (refs.supplier || []).find((value) => Number(value.id) === Number(form.id_supplier));
+        if (isBuy && supplier?.id_gudang && Number(supplier.id_gudang) !== Number(location.id)) { toast.error("Supplier tidak sesuai dengan gudang barang. Pilih supplier yang sesuai."); return false; }
+        if (form.items.length && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return false; }
+        const unit = defaultTransactionUnit(itemType, row, isBuy, isWholesale);
+        const item = { tipe_item: itemType, item_id: row.id, qty_input: 1, satuan_input: unit, harga: "", ...(itemType === "BIBIT" && unit === "BOTOL" && row.id_botol ? { id_botol: row.id_botol } : {}) };
+        setForm((previous) => {
+            const index = previous.items.findIndex((value) => value.tipe_item === itemType && Number(value.item_id) === Number(row.id) && value.satuan_input === item.satuan_input && Number(value.id_botol || 0) === Number(item.id_botol || 0));
+            return { ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang, items: index < 0 ? [...previous.items, item] : previous.items.map((value, i) => i === index ? { ...value, qty_input: Number(value.qty_input) + 1 } : value) };
+        });
+        setBarcode("");
+        toast.success(`${row.nama_barang || row.nama_botol} ditambahkan.`);
+        return true;
+    };
+    const scanBarcode = () => addBarcode(barcode);
+    const selectBarcodeItem = (entry) => {
+        if (!prepareBarcodeSelection()) return false;
+        const row = itemOptions(refs, entry.type).find((item) => Number(item.id) === Number(entry.itemId));
+        if (!row) { toast.error("Barang tidak ditemukan. Muat ulang halaman."); return false; }
+        const unit = defaultTransactionUnit(entry.type, row, isBuy, isWholesale);
+        setEditingIndex(null);
+        setModalForm({
+            ...emptyItem,
+            tipe_item: entry.type,
+            item_id: row.id,
+            satuan_input: unit,
+            id_botol: entry.type === "BIBIT" && unit === "BOTOL" ? row.id_botol || "" : "",
+        });
+        setModalOpen(true);
+        return true;
+    };
+    const barcodeItems = availableBarcodeItems({
+        barang: isBottleSale ? [] : refs.barang || [],
+        bottles: isBuy || isBottleSale ? refs.botol_kosong || [] : [],
+        warehouses: refs.gudang || [],
+        stocks: refs.stok_gudang || [],
+        warehouseId: form.items.length ? form.id_gudang : "",
+        supplierWarehouseId: isBuy ? (refs.supplier || []).find((row) => Number(row.id) === Number(form.id_supplier))?.id_gudang : "",
+    });
 
     const openTempoPayment = (row) => {
         const record = getTempoRecord(row, isBuy);
         if (!record) return;
 
         setTempoPayment({
+            isDp: isDpPayment(row),
+            initialDp: row.jumlah_bayar,
             url: isBuy ? `/admin/hutang/${record.id}/bayar` : `/admin/piutang/${record.id}/bayar`,
             number: isBuy ? row.no_pembelian : row.no_penjualan,
             party: isBuy ? row.supplier?.nama_supplier : row.customer?.nama_customer,
+            total: Number(isBuy ? record.total_hutang : record.total_piutang),
+            paid: Number(record.total_bayar || 0),
+            history: record.payment_history,
             remaining: Number(isBuy ? record.sisa_hutang || 0 : record.sisa_piutang || 0),
         });
         setTempoAmount("");
@@ -194,78 +316,54 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     const submitTempoPayment = (event) => {
         event.preventDefault();
         if (!tempoPayment) return;
+        if (Number(tempoAmount) <= 0 || !Number.isFinite(Number(tempoAmount))) { toast.error("Jumlah pembayaran harus lebih dari nol."); return; }
+        if (Number(tempoAmount) > tempoPayment.remaining) { toast.error("Pembayaran melebihi sisa tagihan."); return; }
 
-        router.post(tempoPayment.url, { jumlah_bayar: tempoAmount }, {
+        router.post(tempoPayment.url, { jumlah_bayar: tempoAmount }, submissionOptions(tempoPayment.url, {
             preserveScroll: true,
             onSuccess: () => {
                 setTempoPayment(null);
                 setTempoAmount("");
             },
-        });
+        }));
     };
 
     return (
         <ProtectedLayout title={title}>
             <div className="space-y-5">
-                <PageHeader title={title} subtitle={isHistory ? "Riwayat transaksi — klik menu titik tiga untuk reprint nota atau pembayaran tempo." : "Transaksi otomatis membuat mutasi stok dan hutang/piutang bila pembayaran tempo."} />
+                <PageHeader title={title} subtitle={isHistory ? "Riwayat transaksi yang sudah divalidasi. Pembayaran sisa DP dan tempo menunggu validasi kembali." : "Transaksi diajukan ke Validasi terlebih dahulu. Stok, kas, dan laporan berubah setelah disetujui."} />
                 {!isHistory && <Card>
-                    <form onSubmit={submit} className="space-y-4">
-                        <div className="grid gap-4 md:grid-cols-4">
-                            {isBuy ? (
-                                <>
-                                    <Field label="Tipe Gudang">
-                                        <Select error={!!errors.tipe_gudang} value={form.tipe_gudang || ""} onChange={(event) => handleGudangTypeChange(event.target.value)}>
-                                            <option value="">Pilih tipe gudang</option>
-                                            <option value="BIBIT">BIBIT</option>
-                                            <option value="BOTOL">BOTOL</option>
-                                        </Select>
-                                    </Field>
-                                    <Field label="Gudang">
-                                        <Select error={!!errors.id_gudang} value={form.id_gudang} onChange={(event) => handleGudangChange(event.target.value)}>
-                                            <option value="">Pilih gudang</option>
-                                            {visibleGudang.map((row) => <option key={row.id} value={row.id}>{row.nama_gudang}</option>)}
-                                        </Select>
-                                        {errors.id_gudang && <div className="mt-1 text-xs text-red-500">{errors.id_gudang}</div>}
-                                    </Field>
-                                    <Field label="Supplier">
-                                        <Select error={!!errors.id_supplier} value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}>
-                                            <option value="">Pilih supplier</option>
-                                            {visibleSupplier.map((row) => <option key={row.id} value={row.id}>{row.kode_supplier} — {row.nama_supplier}</option>)}
-                                            {!form.id_gudang && <option value="" disabled>Silakan pilih gudang dulu</option>}
-                                        </Select>
-                                        {errors.id_supplier && <div className="mt-1 text-xs text-red-500">{errors.id_supplier}</div>}
-                                    </Field>
-                                </>
-                            ) : (
-                                <>
-                                    <Field label="Customer">
-                                        <Select error={!!errors.id_customer} value={form.id_customer} onChange={(event) => set("id_customer", event.target.value)}>
-                                            <option value="">Pilih customer</option>
-                                            {customers.map((row) => <option key={row.id} value={row.id}>{row.kode_customer} - {row.nama_customer}</option>)}
-                                        </Select>
-                                        {errors.id_customer && <div className="mt-1 text-xs text-red-500">{errors.id_customer}</div>}
-                                    </Field>
-                                    <Field label="Nama Customer Manual">
-                                        <Input error={!!errors.manual_customer_name} value={form.manual_customer_name || ""} onChange={(event) => set("manual_customer_name", event.target.value.toUpperCase())} placeholder="Isi jika tidak memilih customer" className="uppercase" />
-                                        {errors.manual_customer_name && <div className="mt-1 text-xs text-red-500">{errors.manual_customer_name}</div>}
-                                    </Field>
-                                </>
-                            )}
-                            {!isBuy ? <Field label="Sales"><Select error={!!errors.id_sales} value={form.id_sales || ""} onChange={(event) => set("id_sales", event.target.value)}><option value="">Tanpa sales</option>{(refs.sales || []).map((row) => <option key={row.id} value={row.id}>{row.nama_sales}{row.no_hp ? ` — ${row.no_hp}` : ""}</option>)}</Select>{errors.id_sales && <div className="mt-1 text-xs text-red-500">{errors.id_sales}</div>}</Field> : null}
-                            <Field label="Metode Bayar">
-                                <Select error={!!errors.metode_pembayaran} value={form.metode_pembayaran} onChange={(event) => set("metode_pembayaran", event.target.value)}>{(isBuy || isWholesale ? payments : retailPayments).map((payment) => <option key={payment}>{payment}</option>)}</Select>
-                                {errors.metode_pembayaran && <div className="mt-1 text-xs text-red-500">{errors.metode_pembayaran}</div>}
-                            </Field>
-                            {form.metode_pembayaran === "DP" ? <Field label="Jumlah DP"><CurrencyInput error={!!errors.jumlah_bayar} value={form.jumlah_bayar || ""} onChange={(event) => set("jumlah_bayar", event.target.value)} />{errors.jumlah_bayar && <div className="mt-1 text-xs text-red-500">{errors.jumlah_bayar}</div>}</Field> : null}
-                            {["TEMPO", "DP"].includes(form.metode_pembayaran) ? <Field label="Jatuh Tempo"><Input error={!!errors.jatuh_tempo} type="date" value={form.jatuh_tempo || ""} onChange={(event) => set("jatuh_tempo", event.target.value)} />{errors.jatuh_tempo && <div className="mt-1 text-xs text-red-500">{errors.jatuh_tempo}</div>}</Field> : null}
-                            <Field label="Discount">
-                                <CurrencyInput error={!!errors.discount} value={form.discount || ""} onChange={(event) => set("discount", event.target.value.toUpperCase())} placeholder="0" />
-                                {errors.discount && <div className="mt-1 text-xs text-red-500">{errors.discount}</div>}
-                            </Field>
+                    <form onSubmit={submit} className="space-y-5">
+                        <div className="border-b border-stroke pb-4">
+                            <h2 className="text-base font-extrabold text-main">Informasi Transaksi</h2>
+                            <p className="mt-1 text-sm text-muted">{isBuy ? "Pilih supplier, scan barang, lalu lanjut ke pembayaran." : "Pilih sales, pilih customer, lalu scan barang. Pembayaran diatur pada langkah terakhir."}</p>
                         </div>
-
+                        {!isBuy && <div className="grid gap-3 md:grid-cols-2">
+                            <TransactionChoiceButton label="1. Sales" value={salesChosen ? selectedSales?.nama_sales || "Tanpa sales" : "Pilih sales"} hint={salesChosen ? "Ubah sales transaksi" : "Pilih sales atau pilih tanpa sales"} icon={IconUsers} error={errors.id_sales} onClick={() => setPicker("sales")} />
+                            <TransactionChoiceButton label="2. Customer" value={customerName} hint={!salesChosen ? "Pilih sales terlebih dahulu" : selectedCustomer?.kode_customer || (form.manual_customer_name ? "Nama untuk transaksi ini" : "Pilih dari daftar atau isi nama")} icon={IconUser} error={errors.id_customer || errors.manual_customer_name} disabled={!salesChosen} onClick={() => setPicker("customer")} />
+                        </div>}
+                        {isBuy && <Field label="Supplier"><Select error={!!errors.id_supplier} value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}><option value="">Pilih supplier</option>{visibleSupplier.map((row) => <option key={row.id} value={row.id}>{row.kode_supplier} — {row.nama_supplier}</option>)}</Select>{errors.id_supplier && <p className="text-xs text-red-500">{errors.id_supplier}</p>}</Field>}
+                        <Field label="Scan Barcode">
+                            <div className="flex flex-wrap items-start gap-2">
+                                <div className="min-w-0 flex-1">
+                                    <Input value={barcode} onChange={(event) => setBarcode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); scanBarcode(); } }} placeholder="Scan barcode, lalu Enter" />
+                                </div>
+                                <BarcodeLookup items={barcodeItems} onSelect={selectBarcodeItem} onOpen={prepareBarcodeSelection} enabled={!picker && !paymentOpen && !modalOpen && !tempoPayment && !submitting} />
+                            </div>
+                        </Field>
+                        {errors.id_gudang && <p role="alert" className="text-sm text-red-600">{errors.id_gudang}</p>}
                         {errors.items && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{errors.items}</div>}
 
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stroke pt-5">
+                            <div>
+                                <h2 className="text-base font-extrabold text-main">{isBuy ? "Daftar Barang" : "3. Pilih Barang"}</h2>
+                                <span className="text-xs font-medium text-muted">{form.items.length} item</span>
+                            </div>
+                            <div className="flex flex-wrap items-start gap-2">
+                               <Button icon={IconPlus} variant="outline" onClick={openAddModal}>Pilih Barang</Button>
+                            </div>
+                        </div>
+                        {!form.items.length && <div className="rounded-xl border border-dashed border-stroke bg-page/40 px-5 py-8 text-center"><p className="text-sm font-bold text-main">Belum ada barang</p><p className="mt-1 text-xs text-muted">{!isBuy && !salesChosen ? "Mulai dengan memilih sales di atas." : !isBuy && !form.id_customer && !form.manual_customer_name ? "Pilih customer sebelum menambahkan barang." : "Scan barcode lalu tekan Enter, atau buka Pilih Barang untuk mencari dan mengatur jumlah."}</p></div>}
                         {/* Item Summary Table */}
                         {form.items.length > 0 && (
                             <div className="overflow-x-auto rounded-xl border border-stroke bg-card">
@@ -277,7 +375,6 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                             <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted">Nama Barang</th>
                                             <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted w-40">Qty</th>
                                             <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted w-36 text-right">Harga</th>
-                                            <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted w-40 text-right">Disc</th>
                                             <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted w-40 text-right">Total</th>
                                             <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-muted w-20 text-center">Aksi</th>
                                         </tr>
@@ -292,7 +389,6 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                                 const subtotal = item.tipe_item === "BOTOL" && item.satuan_input === "DUS"
                                                     ? Number(item.qty_input || 0) * price
                                                     : convertedQty * price;
-                                                const totalAfterDisc = Math.max(0, subtotal - (Number(item.discount) || 0));
                                                 const kode = item.tipe_item === "BOTOL"
                                                     ? (selected?.kode_botol || "-")
                                                     : (selected?.kode_barang || "-");
@@ -316,8 +412,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                                         <td className="px-3 py-2.5 font-medium text-main">{namaBarang}{botolInfo ? <span className="text-muted font-normal"> - {botolInfo}</span> : ""}</td>
                                                         <td className="px-3 py-2.5 font-medium text-main">{qtyDisplay}</td>
                                                         <td className="px-3 py-2.5 text-right font-medium text-main">{money(price)}</td>
-                                                        <td className="px-3 py-2.5 text-right font-medium text-red-500">{Number(item.discount) > 0 ? money(Number(item.discount)) : "-"}</td>
-                                                        <td className="px-3 py-2.5 text-right font-extrabold text-main">{money(totalAfterDisc)}</td>
+                                                        <td className="px-3 py-2.5 text-right font-extrabold text-main">{money(subtotal)}</td>
                                                         <td className="px-3 py-2.5 text-center">
                                                             <div className="flex items-center justify-center gap-1">
                                                                 <Button icon={IconPencil} iconOnly variant="outline" size="sm" onClick={() => openEditModal(index)} title="Edit" />
@@ -331,48 +426,107 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                     </tbody>
                                     <tfoot>
                                         <tr className="bg-page/80 font-bold">
-                                            <td colSpan={4} className="px-3 py-2.5 text-right text-[10px] uppercase tracking-widest text-muted">Grand Total</td>
+                                            <td colSpan={4} className="px-3 py-2.5 text-right text-[10px] uppercase tracking-widest text-muted">Subtotal</td>
                                             <td className="px-3 py-2.5 text-right text-sm text-main"></td>
-                                            <td className="px-3 py-2.5 text-right text-sm text-red-500">{money(form.items.reduce((sum, item) => sum + (Number(item.discount) || 0), 0))}</td>
-                                            <td className="px-3 py-2.5 text-right text-sm font-extrabold text-main">{money(form.items.reduce((sum, item) => {
-                                                const selected = findSelectedItem(refs, item);
-                                                const price = Number(item.harga || defaultItemPrice(selected, item, isBuy, isWholesale) || 0);
-                                                const convertedQty = convertQty(item, selected, refs);
-                                                const subtotal = item.tipe_item === "BOTOL" && item.satuan_input === "DUS"
-                                                    ? Number(item.qty_input || 0) * price
-                                                    : convertedQty * price;
-                                                return sum + Math.max(0, subtotal - (Number(item.discount) || 0));
-                                            }, 0))}</td>
+                                            <td className="px-3 py-2.5 text-right text-sm font-extrabold text-main">{money(transactionSubtotal)}</td>
                                             <td></td>
                                         </tr>
                                     </tfoot>
                                 </table>
                             </div>
                         )}
-                        <div className="flex flex-wrap justify-between gap-2">
-                            <Button icon={IconPlus} variant="outline" onClick={openAddModal}>Tambah Barang</Button>
-                            <Button type="submit" disabled={form.items.length === 0}>Simpan Transaksi</Button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                            <Button type="submit" icon={IconCreditCard} loading={submitting} disabled={form.items.length === 0}>Lanjut Pembayaran</Button>
                         </div>
                     </form>
                 </Card>}
 
-                {tempoPayment ? (
-                    <Card>
-                        <form onSubmit={submitTempoPayment} className="grid gap-4 md:grid-cols-[1fr_220px_auto] md:items-end">
-                            <div className="text-[13px] font-medium text-muted">
-                                Pembayaran tempo <b className="font-bold text-main">{tempoPayment.number}</b>
-                                <div className="mt-0.5">{tempoPayment.party || "-"}</div>
-                                <div className="mt-0.5">Sisa: <b className="font-bold text-main">{money(tempoPayment.remaining)}</b></div>
+                {picker && !isBuy && (
+                    <TransactionPickerModal
+                        key={picker}
+                        title={picker === "customer" ? "Pilih Customer" : "Pilih Sales"}
+                        options={picker === "customer"
+                            ? customers.map((row) => ({ value: row.id, label: row.nama_customer, description: row.kode_customer }))
+                            : [{ value: "", label: "Tanpa sales", description: "Transaksi tanpa sales" }, ...(refs.sales || []).map((row) => ({ value: row.id, label: row.nama_sales, description: [row.kode_sales, row.no_hp].filter(Boolean).join(" · ") }))]}
+                        selectedValue={picker === "customer" ? form.id_customer : form.id_sales}
+                        manualName={picker === "customer" ? form.manual_customer_name : ""}
+                        onManualConfirm={picker === "customer" ? selectCustomerName : undefined}
+                        onSelect={picker === "customer" ? selectCustomer : (value) => { set("id_sales", value); setSalesChosen(true); setPicker("customer"); }}
+                        onClose={() => setPicker(null)}
+                        error={picker === "customer" ? errors.id_customer || errors.manual_customer_name : errors.id_sales}
+                    />
+                )}
+
+                {paymentOpen && (
+                    <TransactionDialog title={paymentTitle} onClose={() => { if (!submitting) setPaymentOpen(false); }} width="max-w-lg">
+                        <form onSubmit={submit} className="space-y-5" aria-label={paymentTitle}>
+                            <div className="flex flex-wrap justify-between gap-3 rounded-lg bg-page px-4 py-3 text-sm">
+                                <div className="min-w-0"><span className="text-xs text-muted">{isBuy ? "Supplier" : "Customer"}</span><p className="break-words font-bold text-main">{isBuy ? visibleSupplier.find((row) => String(row.id) === String(form.id_supplier))?.nama_supplier || "Belum dipilih" : customerName}</p></div>
+                                <div className="text-right"><span className="text-xs text-muted">{form.items.length} item</span><p className="font-bold tabular-nums text-main">{money(transactionSubtotal)}</p></div>
                             </div>
-                            <Field label="Jumlah Bayar">
-                                <CurrencyInput value={tempoAmount} onChange={(event) => setTempoAmount(event.target.value)} />
-                            </Field>
-                            <div className="flex gap-2">
-                                <Button variant="outline" onClick={() => setTempoPayment(null)}>Batal</Button>
-                                <Button type="submit">Proses Bayar</Button>
+                            <fieldset disabled={submitting} className="space-y-4">
+                                <legend className="mb-3 text-sm font-bold text-main">Metode Pembayaran</legend>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {(isBuy || isWholesale ? payments : retailPayments).map((method) => (
+                                        <label key={method} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary ${form.metode_pembayaran === method ? "border-primary bg-primary/10" : "border-stroke hover:bg-page"}`}>
+                                            <input type="radio" name="metode_pembayaran" value={method} checked={form.metode_pembayaran === method} data-autofocus={form.metode_pembayaran === method ? "" : undefined} onChange={() => selectPayment(method)} className="mt-1 size-4 shrink-0 accent-primary" />
+                                            <span><span className="block text-sm font-bold text-main">{paymentLabels[method].label}</span><span className="mt-1 block text-xs leading-5 text-muted">{paymentLabels[method].description}</span></span>
+                                        </label>
+                                    ))}
+                                </div>
+                                {errors.metode_pembayaran && <p role="alert" className="text-xs text-red-500">{errors.metode_pembayaran}</p>}
+                                {["CASH", "TRANSFER"].includes(form.metode_pembayaran) && <div><Field label={form.metode_pembayaran === "CASH" ? "Uang Cash (Rp)" : "Nominal Transfer (Rp)"}>
+                                    <CurrencyInput required error={!!errors.jumlah_bayar} value={form.jumlah_bayar} onChange={(event) => set("jumlah_bayar", event.target.value)} placeholder="Isi nominal pembayaran" />
+                                    {errors.jumlah_bayar && <p role="alert" className="text-xs text-red-500">{errors.jumlah_bayar}</p>}
+                                </Field><Button className="mt-2" variant="outline" onClick={() => set("jumlah_bayar", String(paymentTotal))}>Isi Nominal Otomatis · {money(paymentTotal)}</Button></div>}
+                                {form.metode_pembayaran === "SPLIT" && <div className="grid gap-3 sm:grid-cols-2">
+                                    <div><Field label="Uang Cash (Rp)"><CurrencyInput required value={form.cash_amount} error={!!errors.cash_amount} onChange={(event) => set("cash_amount", event.target.value)} placeholder="Bagian tunai" />{errors.cash_amount && <p role="alert" className="text-xs text-red-500">{errors.cash_amount}</p>}</Field>
+                                        <Button className="mt-2" variant="outline" disabled={!Number.isFinite(splitTransfer) || splitTransfer <= 0 || remainingCash <= 0} onClick={() => set("cash_amount", String(remainingCash))}>Isi Nominal Otomatis · {money(remainingCash)}</Button>
+                                    </div>
+                                    <Field label="Nominal Transfer (Rp)"><CurrencyInput required value={form.transfer_amount} error={!!errors.transfer_amount} onChange={(event) => set("transfer_amount", event.target.value)} placeholder="Bagian transfer" />{errors.transfer_amount && <p role="alert" className="text-xs text-red-500">{errors.transfer_amount}</p>}</Field>
+                                </div>}
+                                {form.metode_pembayaran === "DP" && <Field label="Jumlah Uang Muka / DP (Rp)"><CurrencyInput required error={!!errors.jumlah_bayar} value={form.jumlah_bayar || ""} onChange={(event) => set("jumlah_bayar", event.target.value)} placeholder="0" />{errors.jumlah_bayar && <p role="alert" className="text-xs text-red-500">{errors.jumlah_bayar}</p>}</Field>}
+                                {["TEMPO", "DP"].includes(form.metode_pembayaran) && <Field label="Jatuh Tempo"><Input required error={!!errors.jatuh_tempo} type="date" value={form.jatuh_tempo || ""} onChange={(event) => set("jatuh_tempo", event.target.value)} />{errors.jatuh_tempo && <p role="alert" className="text-xs text-red-500">{errors.jatuh_tempo}</p>}</Field>}
+                                <Field label="Diskon (Rp)">
+                                    <CurrencyInput error={!!errors.discount} value={form.discount || ""} onChange={(event) => set("discount", event.target.value)} placeholder="0" />
+                                    {errors.discount && <p role="alert" className="text-xs text-red-500">{errors.discount}</p>}
+                                </Field>
+                                <div className="flex justify-end"><Button icon={IconPlus} onClick={addPayment} disabled={!!paymentIssue}>{paymentAdded ? "Perbarui Pembayaran" : "Tambah Pembayaran"}</Button></div>
+                            </fieldset>
+                            <PaymentTable rows={paymentAdded ? addedPayment.rows : []} disabled={submitting} onRemove={() => setAddedPayment(null)} />
+                            {paymentAdded && allowsChange && <div className="space-y-2 text-sm">
+                                <div className="flex justify-between gap-3 text-main"><span>{form.metode_pembayaran === "SPLIT" ? "Total Cash + Transfer" : "Uang Cash"}</span><strong className="tabular-nums">{money(receivedPayment)}</strong></div>
+                                <div className="flex justify-between gap-3 text-main"><span>Kembalian Cash</span><strong className="tabular-nums">{money(change)}</strong></div>
+                            </div>}
+                            {paymentIssue && <p role="alert" className="text-xs font-bold text-amber-700">{paymentIssue}</p>}
+                            <PaymentSummary total={paymentTotal} amount={paymentAdded ? plannedPayment : 0} />
+                            {!form.items.length && <p className="text-xs text-muted">Tambahkan barang sebelum menyimpan transaksi.</p>}
+                            <div className="flex flex-wrap justify-end gap-2 border-t border-stroke pt-4">
+                                <Button variant="outline" disabled={submitting} onClick={() => setPaymentOpen(false)}>Kembali</Button>
+                                <Button type="submit" loading={submitting} disabled={!form.items.length || !!paymentIssue || !paymentAdded}>Ajukan Validasi</Button>
                             </div>
                         </form>
-                    </Card>
+                    </TransactionDialog>
+                )}
+
+                {tempoPayment ? (
+                    <TransactionDialog title={tempoPayment.isDp ? "Pembayaran Sisa DP" : "Pembayaran Tempo"} description="Masukkan jumlah pembayaran, lalu ajukan untuk divalidasi." onClose={() => setTempoPayment(null)} width="max-w-lg">
+                        <form onSubmit={submitTempoPayment} className="space-y-5">
+                            <div className="text-[13px] font-medium text-muted">
+                                {tempoPayment.isDp ? "Pembayaran sisa DP" : "Pembayaran tempo"} <b className="font-bold text-main">{tempoPayment.number}</b>
+                                <div className="mt-0.5">{tempoPayment.party || "-"}</div>
+                                {tempoPayment.isDp && <div className="mt-0.5">DP awal: <b className="font-bold text-main">{money(tempoPayment.initialDp)}</b></div>}
+                            </div>
+                            <PaymentAmountEntry amount={tempoAmount} onChange={setTempoAmount} remaining={tempoPayment.remaining} error={errors.jumlah_bayar} label={tempoPayment.isDp ? "Sisa DP" : "Tempo"} />
+                            <PaymentSummary total={tempoPayment.total} paid={tempoPayment.paid} remaining={tempoPayment.remaining} amount={tempoAmount} />
+                            <PaymentHistory history={tempoPayment.history} />
+                            {Object.entries(errors).filter(([key]) => key !== "jumlah_bayar").map(([key, error]) => <p key={key} role="alert" className="text-xs text-red-600">{error}</p>)}
+                            <div className="flex gap-2">
+                                <Button variant="outline" onClick={() => setTempoPayment(null)}>Batal</Button>
+                                <Button type="submit" disabled={Number(tempoAmount || 0) <= 0 || Number(tempoAmount) > tempoPayment.remaining}>Ajukan Pembayaran</Button>
+                            </div>
+                        </form>
+                    </TransactionDialog>
                 ) : null}
 
                 {isHistory && <>
@@ -416,53 +570,42 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                         { key: "no_pembelian", label: "No Pembelian" },
                         { key: "supplier", label: "Supplier", render: (row) => row.supplier ? `${row.supplier.kode_supplier} — ${row.supplier.nama_supplier}` : "-" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
+                        { key: "details", label: "Detail Barang / Barcode", render: historyItems },
                         { key: "total_qty_ml", label: "Qty ML", render: (row) => number(row.total_qty_ml) },
                         { key: "total_qty_botol", label: "Qty Botol", render: (row) => number(row.total_qty_botol) },
                         { key: "total_pembelian", label: "Total", render: (row) => money(row.total_pembelian) },
-                        { key: "status_pembayaran", label: "Status" },
+                        { key: "metode_pembayaran", label: "Metode Bayar", render: historyPaymentMethod },
+                        { key: "status_pembayaran", label: "Status", render: (row) => row.status_pembayaran?.replaceAll("_", " ") || "-" },
                     ] : [
                         { key: "no_penjualan", label: "No Penjualan" },
                         { key: "customer", label: "Customer", render: (row) => row.customer?.nama_customer || "-" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
+                        { key: "details", label: "Detail Barang / Barcode", render: historyItems },
                         { key: "total_qty_ml", label: "Qty ML", render: (row) => number(row.total_qty_ml) },
                         { key: "total_qty_botol", label: "Qty Botol", render: (row) => number(row.total_qty_botol) },
                         { key: "total_penjualan", label: "Total", render: (row) => money(row.total_penjualan) },
+                        { key: "metode_pembayaran", label: "Metode Bayar", render: historyPaymentMethod },
+                        { key: "status_pembayaran", label: "Status", render: (row) => row.status_pembayaran?.replaceAll("_", " ") || "-" },
                         { key: "laba_kotor", label: "Laba", render: (row) => money(row.laba_kotor) },
                     ]}
-                    renderActions={isHistory ? (row) => <KebabMenu row={row} isBuy={isBuy} onPrint={() => setReceipt(buildReceiptFromRow(row, isBuy))} onPayTempo={canPayTempo(row, isBuy) ? () => openTempoPayment(row) : null} /> : (row) => (
+                    renderActions={isHistory ? (row) => <KebabMenu row={row} isBuy={isBuy} onPrint={() => isBuy ? window.open(`/admin/pembelian/${row.id}/pdf`, "_blank", "noopener,noreferrer") : openCustomerSlip(`/admin/penjualan-nota/${row.id}/slip`)} onPayTempo={canPayTempo(row, isBuy) ? () => openTempoPayment(row) : null} /> : (row) => (
                         <>
                             {canPayTempo(row, isBuy) ? (
                                 <Button size="sm" variant="outline" onClick={() => openTempoPayment(row)}>
-                                    Bayar Tempo
+                                    {isDpPayment(row) ? "Bayar Sisa DP" : "Bayar Tempo"}
                                 </Button>
                             ) : null}
                             <Button
-                                icon={IconPrinter}
+                                icon={IconFileTypePdf}
                                 size="sm"
                                 variant="outline"
-                                onClick={() => setReceipt(buildReceiptFromRow(row, isBuy))}
+                                onClick={() => isBuy ? window.open(`/admin/pembelian/${row.id}/pdf`, "_blank", "noopener,noreferrer") : openCustomerSlip(`/admin/penjualan-nota/${row.id}/slip`)}
                             >
                                 Nota
                             </Button>
                         </>
                     )}
                 /></>}
-
-                {printableReceipt ? (
-                    <ReceiptModal
-                        receipt={printableReceipt}
-                        bluetoothLoading={bluetoothLoading}
-                        onClose={() => setReceipt(null)}
-                        onBluetooth={async () => {
-                            setBluetoothLoading(true);
-                            try {
-                                await printBluetoothReceipt(printableReceipt);
-                            } finally {
-                                setBluetoothLoading(false);
-                            }
-                        }}
-                    />
-                ) : null}
 
                 {/* Item Modal */}
                 {modalOpen && (
@@ -484,24 +627,25 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     );
 }
 
+function historyItems(row) {
+    if (!row.details?.length) return "-";
+    return (
+        <ul className="space-y-2">
+            {row.details.map((item) => (
+                <li key={item.id}>
+                    <p className="font-mono text-xs">{transactionItemCode(item) || "-"}</p>
+                    <p>{item.nama_item || item.barang?.nama_barang || item.botol_kosong?.nama_botol || item.botol?.nama_botol || "-"}</p>
+                    <p className="text-xs text-muted">{number(item.qty_input ?? item.konversi_qty_dasar ?? item.qty_ml)} {item.satuan_input || item.satuan_dasar || "ML"}</p>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
 function itemOptions(refs, type) {
     if (type === "BOTOL") return refs.botol_kosong || [];
 
     return (refs.barang || []).filter((row) => (type === "ABSOLUTE" ? row.jenis_barang === "ABSOLUTE" : row.jenis_barang !== "ABSOLUTE"));
-}
-
-function availableItemOptions(refs, type, isBuy, gudangId) {
-    const options = itemOptions(refs, type);
-    if (type === "BOTOL") {
-        if (!gudangId) return [];
-        return options.filter((row) => Number(row.id_gudang) === Number(gudangId) && (isBuy || Number(row.stock || 0) > 0));
-    }
-
-    if (isBuy) return options;
-
-    if (!gudangId) return [];
-
-    return options.filter((row) => refs.stok_gudang?.some((stock) => Number(stock.id_barang) === Number(row.id) && Number(stock.id_gudang) === Number(gudangId) && Number(stock.stok_ml) > 0));
 }
 
 function itemOptionLabel(row, type, isBuy, isWholesale, refs, gudangId) {
@@ -519,7 +663,7 @@ function itemOptionLabel(row, type, isBuy, isWholesale, refs, gudangId) {
     const stock = gudangId
         ? refs?.stok_gudang?.filter((s) => Number(s.id_barang) === Number(row.id) && Number(s.id_gudang) === Number(gudangId)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0)
         : null;
-    const stockInfo = stock ? ` — Stok: ${number(stock.stok_ml)} ML` : (gudangId ? " — Stok: 0 ML" : "");
+    const stockInfo = gudangId ? ` — Stok: ${number(stock || 0)} ML` : "";
     return `${row.kode_barang || "-"} - ${row.nama_barang}${botol}${stockInfo}`;
 }
 
@@ -559,8 +703,23 @@ function getTempoRecord(row, isBuy) {
     return isBuy ? row.hutang : row.piutang;
 }
 
+function isDpPayment(row) {
+    // DP is stored as TEMPO; jumlah_bayar retains the original down payment, not later installments.
+    return row.metode_pembayaran === "DP"
+        || (row.metode_pembayaran === "TEMPO" && Number(row.jumlah_bayar) > 0);
+}
+
+function historyPaymentMethod(row) {
+    const method = isDpPayment(row) ? "DP" : row.metode_pembayaran;
+    return <div>
+        <p>{paymentLabels[method]?.label || method}</p>
+        {method === "DP" && <p className="mt-1 text-xs text-muted">DP awal: {money(row.jumlah_bayar)}</p>}
+        <PaymentBreakdown details={row.payment_details} />
+    </div>;
+}
+
 function canPayTempo(row, isBuy) {
-    if (row.metode_pembayaran !== "TEMPO") return false;
+    if (!["TEMPO", "DP"].includes(row.metode_pembayaran)) return false;
     const record = getTempoRecord(row, isBuy);
     if (!record) return false;
 
@@ -591,12 +750,12 @@ function KebabMenu({ row, isBuy, onPrint, onPayTempo }) {
                     <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
                     <div className={`absolute right-0 z-20 w-44 rounded-xl border border-stroke bg-card py-1.5 shadow-premium text-sm ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                         <button type="button" onClick={() => { onPrint(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left font-medium text-main hover:bg-page transition-colors">
-                            <IconPrinter size={14} className="text-muted" /> Reprint Nota
+                            <IconFileTypePdf size={14} className="text-muted" /> {isBuy ? "Bukti PDF" : "Cetak Slip"}
                         </button>
                         {onPayTempo && (
                             <button type="button" onClick={() => { onPayTempo(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left font-medium text-amber-600 hover:bg-page transition-colors">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                                {" "}Bayar Tempo
+                                {" "}{isDpPayment(row) ? "Bayar Sisa DP" : "Bayar Tempo"}
                             </button>
                         )}
                     </div>
@@ -608,17 +767,16 @@ function KebabMenu({ row, isBuy, onPrint, onPayTempo }) {
 
 function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale, refs, gudangId, isBottleSale }) {
     const selected = findSelectedItem(refs, form);
-    const options = availableItemOptions(refs, form.tipe_item, isBuy, gudangId);
+    const options = itemOptions(refs, form.tipe_item);
     const unitOptions = form.tipe_item === "BOTOL"
         ? bottleUnits
         : (isBuy ? purchaseLiquidUnits : liquidUnits);
     const defaultPrice = defaultItemPrice(selected, form, isBuy, isWholesale);
     const price = Number(form.harga || defaultPrice || 0);
-    const convertedQty = convertQty(form, selected);
+    const convertedQty = convertQty(form, selected, refs);
     const subtotal = form.tipe_item === "BOTOL" && form.satuan_input === "DUS"
         ? Number(form.qty_input || 0) * price
         : convertedQty * price;
-    const totalAfterDisc = Math.max(0, subtotal - (Number(form.discount) || 0));
 
     const selectedBotolVariant = form.id_botol
         ? (refs.botol || []).find((b) => Number(b.id) === Number(form.id_botol))
@@ -638,48 +796,33 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
     const handleSelectItem = (itemId) => {
         set("item_id", itemId);
         set("harga", "");
-        // Cek stok saat pilih barang — hanya untuk penjualan (bukan pembelian)
-        if (!isBuy && itemId && form.tipe_item !== "BOTOL" && gudangId) {
-            const stock = refs.stok_gudang?.filter((s) => Number(s.id_barang) === Number(itemId) && Number(s.id_gudang) === Number(gudangId)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0) || 0;
-            if (!stock || Number(stock.stok_ml) <= 0) {
-                const item = itemOptions(refs, form.tipe_item).find((row) => String(row.id) === String(itemId));
-                toast.error(`Stok ${item?.nama_barang || "barang"} kosong atau tidak tersedia di gudang yang dipilih.`);
-            }
-        }
-    };
 
+    };
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-            <div className="w-full max-w-lg rounded-xl border border-stroke bg-card shadow-premium" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between border-b border-stroke px-5 py-4">
-                    <div className="text-lg font-extrabold tracking-tight text-main">
-                        {isEdit ? "Edit Barang" : "Tambah Barang"}
-                    </div>
-                    <Button icon={IconX} iconOnly variant="ghost" onClick={onClose} />
-                </div>
-                <div className="space-y-4 p-5">
+        <TransactionDialog title={isEdit ? "Edit Barang" : "Pilih Barang"} onClose={onClose} width="max-w-lg">
+                <div className="space-y-4">
                     <Field label="Tipe Barang">
                         <Select value={form.tipe_item} disabled={isBottleSale} onChange={(event) => {
                             const nextType = event.target.value;
                             set("tipe_item", nextType);
                             set("item_id", "");
+                            set("id_botol", "");
                             set("harga", "");
                             set("satuan_input", nextType === "BOTOL" ? "BOTOL" : "ML");
                         }}>
-                            <option value="BIBIT">Bibit</option>
-                            <option value="ABSOLUTE">Absolute</option>
+                            {!isBottleSale && <option value="BIBIT">Bibit</option>}
+                            {!isBottleSale && <option value="ABSOLUTE">Absolute</option>}
                             {(isBuy || isBottleSale) && <option value="BOTOL">Botol Kosong</option>}
                         </Select>
                     </Field>
-                    <Field label="Pilih Barang">
+                    <Field label={isBottleSale ? "Pilih Botol Kosong" : "Pilih Barang"}>
                         <Select value={form.item_id} onChange={(event) => handleSelectItem(event.target.value)}>
                             <option value="">Pilih barang...</option>
                             {options.map((row) => <option key={row.id} value={row.id}>{itemOptionLabel(row, form.tipe_item, isBuy, isWholesale, refs, gudangId)}</option>)}
                         </Select>
-                        {!isBuy && !gudangId && <p className="mt-1 text-[11px] font-medium text-amber-600">Pilih gudang terlebih dahulu.</p>}
                         {!isBuy && gudangId && options.length === 0 && <p className="mt-1 text-[11px] font-medium text-amber-600">Tidak ada stok untuk tipe barang ini di gudang yang dipilih.</p>}
                     </Field>
-                    {isBuy && form.tipe_item !== "BOTOL" && form.satuan_input === "BOTOL" && (
+                    {form.tipe_item !== "BOTOL" && form.satuan_input === "BOTOL" && (
                         <Field label="Varian Botol">
                             <Select
                                 value={form.id_botol || ""}
@@ -688,7 +831,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                                     set("harga", "");
                                 }}
                             >
-                                <option value="">Pilih varian botol</option>
+                                <option value="">{selected?.botol ? `Default: ${selected.botol.nama_botol}` : "Pilih varian botol"}</option>
                                 {(refs.botol || []).map((b) => (
                                     <option key={b.id} value={b.id}>
                                         {b.nama_botol}
@@ -710,7 +853,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                                 ))}
                             </Select>
                         </Field>
-                        <Field label={isBuy ? "Harga Beli" : "Harga Jual"}>
+                        <Field label={form.tipe_item !== "BOTOL" ? (isBuy ? "Harga Beli / ML" : "Harga Jual / ML") : (isBuy ? "Harga Beli" : "Harga Jual")}>
                             <CurrencyInput
                                 value={isBuy ? form.harga || "" : price || ""}
                                 placeholder={formatInputNumber(defaultPrice || "")}
@@ -719,15 +862,11 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                             />
                         </Field>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                        <Field label="Diskon">
-                            <CurrencyInput value={form.discount || ""} placeholder="0" onChange={(event) => set("discount", event.target.value)} />
-                        </Field>
+                    <div className="grid grid-cols-1 gap-3">
                         <div className="rounded-lg bg-page/60 px-3.5 py-2.5">
                             <div className="text-[10px] font-bold uppercase tracking-widest text-muted">Subtotal</div>
-                            <div className="mt-1 text-lg font-extrabold text-main">{money(totalAfterDisc)}</div>
+                            <div className="mt-1 text-lg font-extrabold text-main">{money(subtotal)}</div>
                             <div className="text-[11px] text-muted">{number(convertedQty)} {form.tipe_item === "BOTOL" ? "Botol" : "ML"}</div>
-                            {Number(form.discount) > 0 && <div className="text-[10px] text-red-500">Diskon: -{money(Number(form.discount))}</div>}
                         </div>
                     </div>
                 </div>
@@ -735,430 +874,6 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                     <Button variant="outline" onClick={onClose}>Batal</Button>
                     <Button onClick={onSave}>{isEdit ? "Update" : "Simpan"}</Button>
                 </div>
-            </div>
-        </div>
+        </TransactionDialog>
     );
-}
-
-function ReceiptModal({ receipt, onClose, onBluetooth, bluetoothLoading }) {
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg bg-card shadow-premium">
-                <div className="flex items-center justify-between border-b border-stroke px-5 py-4">
-                    <div>
-                        <div className="text-lg font-extrabold tracking-tight text-main">{receipt.title}</div>
-                        <div className="mt-0.5 text-xs font-medium text-muted">{receipt.number}</div>
-                    </div>
-                    <Button icon={IconX} iconOnly variant="ghost" onClick={onClose} />
-                </div>
-
-                <div className="grid gap-4 p-5 lg:grid-cols-[280px_1fr]">
-                    <pre className="max-h-[65vh] overflow-auto rounded-lg border border-stroke bg-page p-4 font-mono text-xs leading-relaxed text-main">
-                        {receiptText(receipt)}
-                    </pre>
-                    <div className="space-y-4">
-                        <div className="rounded-lg border border-stroke bg-page p-4 text-sm text-muted">
-                        <div className="font-bold text-main">{receipt.party_label}: {receipt.party_name}</div>
-                            <div className="mt-0.5 font-medium">Gudang: {receipt.warehouse}</div>
-                            {receipt.type !== "penjualan" && <div className="mt-0.5 font-medium">Bayar: {receipt.payment_method} / {receipt.payment_status}</div>}
-                            {receipt.type === "penjualan" && <div className="mt-0.5 font-medium">Status: {receipt.payment_status}</div>}
-                            {receipt.jatuh_tempo && <div className="mt-0.5 font-medium">Jatuh Tempo: {receipt.jatuh_tempo}</div>}
-                            {receipt.discount > 0 && <div className="mt-0.5 font-medium">Discount: {money(receipt.discount)}</div>}
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                            <Button
-                                icon={IconPrinter}
-                                loading={bluetoothLoading}
-                                onClick={onBluetooth}
-                            >
-                                Print
-                            </Button>
-                            {receipt.type === 'pembelian' && receipt.id ? (
-                                <a href={`/admin/pembelian/${receipt.id}/pdf`} className="no-underline">
-                                    <Button icon={IconFileTypePdf} variant="outline">
-                                        PDF
-                                    </Button>
-                                </a>
-                            ) : null}
-                            <Button variant="ghost" onClick={onClose}>
-                                Tutup
-                            </Button>
-                        </div>
-
-                        <div className="text-xs leading-5 text-muted">
-                            Print memakai koneksi Bluetooth ke printer BLE.
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function buildReceiptFromRow(row, isBuy) {
-    if (isBuy) {
-        return {
-            id: row.id,
-            type: "pembelian",
-            title: "NOTA PEMBELIAN",
-            number: row.no_pembelian,
-            date: formatDate(row.tanggal),
-            party_label: "Supplier",
-            party_name: row.supplier?.nama_supplier || "-",
-            warehouse: row.gudang?.nama_gudang || "-",
-            payment_method: row.metode_pembayaran,
-            payment_status: row.status_pembayaran,
-            discount: Number(row.discount || 0),
-            items: (row.details || []).map((detail) => {
-                const variant = detail.botol_variant;
-                const capacity = detail.satuan_dasar === "BOTOL"
-                    ? Number(detail.qty_ml || 0)
-                    : (variant ? Number(variant.varian_ml || 0) : null);
-                const unitLabel = detail.satuan_input === "BOTOL" && detail.satuan_dasar === "ML"
-                    ? "BOTOL ISI"
-                    : (detail.satuan_input || "ML");
-                const variantLabel = variant ? variant.nama_botol : null;
-                return {
-                    name: detail.nama_item || detail.barang?.nama_barang || detail.botol?.nama_botol || "-",
-                    qty: Number(detail.qty_input || detail.konversi_qty_dasar || detail.qty_ml || 0),
-                    unit: unitLabel,
-                    variant: variantLabel,
-                    price: Number(detail.harga || detail.harga_beli_per_ml || 0),
-                    subtotal: Number(detail.subtotal || 0),
-                    discount: Number(detail.discount || 0),
-                    capacity_ml: capacity,
-                    price_per_ml: Number(detail.harga_beli_per_ml || 0),
-                };
-            }),
-            total_qty: Number(row.total_qty_ml || 0),
-            total_bottle: Number(row.total_qty_botol || 0),
-            total: Number(row.total_pembelian || 0),
-        };
-    }
-
-    return {
-        id: row.id,
-        type: "penjualan",
-        title: "NOTA PENJUALAN",
-        number: row.no_penjualan,
-        date: formatDate(row.tanggal),
-        party_label: "Customer",
-        party_name: row.customer?.nama_customer || row.manual_customer_name || "-",
-        sales: row.sales?.nama_sales || "-",
-        warehouse: row.gudang?.nama_gudang || "-",
-        payment_method: row.metode_pembayaran,
-        payment_status: row.status_pembayaran,
-        discount: Number(row.discount || 0),
-        jatuh_tempo: row.jatuh_tempo ? formatDate(row.jatuh_tempo) : null,
-        items: (row.details || []).map((detail) => {
-            const variant = detail.botol_variant;
-            const variantLabel = variant ? variant.nama_botol : null;
-            return {
-                name: detail.nama_item || detail.barang?.nama_barang || detail.botol?.nama_botol || "-",
-                qty: Number(detail.qty_input || detail.konversi_qty_dasar || detail.qty_ml || 0),
-                unit: detail.satuan_input || "ML",
-                variant: variantLabel,
-                price: Number(detail.harga || detail.harga_jual_per_ml || 0),
-                subtotal: Number(detail.subtotal_jual || 0),
-                discount: Number(detail.discount || 0),
-                capacity_ml: detail.satuan_dasar === "BOTOL" ? Number(detail.qty_ml || 0) : null,
-                price_per_ml: Number(detail.harga_jual_per_ml || 0),
-            };
-        }),
-        total_qty: Number(row.total_qty_ml || 0),
-        total_bottle: Number(row.total_qty_botol || 0),
-        total: Number(row.total_penjualan || 0),
-    };
-}
-
-function receiptText(receipt) {
-    if (["hutang", "piutang", "piutang-supplier"].includes(receipt.type) || !Array.isArray(receipt.items)) {
-        return paymentReceiptText(receipt);
-    }
-
-    const line = "-".repeat(32);
-    const itemTemplate = receipt.item_template || "";
-    const itemLines = receipt.items.flatMap((item) => {
-        const rendered = renderItemTemplate(itemTemplate, {
-            name: item.name,
-            qty: `${number(item.qty)} ${item.unit}`,
-            price: money(item.price).replace("Rp", "").trim(),
-            unit: item.unit,
-            variant: item.variant ? `BOTOL : ${item.variant}` : "",
-        });
-        return rendered.split("\n").filter(Boolean);
-    });
-    const templateValues = {
-        store_name: receipt.store_name || "PARIS PARFUM",
-        store_name_center: center(receipt.store_name || "PARIS PARFUM"),
-        store_address: receipt.store_address || "",
-        store_address_center: receipt.store_address ? center(receipt.store_address) : "",
-        store_phone: receipt.store_phone || "",
-        store_phone_center: receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : "",
-        title: receipt.title,
-        title_center: center(receipt.title),
-        number: receipt.number,
-        date: receipt.date || "-",
-        party_label: receipt.party_label,
-        party_name: receipt.party_name,
-        warehouse: receipt.warehouse || "-",
-        items: itemLines.join("\n"),
-        total_qty: number(receipt.total_qty),
-        total_bottle_line: receipt.total_bottle > 0 ? `Total Botol: ${number(receipt.total_bottle)} BOTOL` : "",
-        subtotal_line: receipt.discount > 0 ? `Subtotal  : ${money(receipt.total + receipt.discount)}` : "",
-        discount_line: receipt.discount > 0 ? `Discount  : ${money(receipt.discount)}` : "",
-        grand_total: money(receipt.total),
-        payment_method: receipt.payment_method || "-",
-        payment_line: receipt.type !== "penjualan" ? `Bayar     : ${receipt.payment_method}` : "",
-        payment_status: receipt.payment_status || "-",
-        due_date: receipt.jatuh_tempo || "",
-        due_date_line: receipt.jatuh_tempo ? `Jatuh Tempo: ${receipt.jatuh_tempo}` : "",
-        footer: receipt.receipt_footer || "Terima kasih",
-        footer_center: center(receipt.receipt_footer || "Terima kasih"),
-    };
-
-    if (receipt.receipt_template) {
-        return renderReceiptTemplate(receipt.receipt_template, templateValues);
-    }
-
-    const dline = "=".repeat(32);
-    const rows = [
-        dline,
-        center(receipt.store_name || "PARIS PARFUM"),
-        receipt.store_address ? center(receipt.store_address) : null,
-        receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : null,
-        dline,
-        center(receipt.title),
-        line,
-        `No     : ${receipt.number}`,
-        `Tgl    : ${receipt.date || "-"}`,
-        `${receipt.party_label} : ${receipt.party_name}`,
-        `Gudang : ${receipt.warehouse || "-"}`,
-        line,
-        ...itemLines,
-        line,
-        `Total Qty  : ${number(receipt.total_qty)} ML`,
-        `Grand Total : ${money(receipt.total)}`,
-        receipt.type !== "penjualan" ? `Bayar      : ${receipt.payment_method}` : null,
-        `Status     : ${receipt.payment_status}`,
-        line,
-        center(receipt.receipt_footer || "Terima kasih"),
-        line,
-        "",
-    ].filter(Boolean);
-
-    return rows.join("\n");
-}
-
-function paymentReceiptText(receipt) {
-    const line = "-".repeat(32);
-    const itemLines = paymentReceiptItemLines(receipt.items);
-    const templateValues = {
-        store_name: receipt.store_name || "PARIS PARFUM",
-        store_name_center: center(receipt.store_name || "PARIS PARFUM"),
-        store_address: receipt.store_address || "",
-        store_address_center: receipt.store_address ? center(receipt.store_address) : "",
-        store_phone: receipt.store_phone || "",
-        store_phone_center: receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : "",
-        title: receipt.title,
-        title_center: center(receipt.title),
-        number: receipt.number,
-        source_number: receipt.source_number || "-",
-        date: receipt.date || "-",
-        party_label: receipt.party_label,
-        party_name: receipt.party_name,
-        items: itemLines.join("\n"),
-        total: money(receipt.total),
-        amount: money(receipt.amount),
-        paid: money(receipt.paid),
-        remaining: money(receipt.remaining),
-        status: receipt.status || "-",
-        footer: receipt.receipt_footer || "Terima kasih",
-        footer_center: center(receipt.receipt_footer || "Terima kasih"),
-    };
-
-    if (receipt.payment_receipt_template) {
-        return renderReceiptTemplate(
-            receipt.payment_receipt_template,
-            templateValues,
-        );
-    }
-
-    const dline = "=".repeat(32);
-    const rows = [
-        dline,
-        center(receipt.store_name || "PARIS PARFUM"),
-        receipt.store_address ? center(receipt.store_address) : null,
-        receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : null,
-        dline,
-        center(receipt.title),
-        line,
-        `No       : ${receipt.number}`,
-        `Ref      : ${receipt.source_number || "-"}`,
-        `Tgl      : ${receipt.date || "-"}`,
-        `${receipt.party_label} : ${receipt.party_name}`,
-        line,
-        ...itemLines,
-        line,
-        `Tagihan  : ${money(receipt.total)}`,
-        `Bayar    : ${money(receipt.amount)}`,
-        `Terbayar : ${money(receipt.paid)}`,
-        `Sisa     : ${money(receipt.remaining)}`,
-        `Status   : ${receipt.status || "-"}`,
-        line,
-        center(receipt.receipt_footer || "Terima kasih"),
-        line,
-        "",
-    ].filter(Boolean);
-
-    return rows.join("\n");
-}
-
-function paymentReceiptItemLines(items = []) {
-    if (!Array.isArray(items) || items.length === 0) return [];
-
-    return [
-        "Barang:",
-        ...items.flatMap((item) => [
-            ...wrapLabeledLine("  NAMA", item.name),
-            `  QTY     : ${number(item.qty)} ${item.unit}`,
-        ]),
-        "-".repeat(32),
-    ];
-}
-
-function printReceipt(receipt) {
-    const popup = window.open("", "_blank", "width=360,height=640");
-    if (!popup) return;
-
-    popup.document.write(`
-        <html>
-            <head>
-                <title>${receipt.number}</title>
-                <style>
-                    body { margin: 0; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.4; color: #1a1a1a; }
-                    pre { white-space: pre-wrap; margin: 0; }
-                    @page { size: 80mm auto; margin: 3mm; }
-                </style>
-            </head>
-            <body><pre>${escapeHtml(receiptText(receipt))}</pre></body>
-        </html>
-    `);
-    popup.document.close();
-    popup.focus();
-    popup.print();
-}
-
-async function printBluetoothReceipt(receipt) {
-    if (!navigator.bluetooth) {
-        toast.error("Browser belum mendukung Web Bluetooth.");
-        return;
-    }
-
-    const device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [
-            "000018f0-0000-1000-8000-00805f9b34fb",
-            "0000ffe0-0000-1000-8000-00805f9b34fb",
-            "0000ff00-0000-1000-8000-00805f9b34fb",
-        ],
-    });
-    const server = await device.gatt.connect();
-    const services = await server.getPrimaryServices();
-
-    for (const service of services) {
-        const characteristics = await service.getCharacteristics();
-        const writable = characteristics.find(
-            (characteristic) =>
-                characteristic.properties.write ||
-                characteristic.properties.writeWithoutResponse,
-        );
-
-        if (writable) {
-            const payload = new TextEncoder().encode(`\x1b@\n${receiptText(receipt)}\n\n\n\x1dV\x00`);
-            for (let offset = 0; offset < payload.length; offset += 180) {
-                const chunk = payload.slice(offset, offset + 180);
-                if (writable.properties.writeWithoutResponse) {
-                    await writable.writeValueWithoutResponse(chunk);
-                } else {
-                    await writable.writeValue(chunk);
-                }
-            }
-            server.disconnect();
-            return;
-        }
-    }
-
-    server.disconnect();
-    toast.error("Printer Bluetooth tidak memiliki characteristic yang bisa ditulis.");
-}
-
-function center(text, width = 32) {
-    const value = String(text);
-    const left = Math.max(0, Math.floor((width - value.length) / 2));
-    return `${" ".repeat(left)}${value}`;
-}
-
-function right(text, width = 32) {
-    const value = String(text);
-    return value.padStart(width);
-}
-
-function truncate(text, width) {
-    const value = String(text || "");
-    return value.length > width ? value.slice(0, width - 1) : value;
-}
-
-function wrapLabeledLine(label, value, width = 32) {
-    const prefix = `${label} : `;
-    const maxLen = width - prefix.length;
-    if (maxLen <= 0) return [`${prefix}${value}`];
-
-    const words = String(value || "-").split(" ");
-    const lines = [];
-    let currentLine = "";
-    let isFirst = true;
-
-    for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        if (testLine.length <= maxLen) {
-            currentLine = testLine;
-        } else {
-            if (currentLine) {
-                lines.push(isFirst ? `${prefix}${currentLine}` : `${" ".repeat(prefix.length)}${currentLine}`);
-                isFirst = false;
-            }
-            // If single word exceeds maxLen, force-break it
-            if (word.length > maxLen) {
-                let chunk = word;
-                while (chunk.length > 0) {
-                    const part = chunk.slice(0, maxLen);
-                    chunk = chunk.slice(maxLen);
-                    lines.push(isFirst ? `${prefix}${part}` : `${" ".repeat(prefix.length)}${part}`);
-                    isFirst = false;
-                }
-            } else {
-                currentLine = word;
-            }
-        }
-    }
-
-    if (currentLine) {
-        lines.push(isFirst ? `${prefix}${currentLine}` : `${" ".repeat(prefix.length)}${currentLine}`);
-    }
-
-    return lines.length > 0 ? lines : [`${prefix}-`];
-}
-
-function formatDate(value) {
-    if (!value) return "-";
-    return String(value).slice(0, 10).split("-").reverse().join("/");
-}
-
-function escapeHtml(value) {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
 }

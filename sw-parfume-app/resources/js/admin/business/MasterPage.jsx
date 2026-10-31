@@ -2,6 +2,7 @@ import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import React, { useMemo, useState } from "react";
 import { router, usePage } from "@inertiajs/react";
 import {
+    BarcodeField,
     Card,
     CurrencyInput,
     Field,
@@ -79,13 +80,13 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
             return supplierFields.filter((f) => existingFieldNames.has(f.name) || ["tipe_gudang", "id_gudang"].includes(f.name));
         }
 
-        const baseFields = fields.filter((f) => f.name !== "status" && f.name !== "limit_piutang");
+        const baseFields = fields.filter((f) => f.name !== "limit_piutang");
         return baseFields.slice(0, 4);
     }, [fields, resource]);
 
     const columns = useMemo(
         () => [
-            { key: codeByResource[resource], label: "Kode" },
+            { key: codeByResource[resource], label: resource === "botol-kosong" ? "Kode / Barcode" : "Kode" },
             ...tableFields.map((f) => ({
                 key: f.name,
                 label: f.label,
@@ -128,7 +129,6 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
                     return row[f.name] ?? "-";
                 },
             })),
-            { key: "status", label: "Status" },
         ],
         [resource, tableFields],
     );
@@ -154,7 +154,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
 
     const emptyForm = () =>
         Object.fromEntries(
-            fields.map((f) => [f.name, f.name === "status" ? "AKTIF" : ""]),
+            fields.map((f) => [f.name, ""]),
         );
 
     const openCreate = () => {
@@ -167,7 +167,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
         const initialForm = Object.fromEntries(
             fields.map((f) => [
                 f.name,
-                row[f.name] ?? (f.name === "status" ? "AKTIF" : ""),
+                row[f.name] ?? "",
             ]),
         );
 
@@ -193,6 +193,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
 
     const renderForm = (insideModal = false) => (
         <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
+            {isBotolKosong && <BarcodeField code={editing?.kode_botol} />}
             {visibleFields.map((f, index) => (
                 <div
                     key={f.name}
@@ -293,7 +294,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
                     </Modal>
                 )}
 
-                <PageHeader title={title} />
+                <PageHeader title={title} subtitle={isBotolKosong ? "Stok awal dan perubahan stok dicatat melalui Mutasi Stok, lalu menunggu validasi." : undefined} />
 
                 {/* Table Card */}
                 <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium"

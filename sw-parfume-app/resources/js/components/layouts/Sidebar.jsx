@@ -57,7 +57,7 @@ export default function Sidebar() {
                         return item;
                     }
 
-                    return !item.accessKey || userAccess.includes(item.accessKey)
+                    return (!item.accessKey || userAccess.includes(item.accessKey)) && (!item.accessAnyOf || item.accessAnyOf.some((key) => userAccess.includes(key)))
                         ? item
                         : null;
                 }

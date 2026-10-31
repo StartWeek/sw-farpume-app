@@ -16,14 +16,15 @@ use App\Models\Business\Pembelian;
 use App\Models\Business\Penjualan;
 use App\Models\Business\Piutang;
 use App\Models\Business\PiutangSupplier;
-use App\Models\Business\Sales;
 use App\Models\Business\SaldoBarang;
+use App\Models\Business\Sales;
 use App\Models\Business\StokGudang;
 use App\Models\Business\Supplier;
-use App\Models\Business\TokoClosing;
 use App\Models\Business\SystemDate;
-use App\Models\Business\TransaksiBotolKosong;
+use App\Models\Business\TokoClosing;
+use App\Models\Business\TransactionValidation;
 use App\Models\Business\TransaksiBarangBibit;
+use App\Models\Business\TransaksiBotolKosong;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -256,7 +257,7 @@ class BusinessService
             (int) $payload['id_barang'],
             $qtyMl * $multiplier,
             [
-                'sumber_transaksi' => 'ADJUSTMENT',
+                'sumber_transaksi' => $payload['sumber_transaksi'] ?? 'ADJUSTMENT',
                 'no_transaksi' => $payload['no_transaksi'] ?? 'MANUAL',
                 'keterangan' => $payload['keterangan'] ?? 'Input manual inventory',
                 'created_by' => $payload['created_by'] ?? auth()->user()?->name,
@@ -397,20 +398,7 @@ class BusinessService
             ->with('botol')
             ->findOrFail($item['item_id'] ?? $item['id_barang'] ?? null);
 
-        // Botol varian: prioritaskan id_botol dari user (pilih varian botol saat pembelian),
-        // fallback ke botol yang terikat di master barang.
-        $botolVarian = null;
-        if ($unit === 'BOTOL') {
-            $idBotol = $item['id_botol'] ?? null;
-            if ($idBotol) {
-                $botolVarian = Botol::query()->find($idBotol);
-            }
-            if (! $botolVarian && ! $barang->botol) {
-                throw ValidationException::withMessages([
-                    'items' => "Botol stok untuk {$barang->nama_barang} belum dipilih.",
-                ]);
-            }
-        }
+        $botolVarian = $unit === 'BOTOL' ? $this->liquidBottle($item, $barang) : null;
         $varianMl = $botolVarian
             ? (float) $botolVarian->varian_ml
             : (float) ($barang->botol->varian_ml ?? 0);
@@ -485,9 +473,12 @@ class BusinessService
             ];
         }
 
-        $this->ensureUnit($unit, ['ML', 'LITER'], 'cairan');
-        $barang = BarangBibit::query()->findOrFail($item['item_id'] ?? $item['id_barang'] ?? null);
-        $qtyMl = $this->convertToMl($qtyInput, $unit);
+        $this->ensureUnit($unit, ['ML', 'LITER', 'BOTOL'], 'cairan');
+        $barang = BarangBibit::query()->with('botol')->findOrFail($item['item_id'] ?? $item['id_barang'] ?? null);
+        $botolVarian = $unit === 'BOTOL' ? $this->liquidBottle($item, $barang) : null;
+        $qtyMl = $botolVarian
+            ? $qtyInput * (float) $botolVarian->varian_ml
+            : $this->convertToMl($qtyInput, $unit);
         $salesPrice = (float) $barang->harga_jual_grosir_per_ml;
         $defaultPrice = $salesType === 'RETAIL' || $salesPrice <= 0
             ? (float) $barang->harga_jual_retail_per_ml
@@ -502,6 +493,7 @@ class BusinessService
             'item_id' => $barang->id,
             'nama_item' => $barang->nama_barang,
             'id_barang' => $barang->id,
+            'id_botol' => $botolVarian?->id,
             'qty_input' => $qtyInput,
             'satuan_input' => $unit,
             'qty_ml' => $qtyMl,
@@ -515,6 +507,21 @@ class BusinessService
             'laba_kotor' => $jualAfterDiscount - $modal,
             'discount' => $discount,
         ];
+    }
+
+    private function liquidBottle(array $item, BarangBibit $barang): Botol
+    {
+        $bottle = ! empty($item['id_botol'])
+            ? Botol::query()->find($item['id_botol'])
+            : $barang->botol;
+
+        if (! $bottle || (float) $bottle->varian_ml <= 0) {
+            throw ValidationException::withMessages([
+                'items' => "Pilih varian botol dengan kapasitas yang valid untuk {$barang->nama_barang}.",
+            ]);
+        }
+
+        return $bottle;
     }
 
     private function applyStockMovement(int $gudangId, array $detail, int $direction, string $number, string $source, array $payload): void
@@ -616,23 +623,6 @@ class BusinessService
         }
     }
 
-    private function paymentAmounts(string $method, float $total, float $paidInput): array
-    {
-        $paid = match ($method) {
-            'TEMPO' => 0.0,
-            'DP' => min($total, max(0, $paidInput)),
-            default => $total,
-        };
-        $remaining = max(0, $total - $paid);
-
-        return [
-            'paid' => $paid,
-            'remaining' => $remaining,
-            'stored_method' => $method === 'DP' ? 'TEMPO' : $method,
-            'status' => $remaining <= 0 ? 'LUNAS' : ($paid > 0 ? 'SEBAGIAN' : 'BELUM_LUNAS'),
-        ];
-    }
-
     private function recordCash(string $date, string $number, string $direction, string $source, ?string $party, float $amount, ?string $note, ?string $user): KasMutasi
     {
         $lastSaldo = (float) (KasMutasi::query()->latest('id')->value('saldo_akhir') ?? 0);
@@ -670,6 +660,41 @@ class BusinessService
         );
     }
 
+    public function previewTransaction(array $payload, bool $purchase): array
+    {
+        if (in_array($payload['metode_pembayaran'], ['TEMPO', 'DP'], true) && empty($payload['jatuh_tempo'])) {
+            throw ValidationException::withMessages(['jatuh_tempo' => 'Jatuh tempo wajib untuk pembayaran tempo atau DP.']);
+        }
+        $items = [];
+        foreach ($payload['items'] as $index => $item) {
+            $detail = $purchase ? $this->purchaseDetail($item) : $this->salesDetail($item, $this->normalizeSalesType($payload['tipe_penjualan'] ?? 'RETAIL'));
+            $payload['items'][$index] = [...$item, 'item_id' => $detail['item_id'], 'harga' => $detail['harga']];
+            if (isset($detail['id_botol'])) {
+                $payload['items'][$index]['id_botol'] = $detail['id_botol'];
+            }
+            $master = $detail['tipe_item'] === 'BOTOL'
+                ? BotolKosong::query()->findOrFail($detail['item_id'])
+                : BarangBibit::query()->findOrFail($detail['item_id']);
+            $items[] = [
+                'code' => $detail['tipe_item'] === 'BOTOL' ? $master->kode_botol : $master->kode_barang,
+                'name' => $detail['nama_item'], 'qty' => $detail['qty_input'], 'unit' => $detail['satuan_input'],
+                'price' => $detail['harga'], 'subtotal' => $detail[$purchase ? 'subtotal' : 'subtotal_jual'],
+                'price_unit' => $detail['satuan_input'] === 'DUS' ? 'DUS' : $detail['satuan_dasar'],
+                'base_qty' => $detail['konversi_qty_dasar'], 'base_unit' => $detail['satuan_dasar'],
+                'item_id' => $detail['item_id'], 'variant_id' => $detail['id_botol'] ?? null,
+            ];
+        }
+        $amount = max(0, array_sum(array_column($items, 'subtotal')) - (float) ($payload['discount'] ?? 0));
+        $payment = TransactionPayment::resolve($payload, $amount);
+        $signature = hash('sha256', json_encode([
+            $amount,
+            ...($payment['details'] !== null ? [$payment] : []),
+            array_map(fn (array $item) => array_intersect_key($item, array_flip(['qty', 'unit', 'price', 'subtotal', 'base_qty', 'base_unit', 'item_id', 'variant_id'])), $items),
+        ], JSON_THROW_ON_ERROR));
+
+        return ['payload' => $payload, 'snapshot' => ['items' => $items, 'amount' => $amount, 'payment_details' => $payment['details'], 'posting_signature' => $signature]];
+    }
+
     public function createPembelian(array $payload): Pembelian
     {
         if (in_array($payload['metode_pembayaran'], ['TEMPO', 'DP'], true) && empty($payload['jatuh_tempo'])) {
@@ -692,7 +717,7 @@ class BusinessService
 
             $headerDiscount = (float) ($payload['discount'] ?? 0);
             $totalAfterDiscount = max(0, $total - $headerDiscount);
-            $payment = $this->paymentAmounts($payload['metode_pembayaran'], $totalAfterDiscount, (float) ($payload['jumlah_bayar'] ?? 0));
+            $payment = TransactionPayment::resolve($payload, $totalAfterDiscount);
             $number = $this->nextCode(Pembelian::class, 'no_pembelian', 'PBL');
             $pembelian = Pembelian::query()->create([
                 'no_pembelian' => $number,
@@ -705,6 +730,7 @@ class BusinessService
                 'jumlah_bayar' => $payment['paid'],
                 'discount' => $headerDiscount,
                 'metode_pembayaran' => $payment['stored_method'],
+                ...($payment['details'] !== null ? ['payment_details' => $payment['details']] : []),
                 'status_pembayaran' => $payment['status'],
                 'jatuh_tempo' => $payload['jatuh_tempo'] ?? null,
                 'keterangan' => $payload['keterangan'] ?? null,
@@ -769,7 +795,7 @@ class BusinessService
 
             $headerDiscount = (float) ($payload['discount'] ?? 0);
             $totalAfterDiscount = max(0, $totalJual - $headerDiscount);
-            $payment = $this->paymentAmounts($payload['metode_pembayaran'], $totalAfterDiscount, (float) ($payload['jumlah_bayar'] ?? 0));
+            $payment = TransactionPayment::resolve($payload, $totalAfterDiscount);
             $number = $this->nextCode(Penjualan::class, 'no_penjualan', 'PJL');
             $penjualan = Penjualan::query()->create([
                 'no_penjualan' => $number,
@@ -787,6 +813,7 @@ class BusinessService
                 'total_modal' => $totalModal,
                 'laba_kotor' => $totalAfterDiscount - $totalModal,
                 'metode_pembayaran' => $payment['stored_method'],
+                ...($payment['details'] !== null ? ['payment_details' => $payment['details']] : []),
                 'status_pembayaran' => $payment['status'],
                 'jatuh_tempo' => $payload['jatuh_tempo'] ?? null,
                 'keterangan' => $payload['keterangan'] ?? null,
@@ -820,7 +847,7 @@ class BusinessService
         });
     }
 
-    public function payHutang(Hutang $hutang, float $amount): Hutang
+    public function payHutang(Hutang $hutang, float $amount, ?string $createdBy = null): Hutang
     {
         $paid = (float) $hutang->total_bayar + $amount;
         $remaining = max(0, (float) $hutang->total_hutang - $paid);
@@ -833,7 +860,7 @@ class BusinessService
             ]);
         }
 
-        $this->recordCash($this->operationalDate()->toDateString(), $hutang->no_hutang, 'KELUAR', 'Pelunasan hutang supplier', $hutang->supplier?->nama_supplier, $amount, $hutang->keterangan, auth()->user()?->name);
+        $this->recordCash($this->operationalDate()->toDateString(), $hutang->no_hutang, 'KELUAR', 'Pelunasan hutang supplier', $hutang->supplier?->nama_supplier, $amount, $hutang->keterangan, $createdBy ?? auth()->user()?->name);
 
         return $hutang->refresh();
     }
@@ -855,7 +882,7 @@ class BusinessService
         ])->load('supplier');
     }
 
-    public function payPiutang(Piutang $piutang, float $amount): Piutang
+    public function payPiutang(Piutang $piutang, float $amount, ?string $createdBy = null): Piutang
     {
         $paid = (float) $piutang->total_bayar + $amount;
         $remaining = max(0, (float) $piutang->total_piutang - $paid);
@@ -868,7 +895,7 @@ class BusinessService
             ]);
         }
 
-        $this->recordCash($this->operationalDate()->toDateString(), $piutang->no_piutang, 'MASUK', 'Pelunasan piutang customer/sales', $piutang->customer?->nama_customer, $amount, null, auth()->user()?->name);
+        $this->recordCash($this->operationalDate()->toDateString(), $piutang->no_piutang, 'MASUK', 'Pelunasan piutang customer/sales', $piutang->customer?->nama_customer, $amount, null, $createdBy ?? auth()->user()?->name);
 
         return $piutang->refresh();
     }
@@ -938,6 +965,9 @@ class BusinessService
                 ['tanggal_system' => Carbon::today()->toDateString()]
             );
             $businessDate = Carbon::parse($system->tanggal_system);
+            if (TransactionValidation::query()->where('status', 'PENDING')->exists()) {
+                throw ValidationException::withMessages(['tanggal_tutup' => 'Masih ada transaksi menunggu validasi. Setujui atau tolak seluruh pengajuan sebelum tutup toko.']);
+            }
             $today = Carbon::today();
 
             if (! $date) {

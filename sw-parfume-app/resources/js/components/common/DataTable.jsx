@@ -615,7 +615,7 @@ const DataTable = ({
                                                                     variant={
                                                                         variant
                                                                     }
-                                                                    size="md"
+                                                                    size="sm"
                                                                     iconOnly
                                                                     disabled={
                                                                         isDisabled
@@ -730,7 +730,7 @@ const DataTable = ({
                             <div className="flex items-center justify-center gap-1.5 sm:hidden">
                                 <Button
                                     variant="default"
-                                    size="lg"
+                                    size="sm"
                                     iconOnly
                                     disabled={
                                         isServerPagination
@@ -807,7 +807,7 @@ const DataTable = ({
 
                                 <Button
                                     variant="default"
-                                    size="lg"
+                                    size="sm"
                                     iconOnly
                                     disabled={
                                         isServerPagination
@@ -832,7 +832,7 @@ const DataTable = ({
                             <div className="hidden items-center gap-1.5 sm:flex">
                                 <Button
                                     variant="default"
-                                    size="lg"
+                                    size="sm"
                                     iconOnly
                                     disabled={
                                         isServerPagination
@@ -851,7 +851,7 @@ const DataTable = ({
                                 </Button>
                                 <Button
                                     variant="default"
-                                    size="lg"
+                                    size="sm"
                                     iconOnly
                                     disabled={
                                         isServerPagination
@@ -928,7 +928,7 @@ const DataTable = ({
 
                                 <Button
                                     variant="default"
-                                    size="lg"
+                                    size="sm"
                                     iconOnly
                                     disabled={
                                         isServerPagination
@@ -950,7 +950,7 @@ const DataTable = ({
                                 </Button>
                                 <Button
                                     variant="default"
-                                    size="lg"
+                                    size="sm"
                                     iconOnly
                                     disabled={
                                         isServerPagination

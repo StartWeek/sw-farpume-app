@@ -64,14 +64,14 @@ export default function ConfirmDialog({
                     <button
                         type="button"
                         onClick={onCancel}
-                        className="flex-1 px-4 py-3 text-sm font-bold text-muted transition hover:bg-page hover:text-main"
+                        className="min-h-10 flex-1 px-4 py-2 text-sm font-bold text-muted transition-colors hover:bg-page hover:text-main"
                     >
                         {cancelLabel}
                     </button>
                     <button
                         type="button"
                         onClick={onConfirm}
-                        className={`flex-1 px-4 py-3 text-sm font-bold text-white transition focus:outline-none focus:ring-2 ${confirmClass}`}
+                        className={`min-h-10 flex-1 px-4 py-2 text-sm font-bold text-white transition-colors focus:outline-none focus:ring-2 ${confirmClass}`}
                     >
                         {confirmLabel}
                     </button>

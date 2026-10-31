@@ -120,8 +120,7 @@ export default function Login() {
                                         fullWidth
                                         icon={IconArrowRight}
                                         iconPosition="right"
-                                        size="md"
-                                        className="rounded-lg bg-[#102d2b] py-3.5 text-[15px] font-bold shadow-[0_18px_36px_-22px_rgba(16,45,43,0.95)] hover:bg-[#17413e]"
+                                        className="rounded-lg bg-[#102d2b] shadow-[0_18px_36px_-22px_rgba(16,45,43,0.95)] hover:bg-[#17413e]"
                                     >
                                         Masuk
                                     </Button>

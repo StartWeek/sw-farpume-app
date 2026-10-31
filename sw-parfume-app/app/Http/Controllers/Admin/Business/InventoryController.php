@@ -10,6 +10,7 @@ use App\Models\Business\Gudang;
 use App\Models\Business\MutasiStok;
 use App\Models\Business\StokGudang;
 use App\Services\Business\BusinessService;
+use App\Services\Business\TransactionValidationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -17,7 +18,7 @@ use Inertia\Response;
 
 class InventoryController extends Controller
 {
-    public function __construct(private readonly BusinessService $business) {}
+    public function __construct(private readonly BusinessService $business, private readonly TransactionValidationService $validations) {}
 
     public function stock(): Response
     {
@@ -32,7 +33,7 @@ class InventoryController extends Controller
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
             'botolKosong' => BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
-            'stokGudangList' => StokGudang::query()->where('stok_ml', '>', 0)->get(['id_gudang', 'id_barang', 'stok_ml']),
+            'stokGudangList' => StokGudang::query()->where('stok_ml', '>', 0)->get(['id_gudang', 'id_barang', 'id_botol', 'stok_ml']),
             // Untuk filter barang berdasarkan gudang saat tambah stok (BIBIT only)
             'stokGudangMap' => StokGudang::query()
                 ->where('stok_ml', '>', 0)
@@ -63,6 +64,7 @@ class InventoryController extends Controller
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
+            'stokGudangList' => StokGudang::query()->where('stok_ml', '>', 0)->get(['id_gudang', 'id_barang', 'id_botol', 'stok_ml']),
             'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
@@ -99,13 +101,13 @@ class InventoryController extends Controller
                 'jumlah_botol.min' => 'Jumlah botol minimal 1.',
             ]));
 
-            $this->business->adjustBotolKosongStock($validated);
+            $validation = $this->validations->submit('mutasi-botol', $validated, $request->user());
 
-            return back()->with('success', 'Stok botol kosong berhasil disimpan.');
+            return back()->with('success', TransactionValidationService::SUBMITTED_MESSAGE)->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
         }
 
         // Default: mutasi stok barang bibit
-        $this->business->createStockMutation($this->uppercase($request->validate([
+        $validated = $this->uppercase($request->validate([
             'id_gudang' => ['required', 'exists:tm_gudang,id'],
             'id_barang' => ['required', 'exists:tm_barang_bibit,id'],
             'id_botol' => ['nullable', 'exists:tm_botol,id'],
@@ -128,9 +130,11 @@ class InventoryController extends Controller
             'integer' => 'Harus berupa angka bulat.',
             'numeric' => 'Harus berupa angka.',
             'min' => 'Nilai minimal :min.',
-        ])));
+        ]));
 
-        return back()->with('success', 'Mutasi stok berhasil disimpan.');
+        $validation = $this->validations->submit('mutasi-stok', $validated, $request->user());
+
+        return back()->with('success', TransactionValidationService::SUBMITTED_MESSAGE)->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
     }
 
     public function destroyStock(Request $request): Response
@@ -174,13 +178,13 @@ class InventoryController extends Controller
                 'jumlah_botol.min' => 'Jumlah botol minimal :min.',
             ]));
 
-            $this->business->adjustBotolKosongStock([
+            $validation = $this->validations->submit('hancur-botol', [
                 ...$validated,
                 'tipe_mutasi' => 'KELUAR',
                 'keterangan' => $validated['keterangan'] ?? 'Hancur stock botol kosong',
-            ]);
+            ], $request->user());
 
-            return back()->with('success', 'Stok botol kosong berhasil dihancurkan.');
+            return back()->with('success', TransactionValidationService::SUBMITTED_MESSAGE)->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
         }
 
         $validated = $this->uppercase($request->validate([
@@ -197,15 +201,15 @@ class InventoryController extends Controller
             'qty_ml.min' => 'Jumlah stock minimal :min.',
         ]));
 
-        $this->business->createStockMutation([
+        $validation = $this->validations->submit('hancur-stock', [
             ...$validated,
             'tipe_mutasi' => 'KELUAR',
             'sumber_transaksi' => 'DESTROY',
             'no_transaksi' => $validated['no_transaksi'] ?? 'HANCUR-STOCK',
             'keterangan' => $validated['keterangan'] ?? 'Hancur stock',
-        ]);
+        ], $request->user());
 
-        return back()->with('success', 'Stock berhasil dihancurkan.');
+        return back()->with('success', TransactionValidationService::SUBMITTED_MESSAGE)->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
     }
 
     private function perPage(): int

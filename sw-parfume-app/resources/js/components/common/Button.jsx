@@ -5,7 +5,7 @@ import React from "react";
  * @param {React.ReactNode} props.children
  * @param {'button' | 'submit' | 'reset'} [props.type='button']
  * @param {'default' | 'primary' | 'secondary' | 'danger' | 'success' | 'outline' | 'ghost'} [props.variant='primary']
- * @param {'xs' | 'sm' | 'md' | 'lg' | 'xl'} [props.size='md']
+ * @param {'xs' | 'sm' | 'md' | 'lg' | 'xl'} [props.size='sm']
  * @param {boolean} [props.disabled=false]
  * @param {boolean} [props.loading=false]
  * @param {Function} [props.onClick]
@@ -19,7 +19,7 @@ const Button = ({
     children,
     type = "button",
     variant = "primary",
-    size = "md",
+    size = "sm",
     disabled = false,
     loading = false,
     onClick,
@@ -31,7 +31,7 @@ const Button = ({
     ...rest
 }) => {
     const baseStyles =
-        "inline-flex items-center justify-center font-black rounded-2xl transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed";
+        "inline-flex shrink-0 items-center justify-center font-bold rounded-xl transition-[background-color,border-color,color,opacity,box-shadow,transform] duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed";
 
     const variants = {
         default:
@@ -49,11 +49,11 @@ const Button = ({
     };
 
     const sizes = {
-        xs: iconOnly ? "size-7" : "px-3 py-1.5 text-xs gap-1",
-        sm: iconOnly ? "size-8" : "px-4 py-2 text-sm gap-2",
-        md: iconOnly ? "size-9" : "px-5 py-3 text-base gap-2",
-        lg: iconOnly ? "size-10" : "px-6 py-4 text-lg gap-3",
-        xl: iconOnly ? "size-12" : "px-8 py-5 text-xl gap-3",
+        xs: iconOnly ? "size-10" : "min-h-10 px-3 py-1.5 text-xs gap-1.5",
+        sm: iconOnly ? "size-10" : "min-h-10 px-4 py-2 text-sm gap-2",
+        md: iconOnly ? "size-11" : "min-h-11 px-4 py-2.5 text-sm gap-2",
+        lg: iconOnly ? "size-12" : "min-h-12 px-5 py-3 text-base gap-2",
+        xl: iconOnly ? "size-14" : "min-h-14 px-6 py-3.5 text-lg gap-3",
     };
 
     const widthClass = fullWidth ? "w-full" : "";

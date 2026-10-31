@@ -18,9 +18,11 @@ import {
     useFlashMessages,
 } from "./_components";
 import { IconPlus } from "@tabler/icons-react";
+import useTransactionSubmissionOptions from "./useTransactionSubmissionOptions";
 
 export default function KasPage({ rows, operationalDate = todayDate() }) {
     useFlashMessages();
+    const submissionOptions = useTransactionSubmissionOptions();
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     const { data, setData, post, processing, errors, reset, clearErrors } = useForm({
@@ -41,9 +43,9 @@ export default function KasPage({ rows, operationalDate = todayDate() }) {
 
     const submit = (e) => {
         e.preventDefault();
-        post('/admin/kas', {
+        post('/admin/kas', submissionOptions('/admin/kas', {
             onSuccess: () => closeModal(),
-        });
+        }));
     };
 
     const columns = [
@@ -141,7 +143,7 @@ export default function KasPage({ rows, operationalDate = todayDate() }) {
                                     Batal
                                 </Button>
                                 <Button type="submit" disabled={processing}>
-                                    Simpan Transaksi
+                                    Ajukan Validasi
                                 </Button>
                             </div>
                         </form>

@@ -55,12 +55,14 @@ class EnsureUserHasMenuAccess
             'business.mutation.index', 'business.mutation.store' => 'mutasi-stok',
             'business.destroy-stock.index', 'business.destroy-stock.store' => 'hancur-stock',
             'business.pembelian.index', 'business.pembelian.store' => 'pembelian',
+            'business.penjualan-botol-kosong.index', 'business.penjualan-botol-kosong.store' => 'penjualan-retail',
             'business.penjualan.store' => in_array($request->input('tipe_penjualan'), ['GROSIR', 'SALES'], true) ? 'penjualan-grosir' : 'penjualan-retail',
             'business.riwayat.pembelian' => 'riwayat-pembelian',
             'business.riwayat.penjualan' => 'riwayat-penjualan',
-            'business.hutang.index', 'business.hutang.pay' => 'hutang',
+            'business.hutang.index', 'business.hutang.store', 'business.hutang.pay' => 'hutang',
             'business.piutang.index', 'business.piutang.pay' => 'piutang',
             'business.piutang-supplier.index', 'business.piutang-supplier.store', 'business.piutang-supplier.pay' => 'piutang-supplier',
+            'business.kas.index', 'business.kas.store' => 'kas',
             'business.utility.index', 'business.utility.close' => 'utility',
             'admin.setting-system', 'admin.setting-system.update' => 'setting-system',
             'admin.setting-nota', 'admin.setting-nota.update' => 'setting-nota',
@@ -109,6 +111,7 @@ class EnsureUserHasMenuAccess
                 'piutang-supplier' => 'laporan-piutang-supplier',
                 'laba-kotor' => 'laporan-laba-kotor',
                 'kas' => 'laporan-kas',
+                'validasi-transaksi' => 'laporan-validasi-transaksi',
                 default => null,
             };
         }

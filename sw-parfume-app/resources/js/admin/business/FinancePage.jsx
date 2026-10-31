@@ -1,16 +1,21 @@
 import ProtectedLayout from "@/components/layouts/ProtectedLayout";
-import React, { useEffect, useState } from "react";
-import { router, usePage } from "@inertiajs/react";
+import React, { useState } from "react";
+import { router } from "@inertiajs/react";
 import Button from "@/components/common/Button";
-import { IconPrinter, IconX } from "@tabler/icons-react";
-import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, Textarea, money, number, todayDate, useFlashMessages } from "./_components";
-import { renderReceiptTemplate, withReceiptSettings } from "./receiptSettings";
+import { IconFileTypePdf } from "@tabler/icons-react";
+import { CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, Textarea, money, todayDate, useFlashMessages } from "./_components";
+import { TransactionDialog } from "./TransactionDialogs";
+import useTransactionSubmissionOptions from "./useTransactionSubmissionOptions";
+import { PaymentAmountEntry, PaymentHistory, PaymentSummary } from "./PaymentDetails";
 
 export default function FinancePage({ type, rows = [], refs = {} }) {
     useFlashMessages();
-    const { flash = {}, appSettings = {} } = usePage().props;
+    const [errors, setErrors] = useState({});
+    const submissionOptions = useTransactionSubmissionOptions();
     const isDebt = type === "hutang";
     const isSupplierReceivable = type === "piutang-supplier";
+    const [busy, setBusy] = useState(false);
+    const [financeOpen, setFinanceOpen] = useState(false);
     const [active, setActive] = useState(null);
     const [amount, setAmount] = useState("");
     const [form, setForm] = useState({
@@ -21,43 +26,43 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
         jatuh_tempo: todayDate(),
         keterangan: "",
     });
-    const [receipt, setReceipt] = useState(flash.receipt || null);
-    const printableReceipt = receipt
-        ? withReceiptSettings(receipt, appSettings)
-        : null;
-    const [bluetoothLoading, setBluetoothLoading] = useState(false);
     const title = isDebt ? "Hutang Supplier" : isSupplierReceivable ? "Piutang Supplier" : "Piutang Customer";
+    const activeRemaining = Number(active ? isDebt ? active.sisa_hutang : active.sisa_piutang : 0);
     const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
-
-    useEffect(() => {
-        if (flash.receipt) {
-            setReceipt(flash.receipt);
-        }
-    }, [flash.receipt]);
 
     const pay = (event) => {
         event.preventDefault();
-        router.post(`/admin/${type}/${active.id}/bayar`, { jumlah_bayar: amount }, { preserveScroll: true, onSuccess: () => { setActive(null); setAmount(""); } });
+        if (busy) return;
+        if (Number(amount) <= 0 || !Number.isFinite(Number(amount))) { setErrors({ jumlah_bayar: "Jumlah pembayaran harus lebih dari nol." }); return; }
+        if (Number(amount) > activeRemaining) { setErrors({ jumlah_bayar: "Pembayaran melebihi sisa tagihan." }); return; }
+        const url = `/admin/${type}/${active.id}/bayar`;
+        router.post(url, { jumlah_bayar: amount }, submissionOptions(url, { preserveScroll: true, onError: setErrors, onStart: () => setBusy(true), onFinish: () => setBusy(false), onSuccess: () => { setActive(null); setAmount(""); } }));
     };
 
     const resetForm = () => setForm({ tanggal: todayDate(), id_supplier: "", total_hutang: "", total_piutang: "", jatuh_tempo: todayDate(), keterangan: "" });
 
     const storeSupplierFinance = (event) => {
         event.preventDefault();
-        router.post(isDebt ? "/admin/hutang" : "/admin/piutang-supplier", form, {
+        if (busy) return;
+        const url = isDebt ? "/admin/hutang" : "/admin/piutang-supplier";
+        router.post(url, form, submissionOptions(url, {
             preserveScroll: true,
-            onSuccess: resetForm,
-        });
+            onError: setErrors,
+            onStart: () => setBusy(true),
+            onFinish: () => setBusy(false),
+            onSuccess: () => { resetForm(); setFinanceOpen(false); },
+        }));
     };
 
     return (
         <ProtectedLayout title={title}>
             <div className="space-y-5">
                 <PageHeader title={title} subtitle="Catat pembayaran dan pantau sisa tagihan tempo." />
-                {isSupplierReceivable ? (
-                    <Card>
+                {isSupplierReceivable && <div className="flex justify-end"><Button onClick={() => { setErrors({}); setFinanceOpen(true); }}>Tambah Piutang Supplier</Button></div>}
+                {isSupplierReceivable && financeOpen ? (
+                    <TransactionDialog title="Piutang Supplier Baru" description="Ajukan piutang supplier untuk diperiksa sebelum masuk laporan." onClose={() => { if (!busy) setFinanceOpen(false); }}>
                         <form onSubmit={storeSupplierFinance} className="space-y-4">
-                            <div className="grid gap-4 md:grid-cols-4">
+                            <div className="grid gap-4 sm:grid-cols-2">
                                 <Field label="Tanggal">
                                     <Input type="date" value={form.tanggal} onChange={(event) => set("tanggal", event.target.value)} />
                                 </Field>
@@ -80,26 +85,30 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
                             <Field label="Keterangan">
                                 <Textarea value={form.keterangan} onChange={(event) => set("keterangan", event.target.value)} />
                             </Field>
+                            {Object.entries(errors).filter(([key]) => ["tanggal", "id_supplier", "total_hutang", "total_piutang", "jatuh_tempo", "keterangan", "submission_key"].includes(key)).map(([key, error]) => <p key={key} role="alert" className="text-xs text-red-600">{error}</p>)}
                             <div className="flex justify-end">
-                                <Button type="submit">{isDebt ? "Simpan Hutang Supplier" : "Simpan Piutang Supplier"}</Button>
+                                <Button type="submit" loading={busy}>Ajukan Validasi</Button>
                             </div>
                         </form>
-                    </Card>
+                    </TransactionDialog>
                 ) : null}
                 {active ? (
-                    <Card>
-                        <form onSubmit={pay} className="grid gap-4 md:grid-cols-[1fr_220px_auto] md:items-end">
+                    <TransactionDialog title="Pembayaran Tagihan" onClose={() => { if (!busy) setActive(null); }} width="max-w-lg">
+                        <form onSubmit={pay} className="space-y-5">
                             <div className="text-[13px] font-medium text-muted">
                                 Pembayaran untuk <b className="font-bold text-main">{isDebt || isSupplierReceivable ? active.supplier?.nama_supplier : active.customer?.nama_customer}</b>
-                                <div className="mt-0.5">Sisa: <b className="font-bold text-main">{money(isDebt ? active.sisa_hutang : active.sisa_piutang)}</b></div>
+                                <div className="mt-0.5">{active.no_hutang || active.no_piutang_supplier || active.no_piutang}</div>
                             </div>
-                            <Field label="Jumlah Bayar"><CurrencyInput value={amount} onChange={(event) => setAmount(event.target.value)} /></Field>
+                            <PaymentAmountEntry key={active.id} amount={amount} onChange={setAmount} remaining={activeRemaining} error={errors.jumlah_bayar} disabled={busy} />
+                            <PaymentSummary total={isDebt ? active.total_hutang : active.total_piutang} paid={active.total_bayar} remaining={activeRemaining} amount={amount} />
+                            <PaymentHistory history={active.payment_history} />
+                            {Object.entries(errors).filter(([key]) => key !== "jumlah_bayar").map(([key, error]) => <p key={key} role="alert" className="text-xs text-red-600">{error}</p>)}
                             <div className="flex gap-2">
-                                <Button variant="outline" onClick={() => setActive(null)}>Batal</Button>
-                                <Button type="submit">Bayar</Button>
+                                <Button variant="outline" disabled={busy} onClick={() => setActive(null)}>Batal</Button>
+                                <Button type="submit" loading={busy} disabled={Number(amount || 0) <= 0 || Number(amount) > activeRemaining}>Ajukan Pembayaran</Button>
                             </div>
                         </form>
-                    </Card>
+                    </TransactionDialog>
                 ) : null}
                 <SimpleTable
                     rows={rows}
@@ -127,301 +136,12 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
                     ]}
                     renderActions={(row) => (
                         <>
-                            <Button size="sm" variant="outline" onClick={() => setActive(row)}>Bayar</Button>
-                            <Button icon={IconPrinter} size="sm" variant="outline" onClick={() => setReceipt(buildPaymentReceiptFromRow(row, isDebt, isSupplierReceivable))}>Nota</Button>
+                            <Button size="sm" variant="outline" disabled={Number(isDebt ? row.sisa_hutang : row.sisa_piutang) <= 0} onClick={() => { setErrors({}); setAmount(""); setActive(row); }}>Bayar</Button>
+                            <a href={`/admin/keuangan-nota/${type}/${row.id}/${!isDebt && !isSupplierReceivable ? "slip" : "pdf"}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 text-sm font-bold text-main"><IconFileTypePdf size={16} />{!isDebt && !isSupplierReceivable ? "Cetak Slip" : "Bukti PDF"}</a>
                         </>
                     )}
                 />
-
-                {printableReceipt ? (
-                    <ReceiptModal
-                        receipt={printableReceipt}
-                        bluetoothLoading={bluetoothLoading}
-                        onClose={() => setReceipt(null)}
-                        onBluetooth={async () => {
-                            setBluetoothLoading(true);
-                            try {
-                                await printBluetoothReceipt(printableReceipt);
-                            } finally {
-                                setBluetoothLoading(false);
-                            }
-                        }}
-                    />
-                ) : null}
             </div>
         </ProtectedLayout>
     );
-}
-
-function buildPaymentReceiptFromRow(row, isDebt, isSupplierReceivable = false) {
-    return {
-        type: isDebt ? "hutang" : isSupplierReceivable ? "piutang-supplier" : "piutang",
-        title: isDebt ? "NOTA BAYAR HUTANG" : isSupplierReceivable ? "NOTA PIUTANG SUPPLIER" : "NOTA BAYAR PIUTANG",
-        number: isDebt ? row.no_hutang : isSupplierReceivable ? row.no_piutang_supplier : row.no_piutang,
-        source_number: isDebt ? row.pembelian?.no_pembelian : isSupplierReceivable ? "-" : row.penjualan?.no_penjualan,
-        date: formatDate(row.updated_at || row.tanggal),
-        party_label: isDebt || isSupplierReceivable ? "Supplier" : "Customer",
-        party_name: isDebt || isSupplierReceivable ? row.supplier?.nama_supplier || "-" : row.customer?.nama_customer || "-",
-        items: receiptItemsFromSource(row, isDebt, isSupplierReceivable),
-        amount: Number(row.total_bayar || 0),
-        total: Number(isDebt ? row.total_hutang || 0 : row.total_piutang || 0),
-        paid: Number(row.total_bayar || 0),
-        remaining: Number(isDebt ? row.sisa_hutang || 0 : row.sisa_piutang || 0),
-        status: isDebt ? row.status_hutang : row.status_piutang,
-    };
-}
-
-function receiptItemsFromSource(row, isDebt, isSupplierReceivable) {
-    if (isSupplierReceivable) return row.items || [];
-
-    const source = isDebt ? row.pembelian : row.penjualan;
-    return (source?.details || row.items || []).map((detail) => ({
-        name: detail.nama_item || detail.barang?.nama_barang || detail.botol?.nama_botol || "-",
-        qty: Number(detail.qty_input || detail.konversi_qty_dasar || detail.qty_ml || 0),
-        unit: detail.satuan_input || detail.satuan_dasar || "ML",
-    }));
-}
-
-function ReceiptModal({ receipt, onClose, onBluetooth, bluetoothLoading }) {
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg bg-card shadow-premium">
-                <div className="flex items-center justify-between border-b border-stroke px-5 py-4">
-                    <div>
-                        <div className="text-lg font-extrabold tracking-tight text-main">{receipt.title}</div>
-                        <div className="mt-0.5 text-xs font-medium text-muted">{receipt.number}</div>
-                    </div>
-                    <Button icon={IconX} iconOnly variant="ghost" onClick={onClose} />
-                </div>
-
-                <div className="grid gap-4 p-5 lg:grid-cols-[280px_1fr]">
-                    <pre className="max-h-[65vh] overflow-auto rounded-lg border border-stroke bg-page p-4 font-mono text-xs leading-relaxed text-main">
-                        {receiptText(receipt)}
-                    </pre>
-                    <div className="space-y-4">
-                        <div className="rounded-lg border border-stroke bg-page p-4 text-sm text-muted">
-                            <div className="font-bold text-main">{receipt.party_label}: {receipt.party_name}</div>
-                            <div className="mt-0.5 font-medium">Referensi: {receipt.source_number || "-"}</div>
-                            <div className="mt-0.5 font-medium">Status: {receipt.status || "-"}</div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                            <Button icon={IconPrinter} loading={bluetoothLoading} onClick={onBluetooth}>Print</Button>
-                            <Button variant="ghost" onClick={onClose}>Tutup</Button>
-                        </div>
-
-                        <div className="text-xs leading-5 text-muted">
-                            Print memakai koneksi Bluetooth ke printer BLE.
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function receiptText(receipt) {
-    const line = "-".repeat(32);
-    const itemLines = receiptItemLines(receipt.items);
-    const templateValues = {
-        store_name: receipt.store_name || "PARIS PARFUM",
-        store_name_center: center(receipt.store_name || "PARIS PARFUM"),
-        store_address: receipt.store_address || "",
-        store_address_center: receipt.store_address ? center(receipt.store_address) : "",
-        store_phone: receipt.store_phone || "",
-        store_phone_center: receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : "",
-        title: receipt.title,
-        title_center: center(receipt.title),
-        number: receipt.number,
-        source_number: receipt.source_number || "-",
-        date: receipt.date || "-",
-        party_label: receipt.party_label,
-        party_name: receipt.party_name,
-        items: itemLines.join("\n"),
-        total: money(receipt.total),
-        amount: money(receipt.amount),
-        paid: money(receipt.paid),
-        remaining: money(receipt.remaining),
-        status: receipt.status || "-",
-        footer: receipt.receipt_footer || "Terima kasih",
-        footer_center: center(receipt.receipt_footer || "Terima kasih"),
-    };
-
-    if (receipt.payment_receipt_template) {
-        return renderReceiptTemplate(
-            receipt.payment_receipt_template,
-            templateValues,
-        );
-    }
-
-    const dline = "=".repeat(32);
-    const rows = [
-        dline,
-        center(receipt.store_name || "PARIS PARFUM"),
-        receipt.store_address ? center(receipt.store_address) : null,
-        receipt.store_phone ? center(`Telp: ${receipt.store_phone}`) : null,
-        dline,
-        center(receipt.title),
-        line,
-        `No       : ${receipt.number}`,
-        `Ref      : ${receipt.source_number || "-"}`,
-        `Tgl      : ${receipt.date || "-"}`,
-        `${receipt.party_label} : ${receipt.party_name}`,
-        line,
-        ...itemLines,
-        line,
-        `Tagihan  : ${money(receipt.total)}`,
-        `Bayar    : ${money(receipt.amount)}`,
-        `Terbayar : ${money(receipt.paid)}`,
-        `Sisa     : ${money(receipt.remaining)}`,
-        `Status   : ${receipt.status || "-"}`,
-        line,
-        center(receipt.receipt_footer || "Terima kasih"),
-        line,
-        "",
-    ].filter(Boolean);
-
-    return rows.join("\n");
-}
-
-function receiptItemLines(items = []) {
-    if (!Array.isArray(items) || items.length === 0) return [];
-
-    return [
-        "Barang:",
-        ...items.flatMap((item) => [
-            ...wrapLabeledLine("  NAMA", item.name),
-            `  QTY     : ${number(item.qty)} ${item.unit}`,
-        ]),
-        "-".repeat(32),
-    ];
-}
-
-function printReceipt(receipt) {
-    const popup = window.open("", "_blank", "width=360,height=640");
-    if (!popup) return;
-
-    popup.document.write(`
-        <html>
-            <head>
-                <title>${receipt.number}</title>
-                <style>
-                    body { margin: 0; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.4; color: #1a1a1a; }
-                    pre { white-space: pre-wrap; margin: 0; }
-                    @page { size: 80mm auto; margin: 3mm; }
-                </style>
-            </head>
-            <body><pre>${escapeHtml(receiptText(receipt))}</pre></body>
-        </html>
-    `);
-    popup.document.close();
-    popup.focus();
-    popup.print();
-}
-
-async function printBluetoothReceipt(receipt) {
-    if (!navigator.bluetooth) {
-        alert("Browser belum mendukung Web Bluetooth.");
-        return;
-    }
-
-    const device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [
-            "000018f0-0000-1000-8000-00805f9b34fb",
-            "0000ffe0-0000-1000-8000-00805f9b34fb",
-            "0000ff00-0000-1000-8000-00805f9b34fb",
-        ],
-    });
-    const server = await device.gatt.connect();
-    const services = await server.getPrimaryServices();
-
-    for (const service of services) {
-        const characteristics = await service.getCharacteristics();
-        const writable = characteristics.find(
-            (characteristic) =>
-                characteristic.properties.write ||
-                characteristic.properties.writeWithoutResponse,
-        );
-
-        if (writable) {
-            const payload = new TextEncoder().encode(`\x1b@\n${receiptText(receipt)}\n\n\n\x1dV\x00`);
-            for (let offset = 0; offset < payload.length; offset += 180) {
-                const chunk = payload.slice(offset, offset + 180);
-                if (writable.properties.writeWithoutResponse) {
-                    await writable.writeValueWithoutResponse(chunk);
-                } else {
-                    await writable.writeValue(chunk);
-                }
-            }
-            server.disconnect();
-            return;
-        }
-    }
-
-    server.disconnect();
-    alert("Printer Bluetooth tidak memiliki characteristic yang bisa ditulis.");
-}
-
-function center(text, width = 32) {
-    const value = String(text);
-    const left = Math.max(0, Math.floor((width - value.length) / 2));
-    return `${" ".repeat(left)}${value}`;
-}
-
-function truncate(text, width) {
-    const value = String(text || "");
-    return value.length > width ? value.slice(0, width - 1) : value;
-}
-
-function wrapLabeledLine(label, value, width = 32) {
-    const prefix = `${label} : `;
-    const maxLen = width - prefix.length;
-    if (maxLen <= 0) return [`${prefix}${value}`];
-
-    const words = String(value || "-").split(" ");
-    const lines = [];
-    let currentLine = "";
-    let isFirst = true;
-
-    for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        if (testLine.length <= maxLen) {
-            currentLine = testLine;
-        } else {
-            if (currentLine) {
-                lines.push(isFirst ? `${prefix}${currentLine}` : `${" ".repeat(prefix.length)}${currentLine}`);
-                isFirst = false;
-            }
-            if (word.length > maxLen) {
-                let chunk = word;
-                while (chunk.length > 0) {
-                    const part = chunk.slice(0, maxLen);
-                    chunk = chunk.slice(maxLen);
-                    lines.push(isFirst ? `${prefix}${part}` : `${" ".repeat(prefix.length)}${part}`);
-                    isFirst = false;
-                }
-            } else {
-                currentLine = word;
-            }
-        }
-    }
-
-    if (currentLine) {
-        lines.push(isFirst ? `${prefix}${currentLine}` : `${" ".repeat(prefix.length)}${currentLine}`);
-    }
-
-    return lines.length > 0 ? lines : [`${prefix}-`];
-}
-
-function formatDate(value) {
-    if (!value) return "-";
-    return String(value).slice(0, 10).split("-").reverse().join("/");
-}
-
-function escapeHtml(value) {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
 }

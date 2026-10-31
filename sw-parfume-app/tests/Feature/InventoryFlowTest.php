@@ -237,6 +237,7 @@ class InventoryFlowTest extends TestCase
         ]);
 
         $this->actingAs($user)
+            ->withHeader('Idempotency-Key', (string) \Illuminate\Support\Str::uuid())
             ->from('/admin/stok-gudang')
             ->post('/admin/mutasi-stok', [
                 'id_gudang' => (string) $gudang->id,
@@ -246,7 +247,14 @@ class InventoryFlowTest extends TestCase
                 'jumlah_botol' => '2',
                 'keterangan' => 'Tambah stok uji',
             ])
-            ->assertRedirect();
+            ->assertRedirect()
+            ->assertSessionHas('pendingValidation');
+
+        $this->assertDatabaseCount('tt_stok_gudang', 0);
+        $validation = \App\Models\Business\TransactionValidation::query()->firstOrFail();
+        $this->post("/admin/validasi-transaksi/{$validation->id}/setujui")
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
 
         $this->actingAs($user)
             ->get('/admin/stok-gudang')

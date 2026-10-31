@@ -14,7 +14,7 @@ class EnsureStoreIsOpen
 
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->routeIs('business.utility.*', 'logout')) {
+        if ($request->routeIs('business.utility.*', 'business.validation.*', 'logout')) {
             return $next($request);
         }
 
