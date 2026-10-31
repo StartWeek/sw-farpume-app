@@ -17,11 +17,11 @@ const bottleUnits = ["BOTOL", "DUS"];
 const payments = ["CASH", "TRANSFER", "SPLIT", "TEMPO", "DP"];
 const retailPayments = ["CASH", "TRANSFER", "SPLIT"];
 const paymentLabels = {
-    CASH: { label: "Tunai", description: "Bayar lunas dengan uang tunai" },
-    TRANSFER: { label: "Transfer", description: "Bayar lunas melalui transfer" },
-    SPLIT: { label: "Cash + Transfer", description: "Gabungkan tunai dan transfer, tetap lunas" },
-    TEMPO: { label: "Tempo", description: "Bayar pada tanggal jatuh tempo" },
-    DP: { label: "Uang Muka / DP", description: "Bayar sebagian terlebih dahulu" },
+    CASH: { label: "Tunai" },
+    TRANSFER: { label: "Transfer" },
+    SPLIT: { label: "Cash + Transfer" },
+    TEMPO: { label: "Tempo" },
+    DP: { label: "Uang Muka / DP" },
 };
 const paymentErrorKeys = ["metode_pembayaran", "jumlah_bayar", "cash_amount", "transfer_amount", "jatuh_tempo", "discount"];
 
@@ -465,16 +465,12 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                 <div className="text-right"><span className="text-xs text-muted">{form.items.length} item</span><p className="font-bold tabular-nums text-main">{money(transactionSubtotal)}</p></div>
                             </div>
                             <fieldset disabled={submitting} className="space-y-4">
-                                <legend className="mb-3 text-sm font-bold text-main">Metode Pembayaran</legend>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {(isBuy || isWholesale ? payments : retailPayments).map((method) => (
-                                        <label key={method} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary ${form.metode_pembayaran === method ? "border-primary bg-primary/10" : "border-stroke hover:bg-page"}`}>
-                                            <input type="radio" name="metode_pembayaran" value={method} checked={form.metode_pembayaran === method} data-autofocus={form.metode_pembayaran === method ? "" : undefined} onChange={() => selectPayment(method)} className="mt-1 size-4 shrink-0 accent-primary" />
-                                            <span><span className="block text-sm font-bold text-main">{paymentLabels[method].label}</span><span className="mt-1 block text-xs leading-5 text-muted">{paymentLabels[method].description}</span></span>
-                                        </label>
-                                    ))}
-                                </div>
-                                {errors.metode_pembayaran && <p role="alert" className="text-xs text-red-500">{errors.metode_pembayaran}</p>}
+                                <Field label="Metode Pembayaran">
+                                    <Select name="metode_pembayaran" value={form.metode_pembayaran} onChange={(event) => selectPayment(event.target.value)} searchable={false} disabled={submitting} error={!!errors.metode_pembayaran}>
+                                        {(isBuy || isWholesale ? payments : retailPayments).map((method) => <option key={method} value={method}>{paymentLabels[method].label}</option>)}
+                                    </Select>
+                                    {errors.metode_pembayaran && <p role="alert" className="text-xs text-red-500">{errors.metode_pembayaran}</p>}
+                                </Field>
                                 {["CASH", "TRANSFER"].includes(form.metode_pembayaran) && <div><Field label={form.metode_pembayaran === "CASH" ? "Uang Cash (Rp)" : "Nominal Transfer (Rp)"}>
                                     <CurrencyInput required error={!!errors.jumlah_bayar} value={form.jumlah_bayar} onChange={(event) => set("jumlah_bayar", event.target.value)} placeholder="Isi nominal pembayaran" />
                                     {errors.jumlah_bayar && <p role="alert" className="text-xs text-red-500">{errors.jumlah_bayar}</p>}

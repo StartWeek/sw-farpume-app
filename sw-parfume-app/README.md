@@ -152,6 +152,10 @@ Gunakan Laporan Stok untuk saldo saat ini dan Mutasi Stok untuk rincian per tran
 
 ## Ringkasan dan Riwayat Pembayaran
 
+- Pemilihan metode pembayaran menggunakan dropdown ringkas tanpa deskripsi
+  panjang di Pembelian, Penjualan Retail/Sales/Grosir, dan Botol Kosong.
+  Default tetap Tunai; DP/Tempo tetap hanya tersedia pada Pembelian dan
+  Sales/Grosir. Input nominal dan jatuh tempo mengikuti metode yang dipilih.
 - Form pembayaran transaksi baru, pembayaran sisa DP/tempo, serta hutang/piutang
   menampilkan total tagihan, sudah dibayar, sisa sebelum pembayaran, pembayaran
   sekarang, dan sisa setelah pembayaran. Isi nominal lalu klik **+ / Tambah
