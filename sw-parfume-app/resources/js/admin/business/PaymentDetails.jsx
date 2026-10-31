@@ -1,12 +1,24 @@
-import React, { useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import Button from "@/components/common/Button";
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { CurrencyInput, Field, money } from "./_components";
 import { formatBusinessDate } from "./formatters";
 
-export function PaymentTable({ rows, onRemove, disabled = false }) {
+export function PaymentTable({ rows, onRemove, disabled = false, scrollRequest }) {
+    const tableRef = useRef(null);
+    const hasRows = rows.length > 0;
+    useLayoutEffect(() => {
+        if (!hasRows || !scrollRequest) return;
+        const container = tableRef.current?.closest("[data-transaction-dialog-scroll]");
+        if (container) {
+            container.scrollTo({
+                top: container.scrollHeight,
+                behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+            });
+        }
+    }, [hasRows, scrollRequest]);
     if (!rows.length) return null;
-    return <div className="overflow-x-auto rounded-lg border border-stroke">
+    return <div ref={tableRef} className="overflow-x-auto rounded-lg border border-stroke">
         <table className="w-full text-left text-sm" aria-label="Pembayaran yang ditambahkan">
             <thead className="bg-page text-xs text-muted"><tr><th className="px-3 py-2">Metode</th><th className="px-3 py-2 text-right">Nominal</th><th className="w-12 px-2 py-2"><span className="sr-only">Aksi</span></th></tr></thead>
             <tbody className="divide-y divide-stroke">{rows.map((row, index) => <tr key={row.label}>
@@ -21,6 +33,7 @@ export function PaymentTable({ rows, onRemove, disabled = false }) {
 export function PaymentAmountEntry({ amount, onChange, remaining, error, disabled = false, label = "Pembayaran" }) {
     const [draft, setDraft] = useState("");
     const [entryError, setEntryError] = useState("");
+    const [scrollRequest, setScrollRequest] = useState(0);
     const add = () => {
         const value = Number(draft);
         if (!Number.isFinite(value) || value <= 0 || value > Number(remaining)) {
@@ -29,6 +42,7 @@ export function PaymentAmountEntry({ amount, onChange, remaining, error, disable
         }
         setEntryError("");
         onChange(draft);
+        setScrollRequest((previous) => previous + 1);
     };
     return <div className="space-y-3">
         <div className="flex items-end gap-2">
@@ -36,7 +50,7 @@ export function PaymentAmountEntry({ amount, onChange, remaining, error, disable
             <Button icon={IconPlus} iconOnly aria-label="Tambahkan pembayaran ke tabel" disabled={disabled} onClick={add} />
         </div>
         {(entryError || error) && <p role="alert" className="text-xs text-red-600">{entryError || error}</p>}
-        <PaymentTable rows={Number(amount) > 0 ? [{ label, amount }] : []} disabled={disabled} onRemove={() => { onChange(""); setDraft(""); }} />
+        <PaymentTable rows={Number(amount) > 0 ? [{ label, amount }] : []} scrollRequest={scrollRequest} disabled={disabled} onRemove={() => { onChange(""); setDraft(""); }} />
     </div>;
 }
 

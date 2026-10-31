@@ -493,7 +493,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                 </Field>
                                 <div className="flex justify-end"><Button icon={IconPlus} onClick={addPayment} disabled={!!paymentIssue}>{paymentAdded ? "Perbarui Pembayaran" : "Tambah Pembayaran"}</Button></div>
                             </fieldset>
-                            <PaymentTable rows={paymentAdded ? addedPayment.rows : []} disabled={submitting} onRemove={() => setAddedPayment(null)} />
+                            <PaymentTable rows={paymentAdded ? addedPayment.rows : []} scrollRequest={addedPayment} disabled={submitting} onRemove={() => setAddedPayment(null)} />
                             {paymentAdded && allowsChange && <div className="space-y-2 text-sm">
                                 <div className="flex justify-between gap-3 text-main"><span>{form.metode_pembayaran === "SPLIT" ? "Total Cash + Transfer" : "Uang Cash"}</span><strong className="tabular-nums">{money(receivedPayment)}</strong></div>
                                 <div className="flex justify-between gap-3 text-main"><span>Kembalian Cash</span><strong className="tabular-nums">{money(change)}</strong></div>

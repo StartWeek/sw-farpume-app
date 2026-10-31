@@ -158,6 +158,9 @@ Gunakan Laporan Stok untuk saldo saat ini dan Mutasi Stok untuk rincian per tran
   Pembayaran** untuk memasukkannya ke tabel di bawah input dalam modal yang sama.
   Ringkasan dan pengajuan memakai pembayaran yang sudah ditambahkan, bukan draft.
   Pada Cash + Transfer, tabel memisahkan nominal cash dan transfer.
+  Setelah pembayaran ditambahkan atau diperbarui, isi modal otomatis bergulir
+  ke bawah menuju ringkasan dan tombol pengajuan, tanpa menggeser halaman belakang.
+  Animasi gulir mengikuti preferensi reduced motion pengguna.
   Tombol hapus mengeluarkan pembayaran dari tabel; klik tambah kembali setelah
   mengubah nominal/metode/total. Klik tambah berulang memperbarui pembayaran,
   bukan menggandakan nominal. Aturan lunas, DP, tempo, dan kembalian tetap berlaku.

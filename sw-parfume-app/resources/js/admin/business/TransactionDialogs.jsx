@@ -40,7 +40,7 @@ export function TransactionDialog({ title, description, onClose, children, width
                             <div className="min-w-0"><DialogTitle className="text-base font-extrabold text-main">{title}</DialogTitle>{description && <Description className="mt-1 text-xs leading-5 text-muted">{description}</Description>}</div>
                             <button type="button" onClick={onClose} aria-label="Tutup modal" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-page focus-visible:outline-2 focus-visible:outline-primary"><IconX size={19} aria-hidden="true" /></button>
                         </div>
-                        <div className="overflow-y-auto px-6 py-5">{children}</div>
+                        <div data-transaction-dialog-scroll className="overflow-y-auto px-6 py-5">{children}</div>
                     </DialogPanel>
                 </div>
             </div>
