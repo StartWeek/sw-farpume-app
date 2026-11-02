@@ -34,7 +34,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
     const isBottleSale = type === "botol-kosong";
     const isWholesale = type === "sales" || type === "grosir";
     const title = isHistory
-        ? (isBuy ? "Riwayat Pembelian Supplier" : isWholesale ? "Riwayat Penjualan Sales" : "Riwayat Penjualan Retail")
+        ? (isBuy ? "Riwayat Pembelian Supplier" : isBottleSale ? "Riwayat Botol Kosong (Lama)" : isWholesale ? "Riwayat Penjualan Sales" : "Riwayat Penjualan Retail")
         : (isBuy ? "Pembelian Supplier" : isBottleSale ? "Penjualan Botol Kosong" : isWholesale ? "Penjualan Sales" : "Penjualan Retail");
     const emptyItem = { tipe_item: isBottleSale ? "BOTOL" : "BIBIT", item_id: "", qty_input: 1, satuan_input: isBottleSale ? "BOTOL" : "ML", harga: "" };
     const initial = {
@@ -141,6 +141,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
     };
     const saveBulkItems = (items) => {
         if (!items.length) { toast.error("Pilih minimal satu barang."); return; }
+        const resolvedItems = [];
         let warehouseId = form.items.length || isBuy ? form.id_gudang : "";
         let location;
         for (const item of items) {
@@ -151,10 +152,11 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
             if (item.tipe_item !== "BOTOL" && item.satuan_input === "BOTOL" && !item.id_botol && !selected.botol?.varian_ml) { toast.error(`Pilih varian botol untuk ${selected.nama_barang}.`); return; }
             try { location = resolveItemWarehouse(selected, item.tipe_item === "BOTOL"); }
             catch (failure) { toast.error(failure.message); return; }
-            if (warehouseId && Number(warehouseId) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Pilih barang dari satu gudang."); return; }
+            if (isBuy && warehouseId && Number(warehouseId) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Pilih barang dari satu gudang."); return; }
             warehouseId = location.id;
+            resolvedItems.push({ ...item, id_gudang: location.id });
         }
-        setForm((previous) => ({ ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang, items: [...previous.items, ...items] }));
+        setForm((previous) => ({ ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang, items: [...previous.items, ...resolvedItems] }));
         setBulkOpen(false);
         toast.success(`${items.length} barang berhasil ditambahkan.`);
     };
@@ -165,15 +167,16 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
         if (modalForm.tipe_item !== "BOTOL" && modalForm.satuan_input === "BOTOL" && !modalForm.id_botol && !selected?.botol?.varian_ml) { toast.error("Pilih varian botol terlebih dahulu."); return; }
         if (!modalForm.qty_input || Number(modalForm.qty_input) <= 0) { toast.error("Jumlah harus lebih dari 0."); return; }
         let location;
-        try { location = resolveItemWarehouse(selected, modalForm.tipe_item === "BOTOL"); }
+        try { location = !isBuy && modalForm.id_gudang ? purchaseWarehouse(selected, modalForm.tipe_item === "BOTOL", refs.gudang || [], modalForm.id_gudang) : resolveItemWarehouse(selected, modalForm.tipe_item === "BOTOL"); }
         catch (failure) { toast.error(failure.message); return; }
 
-        if (form.items.some((_, index) => index !== editingIndex) && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return; }
+        if (isBuy && form.items.some((_, index) => index !== editingIndex) && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return; }
+        const savedItem = { ...modalForm, id_gudang: location.id };
         setForm((previous) => ({ ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang }));
         if (editingIndex !== null) {
-            setForm((prev) => ({ ...prev, items: prev.items.map((item, i) => i === editingIndex ? modalForm : item) }));
+            setForm((prev) => ({ ...prev, items: prev.items.map((item, i) => i === editingIndex ? savedItem : item) }));
         } else {
-            setForm((prev) => ({ ...prev, items: [...prev.items, modalForm] }));
+            setForm((prev) => ({ ...prev, items: [...prev.items, savedItem] }));
         }
         setModalOpen(false);
         toast.success(editingIndex !== null ? "Barang berhasil diperbarui." : "Barang berhasil ditambahkan.");
@@ -289,7 +292,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
         if (!code || !prepareBarcodeSelection()) return false;
         const candidates = [
             ...(!isBottleSale ? (refs.barang || []).map((row) => ({ row, type: row.jenis_barang === "ABSOLUTE" ? "ABSOLUTE" : "BIBIT" })) : []),
-            ...((isBuy || isBottleSale) ? (refs.botol_kosong || []).map((row) => ({ row, type: "BOTOL" })) : []),
+            ...(refs.botol_kosong || []).map((row) => ({ row, type: "BOTOL" })),
         ].filter(({ row }) => barcodeMatches(row, code));
         if (candidates.length !== 1) { toast.error(candidates.length ? "Kode barcode ganda. Perbaiki kode di master barang." : isBuy ? "Barcode tidak ditemukan atau barang belum dihubungkan ke supplier yang dipilih. Periksa master Barang Bibit." : "Barcode tidak ditemukan untuk jenis transaksi ini."); return false; }
         const { row, type: itemType } = candidates[0];
@@ -297,9 +300,9 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
         try { location = resolveItemWarehouse(row, itemType === "BOTOL"); }
         catch (failure) { toast.error(failure.message); return false; }
 
-        if (form.items.length && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return false; }
+        if (isBuy && form.items.length && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return false; }
         const unit = defaultTransactionUnit(itemType, row, isBuy, isWholesale);
-        const item = { tipe_item: itemType, item_id: row.id, qty_input: 1, satuan_input: unit, harga: "", ...(itemType === "BIBIT" && unit === "BOTOL" && row.id_botol ? { id_botol: row.id_botol } : {}) };
+        const item = { tipe_item: itemType, item_id: row.id, id_gudang: location.id, qty_input: 1, satuan_input: unit, harga: "", ...(itemType === "BIBIT" && unit === "BOTOL" && row.id_botol ? { id_botol: row.id_botol } : {}) };
         setForm((previous) => {
             const index = previous.items.findIndex((value) => value.tipe_item === itemType && Number(value.item_id) === Number(row.id) && value.satuan_input === item.satuan_input && Number(value.id_botol || 0) === Number(item.id_botol || 0));
             return { ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang, items: index < 0 ? [...previous.items, item] : previous.items.map((value, i) => i === index ? { ...value, qty_input: Number(value.qty_input) + 1 } : value) };
@@ -327,10 +330,10 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
     };
     const barcodeItems = availableBarcodeItems({
         barang: isBottleSale ? [] : refs.barang || [],
-        bottles: isBuy || isBottleSale ? refs.botol_kosong || [] : [],
+        bottles: refs.botol_kosong || [],
         warehouses: refs.gudang || [],
         stocks: refs.stok_gudang || [],
-        warehouseId: isBuy || form.items.length ? form.id_gudang : "",
+        warehouseId: isBuy ? form.id_gudang : "",
         purchase: isBuy,
     });
 
@@ -452,13 +455,13 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
                                                     : selected?.botol ? ` ${selected.botol.varian_ml} ML` : "";
                                                 const qtyDisplay = item.tipe_item === "BOTOL"
                                                     ? `${number(convertedQty)} Botol`
-                                                    : `${number(item.qty_input)} ${item.satuan_input === "BOTOL" ? "BOTOL ISI" : item.satuan_input}${botolInfo}`;
+                                                    : `${number(item.qty_input)} ${isBuy && item.satuan_input === "BOTOL" ? "BOTOL ISI" : item.satuan_input}${botolInfo}`;
                                                 const no = runningNo++;
                                                 return (
                                                     <tr key={index} className="transition-colors duration-150 hover:bg-page/50">
                                                         <td className="px-3 py-2.5 text-center font-medium text-muted">{no}</td>
                                                         <td className="px-3 py-2.5 font-mono text-[11px] font-bold text-main">{kode}</td>
-                                                        <td className="px-3 py-2.5 font-medium text-main">{namaBarang}{botolInfo ? <span className="text-muted font-normal"> - {botolInfo}</span> : ""}</td>
+                                                        <td className="px-3 py-2.5 font-medium text-main">{namaBarang}{botolInfo ? <span className="text-muted font-normal"> - {botolInfo}</span> : ""}{!isBuy && item.id_gudang && <div className="mt-2"><Select aria-label={`Gudang sumber ${namaBarang}`} value={item.id_gudang} onChange={(event) => updateItem(index, "id_gudang", event.target.value)}>{(refs.gudang || []).filter((warehouse) => warehouse.tipe_gudang === (item.tipe_item === "BOTOL" ? "BOTOL" : "BIBIT")).map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.nama_gudang}</option>)}</Select></div>}</td>
                                                         <td className="px-3 py-2.5 font-medium text-main">{qtyDisplay}</td>
                                                         <td className="px-3 py-2.5 text-right font-medium text-main">{money(price)}</td>
                                                         <td className="px-3 py-2.5 text-right font-extrabold text-main">{money(subtotal)}</td>
@@ -594,7 +597,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
                             <Field label="Tanggal Sampai">
                                 <Input type="date" value={filterForm.tanggal_sampai} onChange={(e) => setFilter("tanggal_sampai", e.target.value)} />
                             </Field>
-                            {!isBuy && (
+                            {!isBuy && !isBottleSale && (
                                 <Field label="Tipe Penjualan">
                                     <Select value={filterForm.tipe_penjualan} onChange={(e) => setFilter("tipe_penjualan", e.target.value)}>
                                         <option value="">Semua</option>
@@ -634,8 +637,8 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
                         { key: "status_pembayaran", label: "Status", render: (row) => row.status_pembayaran?.replaceAll("_", " ") || "-" },
                     ] : [
                         { key: "no_penjualan", label: "No Penjualan" },
-                        { key: "customer", label: "Customer", render: (row) => row.customer?.nama_customer || "-" },
-                        { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
+                        { key: "customer", label: "Customer", render: (row) => row.customer?.nama_customer || row.manual_customer_name || "-" },
+                        { key: "gudang", label: "Gudang", render: (row) => row.warehouse_label || row.gudang?.nama_gudang || "-" },
                         { key: "details", label: "Detail Barang / Barcode", render: historyItems },
                         { key: "total_qty_ml", label: "Qty ML", render: (row) => number(row.total_qty_ml) },
                         { key: "total_qty_botol", label: "Qty Botol", render: (row) => number(row.total_qty_botol) },
@@ -706,6 +709,7 @@ function itemOptions(refs, type) {
 }
 
 function itemOptionLabel(row, type, isBuy, isWholesale, refs, gudangId) {
+    const stockWarehouseId = isBuy ? gudangId : row.id_gudang;
     if (type === "BOTOL") {
         const stockInfo = gudangId ? ` — Stok: ${number(row.stock || 0)} Botol` : "";
         return `${row.kode_botol || "-"} - ${row.nama_botol}${stockInfo}`;
@@ -717,10 +721,10 @@ function itemOptionLabel(row, type, isBuy, isWholesale, refs, gudangId) {
     }
 
     const botol = row.botol?.varian_ml ? ` - ${row.botol.varian_ml} ML` : " - Botol belum dipilih";
-    const stock = gudangId
-        ? refs?.stok_gudang?.filter((s) => Number(s.id_barang) === Number(row.id) && Number(s.id_gudang) === Number(gudangId)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0)
+    const stock = stockWarehouseId
+        ? refs?.stok_gudang?.filter((s) => Number(s.id_barang) === Number(row.id) && Number(s.id_gudang) === Number(stockWarehouseId)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0)
         : null;
-    const stockInfo = gudangId ? ` — Stok: ${number(stock || 0)} ML` : "";
+    const stockInfo = stockWarehouseId ? ` — Stok: ${number(stock || 0)} ML` : "";
     return `${row.kode_barang || "-"} - ${row.nama_barang}${botol}${stockInfo}`;
 }
 
@@ -828,7 +832,7 @@ function BulkItemModal({ refs, isBuy, isWholesale, isBottleSale, gudangId, onSav
     const [chosen, setChosen] = useState({});
     const candidates = [
         ...(!isBottleSale ? (refs.barang || []).map((row) => ({ row, type: row.jenis_barang === "ABSOLUTE" ? "ABSOLUTE" : "BIBIT" })) : []),
-        ...(isBuy || isBottleSale ? (refs.botol_kosong || []).map((row) => ({ row, type: "BOTOL" })) : []),
+        ...(refs.botol_kosong || []).map((row) => ({ row, type: "BOTOL" })),
     ].filter(({ row, type: itemType }) => {
         if (row.status && row.status !== "AKTIF") return false;
         if (isBuy) {
@@ -836,7 +840,7 @@ function BulkItemModal({ refs, isBuy, isWholesale, isBottleSale, gudangId, onSav
             return warehouse?.tipe_gudang === (itemType === "BOTOL" ? "BOTOL" : "BIBIT")
                 && (itemType !== "BOTOL" || Number(row.id_gudang) === Number(gudangId));
         }
-        return !gudangId || !row.id_gudang || Number(row.id_gudang) === Number(gudangId);
+        return true;
     }).map((entry) => ({ ...entry, key: `${entry.type}-${entry.row.id}` }));
     const query = search.trim().toLocaleLowerCase();
     const visible = candidates.filter((entry) => (type === "ALL" || entry.type === type)
@@ -866,7 +870,7 @@ function BulkItemModal({ refs, isBuy, isWholesale, isBottleSale, gudangId, onSav
         <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Cari Barang"><Input data-autofocus type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nama atau kode barang" /></Field>
-                {!isBottleSale && <Field label="Tipe Barang"><Select value={type} onChange={(event) => setType(event.target.value)}><option value="ALL">Semua jenis</option><option value="BIBIT">Bibit</option><option value="ABSOLUTE">Absolute</option>{isBuy && <option value="BOTOL">Botol Kosong</option>}</Select></Field>}
+                {!isBottleSale && <Field label="Tipe Barang"><Select value={type} onChange={(event) => setType(event.target.value)}><option value="ALL">Semua jenis</option><option value="BIBIT">Bibit</option><option value="ABSOLUTE">Absolute</option><option value="BOTOL">Botol Kosong</option></Select></Field>}
             </div>
             <div className="flex items-center justify-between gap-3">
                 <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm font-bold text-main"><input type="checkbox" checked={allVisible} disabled={!visible.length} onChange={selectVisible} className="size-4 accent-primary" />Pilih semua hasil</label>
@@ -882,7 +886,7 @@ function BulkItemModal({ refs, isBuy, isWholesale, isBottleSale, gudangId, onSav
                         </label>
                         {item && <div className="mt-3 grid gap-3 sm:grid-cols-3">
                             <Field label="Jumlah"><Input type="number" min="0.01" step="any" value={item.qty_input} onChange={(event) => update(entry.key, { qty_input: event.target.value })} /></Field>
-                            <Field label="Satuan"><Select value={item.satuan_input} onChange={(event) => update(entry.key, { satuan_input: event.target.value, id_botol: "", harga: "" })}>{(entry.type === "BOTOL" ? bottleUnits : isBuy ? purchaseLiquidUnits : liquidUnits).map((unit) => <option key={unit} value={unit}>{unit === "BOTOL" && entry.type !== "BOTOL" ? "BOTOL ISI" : unit}</option>)}</Select></Field>
+                            <Field label="Satuan"><Select value={item.satuan_input} onChange={(event) => update(entry.key, { satuan_input: event.target.value, id_botol: "", harga: "" })}>{(entry.type === "BOTOL" ? bottleUnits : isBuy ? purchaseLiquidUnits : liquidUnits).map((unit) => <option key={unit} value={unit}>{isBuy && unit === "BOTOL" && entry.type !== "BOTOL" ? "BOTOL ISI" : unit}</option>)}</Select></Field>
                             <Field label={entry.type === "BOTOL" ? "Harga" : "Harga / ML"}><CurrencyInput value={item.harga || defaultItemPrice(entry.row, item, isBuy, isWholesale) || ""} readOnly={!isBuy} onChange={isBuy ? (event) => update(entry.key, { harga: event.target.value }) : undefined} /></Field>
                             {entry.type !== "BOTOL" && item.satuan_input === "BOTOL" && <div className="sm:col-span-3"><Field label="Varian Botol"><Select value={item.id_botol || ""} onChange={(event) => update(entry.key, { id_botol: event.target.value })}><option value="">{entry.row.botol ? `Default: ${entry.row.botol.nama_botol}` : "Pilih varian botol"}</option>{(refs.botol || []).map((bottle) => <option key={bottle.id} value={bottle.id}>{bottle.nama_botol}</option>)}</Select></Field></div>}
                         </div>}
@@ -924,6 +928,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
     };
 
     const handleSelectItem = (itemId) => {
+        if (String(itemId) !== String(form.item_id)) set("id_gudang", "");
         set("item_id", itemId);
         set("harga", "");
 
@@ -935,6 +940,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                         <Select value={form.tipe_item} disabled={isBottleSale} onChange={(event) => {
                             const nextType = event.target.value;
                             set("tipe_item", nextType);
+                            set("id_gudang", "");
                             set("item_id", "");
                             set("id_botol", "");
                             set("harga", "");
@@ -942,7 +948,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                         }}>
                             {!isBottleSale && <option value="BIBIT">Bibit</option>}
                             {!isBottleSale && <option value="ABSOLUTE">Absolute</option>}
-                            {(isBuy || isBottleSale) && <option value="BOTOL">Botol Kosong</option>}
+                            <option value="BOTOL">Botol Kosong</option>
                         </Select>
                     </Field>
                     <Field label={isBottleSale ? "Pilih Botol Kosong" : "Pilih Barang"}>
@@ -979,7 +985,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                             <Select value={form.satuan_input} onChange={(event) => { set("satuan_input", event.target.value); set("harga", ""); if (event.target.value !== "BOTOL") set("id_botol", ""); }}>
                                 {unitOptions.map((unit) => (
                                     <option key={unit} value={unit}>
-                                        {unit === "BOTOL" && form.tipe_item !== "BOTOL" ? "BOTOL ISI" : unit}
+                                        {isBuy && unit === "BOTOL" && form.tipe_item !== "BOTOL" ? "BOTOL ISI" : unit}
                                     </option>
                                 ))}
                             </Select>

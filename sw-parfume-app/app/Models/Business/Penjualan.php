@@ -11,6 +11,8 @@ class Penjualan extends Model
 {
     protected $table = 'tt_penjualan';
 
+    protected $appends = ['warehouse_label'];
+
     protected $fillable = ['no_penjualan', 'tanggal', 'id_customer', 'manual_customer_name', 'tipe_penjualan', 'id_sales', 'id_gudang', 'total_qty_ml', 'total_qty_botol', 'total_penjualan', 'jumlah_bayar', 'discount', 'total_modal', 'laba_kotor', 'metode_pembayaran', 'payment_details', 'status_pembayaran', 'jatuh_tempo', 'keterangan', 'created_by'];
 
     protected $casts = ['tanggal' => 'date', 'jatuh_tempo' => 'date', 'total_qty_ml' => 'decimal:2', 'total_qty_botol' => 'decimal:2', 'total_penjualan' => 'decimal:2', 'jumlah_bayar' => 'decimal:2', 'discount' => 'decimal:2', 'total_modal' => 'decimal:2', 'laba_kotor' => 'decimal:2', 'payment_details' => 'array'];
@@ -18,6 +20,14 @@ class Penjualan extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class, 'id_customer');
+    }
+
+    public function getWarehouseLabelAttribute(): string
+    {
+        $this->loadMissing(['details.gudang', 'gudang']);
+
+        return $this->details->map(fn (PenjualanDetail $detail) => $detail->gudang?->nama_gudang ?? $this->gudang?->nama_gudang)
+            ->filter()->unique()->implode(', ') ?: ($this->gudang?->nama_gudang ?? '-');
     }
 
     public function sales(): BelongsTo

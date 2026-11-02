@@ -289,7 +289,7 @@ class BusinessService
         if (DB::transactionLevel() === 0) { DB::transaction(fn () => $this->adjustBotolKosongStock($payload)); return; }
 
         $multiplier = ($payload['tipe_mutasi'] ?? 'MASUK') === 'KELUAR' ? -1 : 1;
-        $qty = (int) $payload['jumlah_botol'] * $multiplier;
+        $qty = (float) $payload['jumlah_botol'] * $multiplier;
 
         $botol = BotolKosong::query()->findOrFail((int) $payload['id_barang']);
 
@@ -299,8 +299,8 @@ class BusinessService
             throw ValidationException::withMessages(['jumlah_botol' => 'Stok botol kosong tidak mencukupi.']);
         }
 
-        app(SupplierStockService::class)->move('BOTOL', $botol->id, (int) $botol->id_gudang, null, $qty, [
-            'id_supplier' => $payload['id_supplier'] ?? null, 'no_transaksi' => $payload['no_transaksi'] ?? 'MANUAL',
+        app(SupplierStockService::class)->move('BOTOL', $botol->id, (int) $payload['id_gudang'], null, $qty, [
+            'id_supplier' => $payload['id_supplier'] ?? null, 'supplier_name' => $payload['supplier_name'] ?? null, 'no_transaksi' => $payload['no_transaksi'] ?? 'MANUAL',
             'sumber_transaksi' => $payload['sumber_transaksi'] ?? 'ADJUSTMENT', 'created_by' => $payload['created_by'] ?? auth()->user()?->name,
             'keterangan' => $payload['keterangan'] ?? null,
         ]);
@@ -611,9 +611,6 @@ class BusinessService
         }
 
         $botol = BotolKosong::query()->findOrFail($detail['item_id']);
-        if ((int) ($botol->id_gudang ?? 0) !== $gudangId) {
-            throw ValidationException::withMessages(['items' => "Stok {$botol->nama_botol} tidak tersedia di gudang yang dipilih."]);
-        }
 
         $after = (float) $botol->stock + ($direction * (float) $detail['konversi_qty_dasar']);
 
@@ -733,6 +730,10 @@ class BusinessService
                 'price_unit' => $detail['satuan_input'] === 'DUS' ? 'DUS' : $detail['satuan_dasar'],
                 'base_qty' => $detail['konversi_qty_dasar'], 'base_unit' => $detail['satuan_dasar'],
                 'item_id' => $detail['item_id'], 'variant_id' => $detail['id_botol'] ?? null,
+                ...(! $purchase && ! empty($item['id_gudang']) ? [
+                    'warehouse_id' => (int) $item['id_gudang'],
+                    'warehouse' => Gudang::query()->findOrFail($item['id_gudang'])->nama_gudang,
+                ] : []),
             ];
         }
         $amount = max(0, array_sum(array_column($items, 'subtotal')) - (float) ($payload['discount'] ?? 0));
@@ -740,7 +741,7 @@ class BusinessService
         $signature = hash('sha256', json_encode([
             $amount,
             ...($payment['details'] !== null ? [$payment] : []),
-            array_map(fn (array $item) => array_intersect_key($item, array_flip(['qty', 'unit', 'price', 'subtotal', 'base_qty', 'base_unit', 'item_id', 'variant_id'])), $items),
+            array_map(fn (array $item) => array_intersect_key($item, array_flip(['qty', 'unit', 'price', 'subtotal', 'base_qty', 'base_unit', 'item_id', 'variant_id', 'warehouse_id'])), $items),
         ], JSON_THROW_ON_ERROR));
 
         return ['payload' => $payload, 'snapshot' => ['items' => $items, 'amount' => $amount, 'payment_details' => $payment['details'], 'posting_signature' => $signature]];
@@ -838,6 +839,13 @@ class BusinessService
 
             foreach ($payload['items'] as $item) {
                 $detail = $this->salesDetail($item, $type);
+                $warehouseId = (int) ($item['id_gudang'] ?? $payload['id_gudang']);
+                $bottle = $detail['tipe_item'] === 'BOTOL';
+                $warehouse = Gudang::query()->where('status', 'AKTIF')->where('tipe_gudang', $bottle ? 'BOTOL' : 'BIBIT')->find($warehouseId);
+                if (! $warehouse) {
+                    throw ValidationException::withMessages(['items' => 'Gudang stok '.$detail['nama_item'].' tidak aktif atau tidak sesuai. Periksa master barang.']);
+                }
+                $detail['id_gudang'] = $warehouseId;
                 $totalQtyMl += $detail['satuan_dasar'] === 'ML' ? (float) $detail['konversi_qty_dasar'] : 0;
                 $totalQtyBotol += $detail['satuan_dasar'] === 'BOTOL' ? (float) $detail['konversi_qty_dasar'] : 0;
                 $totalModal += (float) $detail['subtotal_modal'];
@@ -873,7 +881,7 @@ class BusinessService
             ]);
 
             foreach ($details as $detail) {
-                $this->applyStockMovement((int) $payload['id_gudang'], $detail, -1, $number, 'PENJUALAN', $payload);
+                $this->applyStockMovement($detail['id_gudang'], $detail, -1, $number, 'PENJUALAN', $payload);
                 $penjualan->details()->create($detail);
             }
 

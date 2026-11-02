@@ -141,6 +141,8 @@ export default function ValidationPage({ rows = [], filters = {}, counts = {}, t
                         <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-extrabold text-main">{snapshot.label}</h3><p className="mt-1 text-sm text-muted">{formatBusinessDate(selected.operational_date)} · Diajukan oleh {selected.submitted_by_name}</p></div><StatusBadge status={selected.status} /></div>
                         <dl className="grid gap-4 border-y border-stroke py-4 text-sm sm:grid-cols-2">
                             <div><dt className="text-xs text-muted">Customer / Supplier / Pihak</dt><dd className="mt-1 break-words font-bold text-main">{snapshot.party}</dd></div>
+                            {snapshot.warehouse_target && <div><dt className="text-xs text-muted">Gudang Tujuan</dt><dd className="mt-1 font-bold text-main">{snapshot.warehouse_target}</dd></div>}
+                            {snapshot.supplier && <div><dt className="text-xs text-muted">Supplier Asal</dt><dd className="mt-1 font-bold text-main">{snapshot.supplier}</dd></div>}
                             {snapshot.warehouse && <div><dt className="text-xs text-muted">Gudang</dt><dd className="mt-1 font-bold text-main">{snapshot.warehouse}</dd></div>}
                             {snapshot.payment_method && <div><dt className="text-xs text-muted">Metode Bayar</dt><dd className="mt-1 font-bold text-main">{snapshot.payment_method === "SPLIT" ? "Cash + Transfer" : snapshot.payment_method}<PaymentBreakdown details={snapshot.payment_details} /></dd></div>}
                             {snapshot.direction && <div><dt className="text-xs text-muted">Arah Transaksi</dt><dd className="mt-1 font-bold text-main">{snapshot.direction}</dd></div>}
@@ -158,6 +160,7 @@ export default function ValidationPage({ rows = [], filters = {}, counts = {}, t
                                 <div className="min-w-0">
                                     <p className="font-mono text-xs text-muted">Kode / Barcode: {item.code || "-"}</p>
                                     <p className="break-words font-bold text-main">{item.name}</p>
+                                    {item.warehouse && <p className="mt-1 text-xs text-muted">Gudang: {item.warehouse}</p>}
                                     <p className="mt-1 text-xs text-muted">Jumlah: {number(item.qty)} {isFilledBottle ? "botol isi" : item.unit}</p>
                                     {bottleCapacity !== null && <p className="mt-1 text-xs text-muted">Isi per botol: {number(bottleCapacity)} ML</p>}
                                     {isLiquid && <p className="mt-1 text-xs text-muted">Total cairan: {number(item.base_qty)} ML</p>}

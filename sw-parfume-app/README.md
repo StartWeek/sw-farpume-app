@@ -361,13 +361,32 @@ Pilih **Customer Tanpa Registrasi** untuk mengisi nama hanya pada transaksi ini
   lalu pilih untuk membuka form barang transaksi atau mengisi barang pada form stok.
   Pada Pembelian daftar mengikuti gudang tujuan, bukan gudang master barang
   atau supplier. Pada menu lainnya daftar tetap mengikuti gudang otomatis;
-  barang beda gudang harus dibuat dalam transaksi terpisah.
+  penjualan Retail/Sales dapat mencampur barang dari gudang berbeda.
+  Pembelian tetap memakai satu gudang tujuan per transaksi.
 - Stok di daftar mengikuti data saat halaman dimuat; validasi transaksi tetap
   memeriksa stok aktual sebelum diproses. Scan manual dan pilihan barang
   sebelumnya tetap tersedia, termasuk untuk memasukkan stok barang baru.
 - Penjualan Retail memakai default ML untuk cairan, termasuk saat scan
   langsung atau Cari Barcode di sebelah scan. Harga cairan dilabeli per ML.
   BOTOL ISI tetap bisa dipilih manual; mengedit item mempertahankan satuannya.
+- Retail dan Sales mendukung Bibit, Absolute, dan Botol Kosong dalam satu
+  transaksi, satu pembayaran, satu nota, dan satu pengajuan validasi. Pilih
+  jenis barang di form satuan atau Tambah Beberapa Barang; scan dan Cari
+  Barcode juga menerima semua jenis. Gudang stok disimpan per baris barang
+  dan diperiksa ulang saat validasi; stok keluar mengikuti gudang setiap baris.
+  BOTOL ISI hanya konversi cairan, tidak otomatis mengurangi botol kosong.
+  Tambahkan botol kosong sebagai baris terpisah jika memang dijual.
+- Menu transaksi Botol Kosong dipindahkan ke **Riwayat Transaksi > Botol
+  Kosong (Lama)** untuk histori sebelumnya. Penjualan baru dilakukan di Retail
+  atau Sales. Histori lama tidak diubah; detail lama tanpa gudang memakai
+  gudang header. Laporan penjualan/laba-kotor yang difilter gudang mencakup
+  transaksi yang memiliki barang dari gudang tersebut, dengan nilai total
+  transaksi (bukan alokasi omzet per gudang).
+- Jalankan `rtk php artisan migrate --path=database/migrations/2026_11_02_224700_add_warehouse_to_penjualan_details.php`
+  sebelum memakai penjualan gabungan. Migrasi menambah gudang nullable pada
+  detail penjualan tanpa mengubah stok atau transaksi lama. Jangan rollback
+  setelah transaksi multi-gudang dicatat karena informasi gudang per baris
+  akan hilang.
 - Pembelian dan penjualan cairan dengan satuan ML/LITER dapat divalidasi tanpa
   botol default di master. Stok tanpa varian tetap dicatat dalam ML;
   penjualan ML mengambil stok yang tersedia secara FIFO. Kapasitas botol

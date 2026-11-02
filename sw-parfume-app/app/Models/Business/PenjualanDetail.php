@@ -11,6 +11,7 @@ class PenjualanDetail extends Model
 
     protected $fillable = [
         'id_penjualan',
+        'id_gudang',
         'tipe_item',
         'item_id',
         'nama_item',
@@ -46,6 +47,11 @@ class PenjualanDetail extends Model
     public function barang(): BelongsTo
     {
         return $this->belongsTo(BarangBibit::class, 'id_barang');
+    }
+
+    public function gudang(): BelongsTo
+    {
+        return $this->belongsTo(Gudang::class, 'id_gudang');
     }
 
     public function botol(): BelongsTo

@@ -212,7 +212,7 @@ class ReportController extends Controller
             $formattedFilters = $this->formatFiltersForExport($filters);
             $filename = str($title)->slug();
             if ($request->query('export') === 'excel') {
-                return Excel::download(new ReportExport($title, $formattedFilters, $columns, $rows), $filename.'.xlsx');
+                return Excel::download(new \App\Exports\SupplierStockExport(['title' => $title, 'filters' => $formattedFilters, 'columns' => $columns, 'rows' => $rows]), $filename.'.xlsx');
             }
             $orientation = $request->query('orientation') === 'portrait' ? 'portrait' : 'landscape';
             return Pdf::loadView('exports.supplier_stock', ['title' => $title, 'filters' => $formattedFilters, 'columns' => $columns, 'rows' => $rows])
@@ -220,7 +220,8 @@ class ReportController extends Controller
         }
         return Inertia::render('admin/business/SupplierStockReportPage', [
             'type' => $type, 'title' => $title, 'filters' => $filters, 'searched' => $searched,
-            'rows' => $searched ? $query->paginate($this->perPage())->withQueryString() : [],
+            'rows' => $searched ? (clone $query)->where('l.unit', 'ML')->paginate($this->perPage())->withQueryString() : [],
+            'botolRows' => $searched ? (clone $query)->where('l.unit', 'PCS')->paginate($this->perPage(), ['*'], 'botol_page')->withQueryString() : [],
             'suppliers' => Supplier::query()->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
             'warehouses' => Gudang::query()->orderBy('nama_gudang')->get(['id', 'nama_gudang']),
         ]);
@@ -233,7 +234,7 @@ class ReportController extends Controller
                 ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
                 ->when($filters['validation_type'] ?? null, fn ($query, $value) => $query->where('type', $value))->latest('id'),
             'pembelian' => $this->applyPurchaseFilters(Pembelian::query()->with(['supplier', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong']), $filters)->latest('id'),
-            'penjualan', 'laba-kotor' => $this->applySalesFilters(Penjualan::query()->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong']), $filters)->latest('id'),
+            'penjualan', 'laba-kotor' => $this->applySalesFilters(Penjualan::query()->with(['customer', 'sales', 'gudang', 'details.gudang', 'details.barang', 'details.botol', 'details.botolKosong']), $filters)->latest('id'),
             'stok' => $this->stockReportQuery($filters),
             'mutasi-stok' => $this->applyMutationFilters(MutasiStok::query()->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant']), $filters)->latest('id'),
             'barang-summary' => $this->stockSummaryQuery($filters),
@@ -486,7 +487,10 @@ class ReportController extends Controller
     {
         return $this->applyDateRange($query, $filters)
             ->when($filters['id_customer'] ?? null, fn (Builder $query, string $value) => $query->where('id_customer', $value))
-            ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where('id_gudang', $value))
+            ->when($filters['id_gudang'] ?? null, fn (Builder $query, string $value) => $query->where(function (Builder $warehouses) use ($value): void {
+                $warehouses->whereHas('details', fn (Builder $detail) => $detail->where('id_gudang', $value))
+                    ->orWhere(fn (Builder $legacy) => $legacy->where('id_gudang', $value)->whereDoesntHave('details', fn (Builder $detail) => $detail->whereNotNull('id_gudang')));
+            }))
             ->when($filters['status'] ?? null, fn (Builder $query, string $value) => $query->where('status_pembayaran', $value))
             ->when($filters['tipe_penjualan'] ?? null, fn (Builder $query, string $value) => $query->where('tipe_penjualan', $value))
             ->when(in_array($filters['jenis_barang'] ?? null, ['BIBIT', 'ABSOLUTE'], true), fn (Builder $query) => $query->whereHas('details.barang', fn (Builder $barang) => $barang->where('jenis_barang', $filters['jenis_barang'])))
@@ -893,7 +897,7 @@ class ReportController extends Controller
             return [
                 ['key' => 'no_penjualan', 'label' => 'No Penjualan'],
                 ['label' => 'Customer', 'format' => fn ($row) => $row->customer?->nama_customer ?? '-'],
-                ['label' => 'Gudang', 'format' => fn ($row) => $row->gudang?->nama_gudang ?? '-'],
+                ['label' => 'Gudang', 'format' => fn ($row) => $row->warehouse_label],
                 ['label' => 'Detail Barang', 'format' => fn ($row) => $this->detailText($row)],
                 ['label' => 'Diskon', 'format' => fn ($row) => $this->fmt((float) $row->discount, true)],
                 ['label' => 'Penjualan', 'format' => fn ($row) => $this->fmt((float) $row->total_penjualan, true)],

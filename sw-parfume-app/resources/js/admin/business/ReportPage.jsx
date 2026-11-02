@@ -613,7 +613,7 @@ function columns(type) {
     if (type === "penjualan") return [
         { key: "no_penjualan", label: "No Penjualan" },
         { key: "customer", label: "Customer", render: (row) => row.customer?.nama_customer || "-" },
-        { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
+        { key: "gudang", label: "Gudang", render: (row) => row.warehouse_label || row.gudang?.nama_gudang || "-" },
         { key: "details", label: "Detail Barang", render: detailItems },
         { key: "discount", label: "Diskon", render: (row) => money(row.discount) },
         { key: "total_penjualan", label: "Penjualan", render: (row) => money(row.total_penjualan) },

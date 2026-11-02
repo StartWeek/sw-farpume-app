@@ -45,6 +45,7 @@
                     <td>
                         <div class="bold">{{ $item['name'] }}</div>
                         <div class="muted">Kode / Barcode: {{ $item['code'] ?? '-' }}</div>
+                        @if(!empty($item['warehouse']))<div class="muted">Gudang: {{ $item['warehouse'] }}</div>@endif
                         @if(!empty($item['variant']))<div class="muted">{{ $item['variant'] }}</div>@endif
                     </td>
                     <td class="right">{{ $quantity($item['qty']) }} {{ $item['unit'] }}</td>

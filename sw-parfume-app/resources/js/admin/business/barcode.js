@@ -45,9 +45,6 @@ export function purchaseWarehouse(item, bottle, warehouses, warehouseId) {
     if (warehouse.tipe_gudang !== (bottle ? "BOTOL" : "BIBIT")) {
         throw new Error("Jenis gudang tujuan tidak sesuai dengan barang. Pisahkan pembelian cairan dan botol kosong.");
     }
-    if (bottle && Number(item.id_gudang) !== Number(warehouse.id)) {
-        throw new Error("Botol kosong tidak berada di gudang tujuan yang dipilih.");
-    }
     return warehouse;
 }
 
@@ -60,16 +57,15 @@ export function availableBarcodeItems({ barang = [], bottles = [], warehouses = 
         if (row.status && row.status !== "AKTIF") return [];
         const code = String(type === "BOTOL" ? row.kode_botol || row.barcode || "" : row.kode_barang || row.barcode || "").trim();
         if (!code) return [];
-        const [warehouse] = purchase
+        const [warehouse] = (purchase || warehouseId)
             ? warehouses.filter((entry) => Number(entry.id) === Number(warehouseId)
                 && (!entry.status || entry.status === "AKTIF")
-                && entry.tipe_gudang === (type === "BOTOL" ? "BOTOL" : "BIBIT")
-                && (type !== "BOTOL" || Number(row.id_gudang) === Number(entry.id)))
+                && entry.tipe_gudang === (type === "BOTOL" ? "BOTOL" : "BIBIT"))
             : automaticWarehouseOptions(row, type === "BOTOL", warehouses, stocks);
         if (!warehouse || (warehouseId && Number(warehouseId) !== Number(warehouse.id))
             || (supplierWarehouseId && Number(supplierWarehouseId) !== Number(warehouse.id))) return [];
         const stock = type === "BOTOL"
-            ? Number(row.stock || 0)
+            ? (Array.isArray(row.warehouse_stocks) ? Number(row.warehouse_stocks.find((entry) => Number(entry.id_gudang) === Number(warehouse.id))?.quantity || 0) : Number(row.stock || 0))
             : stocks.filter((entry) => Number(entry.id_barang) === Number(row.id) && Number(entry.id_gudang) === Number(warehouse.id))
                 .reduce((sum, entry) => sum + Number(entry.stok_ml || 0), 0);
         if (!Number.isFinite(stock) || (!purchase && !incoming && stock <= 0)) return [];

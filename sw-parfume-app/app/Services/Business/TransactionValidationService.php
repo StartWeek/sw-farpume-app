@@ -33,6 +33,8 @@ class TransactionValidationService
         'penjualan-retail' => ['label' => 'Penjualan Retail', 'access' => 'penjualan-retail'],
         'penjualan-sales' => ['label' => 'Penjualan Sales', 'access' => 'penjualan-grosir'],
         'penjualan-botol' => ['label' => 'Penjualan Botol Kosong', 'access' => 'penjualan-retail'],
+        'pindah-stok' => ['label' => 'Pindah Gudang Cairan', 'access' => 'mutasi-stok'],
+        'pindah-botol' => ['label' => 'Pindah Gudang Botol Kosong', 'access' => 'mutasi-stok'],
         'mutasi-stok' => ['label' => 'Mutasi Stok Isi', 'access' => 'mutasi-stok'],
         'mutasi-botol' => ['label' => 'Mutasi Botol Kosong', 'access' => 'mutasi-stok'],
         'hancur-stock' => ['label' => 'Hancur Stok Isi', 'access' => 'hancur-stock'],
@@ -181,24 +183,31 @@ class TransactionValidationService
             }
         } elseif ($trade) {
             $locations = [];
-            foreach ($payload['items'] as $item) {
+            foreach ($payload['items'] as $index => $item) {
                 $bottle = ($item['tipe_item'] ?? 'BIBIT') === 'BOTOL';
                 $record = $bottle ? BotolKosong::query()->findOrFail($item['item_id']) : BarangBibit::query()->findOrFail($item['item_id']);
-                $locations[] = $this->itemWarehouse($record, $bottle);
+                $warehouseId = $item['id_gudang'] ?? $payload['id_gudang'] ?? null;
+                $resolved = $warehouseId ? $this->checkedWarehouse((int) $warehouseId, $bottle) : $this->itemWarehouse($record, $bottle);
+                if (array_key_exists('id_gudang', $item) || empty($payload['id_gudang'])) {
+                    $payload['items'][$index]['id_gudang'] = $resolved;
+                }
+                $locations[] = $resolved;
             }
-            if (count(array_unique($locations)) !== 1) throw ValidationException::withMessages(['items' => 'Barang berasal dari gudang berbeda. Buat transaksi terpisah.']);
-            $resolved = $locations[0];
-            if (!empty($payload['id_gudang']) && (int) $payload['id_gudang'] !== $resolved) throw ValidationException::withMessages(['items' => 'Gudang barang telah berubah. Periksa master dan ajukan ulang transaksi.']);
-            $payload['id_gudang'] = $resolved;
-        } elseif (in_array($type, ['mutasi-stok', 'hancur-stock', 'mutasi-botol', 'hancur-botol'], true)) {
-            $bottle = in_array($type, ['mutasi-botol', 'hancur-botol'], true);
+            $payload['id_gudang'] = $locations[0];
+        } elseif (in_array($type, ['mutasi-stok', 'hancur-stock', 'mutasi-botol', 'hancur-botol', 'pindah-stok', 'pindah-botol'], true)) {
+            $bottle = in_array($type, ['mutasi-botol', 'hancur-botol', 'pindah-botol'], true);
             $record = $bottle ? BotolKosong::query()->findOrFail($payload['id_barang']) : BarangBibit::query()->findOrFail($payload['id_barang']);
-            $resolved = $this->itemWarehouse($record, $bottle);
+            $resolved = !empty($payload['id_gudang']) ? $this->checkedWarehouse((int) $payload['id_gudang'], $bottle) : $this->itemWarehouse($record, $bottle);
             if (!empty($payload['id_gudang']) && (int) $payload['id_gudang'] !== $resolved) throw ValidationException::withMessages(['items' => 'Gudang barang telah berubah. Periksa master dan ajukan ulang transaksi.']);
             $payload['id_gudang'] = $resolved;
         }
+        if (in_array($type, ['pindah-stok', 'pindah-botol'], true)) {
+            $target = $this->checkedWarehouse((int) ($payload['id_gudang_tujuan'] ?? 0), $type === 'pindah-botol');
+            if ($target === (int) $payload['id_gudang']) throw ValidationException::withMessages(['id_gudang_tujuan' => 'Gudang tujuan harus berbeda dari sumber.']);
+        }
 
         $incomingInventory = in_array($type, ['mutasi-stok', 'mutasi-botol'], true) && ($payload['tipe_mutasi'] ?? '') === 'MASUK';
+        if (!$incomingInventory && in_array($type, ['mutasi-stok', 'mutasi-botol', 'hancur-stock', 'hancur-botol', 'pindah-stok', 'pindah-botol'], true)) unset($payload['id_supplier']);
         if ($incomingInventory) {
             $supplier = Supplier::query()->where('status', 'AKTIF')->find($payload['id_supplier'] ?? null);
             if (!$supplier) throw ValidationException::withMessages(['id_supplier' => 'Supplier asal stok wajib dipilih.']);
@@ -208,6 +217,7 @@ class TransactionValidationService
             'label' => self::TYPES[$type]['label'],
             'supplier' => !empty($payload['id_supplier']) ? Supplier::query()->findOrFail($payload['id_supplier'])->nama_supplier : null,
             'party' => $payload['pihak'] ?? '-',
+            'warehouse_target' => !empty($payload['id_gudang_tujuan']) ? Gudang::query()->findOrFail($payload['id_gudang_tujuan'])->nama_gudang : null,
             'warehouse' => ! empty($payload['id_gudang']) ? Gudang::query()->findOrFail($payload['id_gudang'])->nama_gudang : null,
             'payment_method' => $payload['metode_pembayaran'] ?? null,
             'sales' => ! empty($payload['id_sales']) ? Sales::query()->findOrFail($payload['id_sales'])->nama_sales : null,
@@ -230,15 +240,17 @@ class TransactionValidationService
             foreach ($payload['items'] as $item) {
                 if (($item['tipe_item'] ?? 'BIBIT') === 'BOTOL') {
                     $bottle = BotolKosong::query()->findOrFail($item['item_id'] ?? $item['id_botol']);
-                    if ((int) $bottle->id_gudang !== (int) $payload['id_gudang']) {
-                        throw ValidationException::withMessages(['items' => 'Botol kosong tidak berada di gudang yang dipilih.']);
-                    }
                 }
             }
             $preview = $this->business->previewTransaction($payload, $type === 'pembelian');
             $payload = $preview['payload'];
             $snapshot = [...$snapshot, ...$preview['snapshot']];
-            if ($type !== 'pembelian') $this->ensureStockAvailable((int) $payload['id_gudang'], $snapshot['items']);
+            if ($type !== 'pembelian') {
+                foreach (collect($snapshot['items'])->groupBy(fn (array $item) => $item['warehouse_id'] ?? $payload['id_gudang']) as $warehouseId => $items) {
+                    $this->ensureStockAvailable((int) $warehouseId, $items->all());
+                }
+                $snapshot['warehouse'] = collect($snapshot['items'])->map(fn (array $item) => $item['warehouse'] ?? $snapshot['warehouse'])->filter()->unique()->implode(', ');
+            }
         } elseif (str_starts_with($type, 'bayar-')) {
             $record = $this->paymentRecord($type, (int) $payload['record_id']);
             $snapshot['amount'] = (float) $payload['jumlah_bayar'];
@@ -249,8 +261,8 @@ class TransactionValidationService
             if ($snapshot['amount'] > $remaining) {
                 throw ValidationException::withMessages(['jumlah_bayar' => 'Jumlah pembayaran melebihi sisa hutang/piutang saat ini.']);
             }
-        } elseif (in_array($type, ['mutasi-stok', 'hancur-stock', 'mutasi-botol', 'hancur-botol'], true)) {
-            $bottle = in_array($type, ['mutasi-botol', 'hancur-botol'], true);
+        } elseif (in_array($type, ['mutasi-stok', 'hancur-stock', 'mutasi-botol', 'hancur-botol', 'pindah-stok', 'pindah-botol'], true)) {
+            $bottle = in_array($type, ['mutasi-botol', 'hancur-botol', 'pindah-botol'], true);
             if (! $bottle) {
                 if ($payload['tipe_mutasi'] === 'MASUK') {
                     unset($payload['qty_ml']);
@@ -261,9 +273,6 @@ class TransactionValidationService
             $item = $bottle ? BotolKosong::query()->findOrFail($payload['id_barang']) : BarangBibit::query()->findOrFail($payload['id_barang']);
             if (! $bottle && $payload['tipe_mutasi'] === 'MASUK') {
                 $payload['id_botol'] = ! empty($payload['id_botol']) ? (int) $payload['id_botol'] : $item->id_botol;
-            }
-            if ($bottle && (int) $item->id_gudang !== (int) $payload['id_gudang']) {
-                throw ValidationException::withMessages(['id_barang' => 'Botol kosong tidak berada di gudang yang dipilih.']);
             }
             $qty = (float) ($payload['qty_ml'] ?? $payload['jumlah_botol'] ?? 0);
             $baseQty = $qty;
@@ -289,7 +298,7 @@ class TransactionValidationService
                     'name' => $bottle ? $item->nama_botol : $item->nama_barang, 'item_id' => $item->id,
                     'base_qty' => $baseQty, 'base_unit' => $bottle ? 'BOTOL' : 'ML',
                     'variant_id' => $payload['id_botol'] ?? null,
-                ]], true);
+                ]], !in_array($type, ['pindah-stok', 'pindah-botol'], true));
             }
 
         } else {
@@ -306,6 +315,14 @@ class TransactionValidationService
             'bayar-piutang' => Piutang::query()->with('customer')->lockForUpdate()->findOrFail($id),
             'bayar-piutang-supplier' => PiutangSupplier::query()->with('supplier')->lockForUpdate()->findOrFail($id),
         };
+    }
+
+    private function checkedWarehouse(int $id, bool $bottle): int
+    {
+        if (!Gudang::query()->whereKey($id)->where('status', 'AKTIF')->where('tipe_gudang', $bottle ? 'BOTOL' : 'BIBIT')->exists()) {
+            throw ValidationException::withMessages(['id_gudang' => 'Gudang transaksi tidak aktif atau tidak sesuai jenis barang.']);
+        }
+        return $id;
     }
 
     private function itemWarehouse(Model $item, bool $bottle): int
@@ -334,7 +351,7 @@ class TransactionValidationService
             $requested = (float) $item['base_qty'];
             if ($item['base_unit'] === 'BOTOL') {
                 $id = $item['item_id'];
-                $bottles[$id] ??= (float) BotolKosong::query()->whereKey($id)->where('id_gudang', $warehouse)->value('stock');
+                $bottles[$id] ??= (float) DB::table('tt_stok_supplier')->where('item_type', 'BOTOL')->where('item_id', $id)->where('id_gudang', $warehouse)->sum('qty_remaining');
                 $available = $bottles[$id];
                 $bottles[$id] = round($bottles[$id] - $requested, 2);
             } else {
@@ -358,6 +375,7 @@ class TransactionValidationService
         return match ($type) {
             'pembelian' => $this->business->createPembelian($payload),
             'penjualan-retail', 'penjualan-sales', 'penjualan-botol' => $this->business->createPenjualan($payload),
+            'pindah-stok', 'pindah-botol' => app(SupplierStockService::class)->transfer($payload, $type === 'pindah-botol'),
             'mutasi-stok', 'hancur-stock' => $this->business->createStockMutation($payload),
             'mutasi-botol', 'hancur-botol' => $this->postBottleMutation($payload, $type === 'hancur-botol' ? 'DESTROY' : 'ADJUSTMENT'),
             'hutang-supplier' => $this->business->createHutangSupplier($payload),

@@ -50,7 +50,7 @@ class TransactionController extends Controller
         return Inertia::render('admin/business/TransactionPage', [
             'type' => $type === 'grosir' ? 'sales' : $type,
             'rows' => $this->paymentHistory->attach(Penjualan::query()
-                ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
+                ->with(['customer', 'sales', 'gudang', 'details.gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
                 ->where('tipe_penjualan', $salesType)
                 ->latest('id')
                 ->paginate($this->perPage())
@@ -60,13 +60,17 @@ class TransactionController extends Controller
         ]);
     }
 
-    public function penjualanBotolKosong(): Response
+    public function penjualanBotolKosong(Request $request): Response
     {
         return Inertia::render('admin/business/TransactionPage', [
             'type' => 'botol-kosong',
+            'mode' => 'history',
             'rows' => $this->paymentHistory->attach(Penjualan::query()
-                ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
+                ->with(['customer', 'sales', 'gudang', 'details.gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
                 ->where('tipe_penjualan', 'BOTOL_KOSONG')
+                ->when($request->tanggal_dari, fn ($query) => $query->whereDate('tanggal', '>=', $request->tanggal_dari))
+                ->when($request->tanggal_sampai, fn ($query) => $query->whereDate('tanggal', '<=', $request->tanggal_sampai))
+                ->when($request->search, fn ($query) => $query->where('no_penjualan', 'like', "%{$request->search}%"))
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(), 'bayar-piutang', 'piutang'),
@@ -102,7 +106,7 @@ class TransactionController extends Controller
         $salesType = $type === 'retail' ? 'RETAIL' : 'GROSIR';
 
         $rows = Penjualan::query()
-            ->with(['customer', 'sales', 'gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
+            ->with(['customer', 'sales', 'gudang', 'details.gudang', 'details.barang', 'details.botol', 'details.botolKosong', 'details.botolVariant', 'piutang'])
             ->where('tipe_penjualan', $salesType)
             ->when($request->tanggal_dari, fn ($q) => $q->whereDate('tanggal', '>=', $request->tanggal_dari))
             ->when($request->tanggal_sampai, fn ($q) => $q->whereDate('tanggal', '<=', $request->tanggal_sampai))
@@ -208,7 +212,7 @@ class TransactionController extends Controller
         return [
             'barang' => BarangBibit::query()->with(['brand', 'botol', 'suppliers:id,nama_supplier'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
-            'botol_kosong' => BotolKosong::query()->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
+            'botol_kosong' => app(\App\Services\Business\SupplierStockService::class)->withBottleLocations(BotolKosong::query()->where('status', 'AKTIF')->orderBy('nama_botol')->get()),
             'gudang' => $gudangQuery->orderBy('nama_gudang')->get(),
             'supplier' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(),
             'customer' => Customer::query()->where('status', 'AKTIF')->orderBy('nama_customer')->get(),
@@ -233,7 +237,7 @@ class TransactionController extends Controller
             'details.botolKosong',
             'details.botolVariant',
             $type === 'pembelian' ? 'supplier' : 'customer',
-            ...($type === 'penjualan' ? ['sales'] : []),
+            ...($type === 'penjualan' ? ['sales', 'details.gudang'] : []),
         ]);
 
         if ($type === 'pembelian') {
@@ -302,23 +306,24 @@ class TransactionController extends Controller
             'party_label' => 'Customer',
             'party_name' => $transaction->customer?->nama_customer ?? $transaction->manual_customer_name ?? '-',
             'sales' => $transaction->sales?->nama_sales ?? '-',
-            'warehouse' => $transaction->gudang?->nama_gudang ?? '-',
+            'warehouse' => $transaction->warehouse_label,
             'payment_method' => $transaction->metode_pembayaran,
             'payment_details' => $transaction->payment_details,
             'payment_status' => $transaction->status_pembayaran,
             'amount_paid' => (float) $transaction->jumlah_bayar,
             'remaining' => max(0, (float) $transaction->total_penjualan - (float) $transaction->jumlah_bayar),
             'notes' => $transaction->keterangan,
-            'items' => $transaction->details->map(function ($detail) {
+            'items' => $transaction->details->map(function ($detail) use ($transaction) {
                 $variant = $detail->botolVariant;
 
                 return [
+                    'warehouse' => $detail->gudang?->nama_gudang ?? $transaction->gudang?->nama_gudang,
                     'code' => $detail->tipe_item === 'BOTOL'
                         ? ($detail->botolKosong?->kode_botol ?? $detail->botol?->kode_botol)
                         : $detail->barang?->kode_barang,
                     'name' => $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botolKosong?->nama_botol ?? $detail->botol?->nama_botol ?? '-',
                     'qty' => (float) ($detail->qty_input ?: $detail->konversi_qty_dasar ?: $detail->qty_ml),
-                    'unit' => $detail->satuan_input ?? 'ML',
+                    'unit' => $detail->satuan_dasar === 'ML' && $detail->satuan_input === 'BOTOL' ? 'BOTOL ISI' : ($detail->satuan_input ?? 'ML'),
                     'variant' => $variant ? $variant->nama_botol : null,
                     'price' => (float) ($detail->harga ?: $detail->harga_jual_per_ml),
                     'price_unit' => $detail->satuan_dasar === 'ML' ? 'ML' : ($detail->satuan_input ?? 'BOTOL'),
@@ -403,7 +408,8 @@ class TransactionController extends Controller
             'jatuh_tempo' => ['nullable', 'date'],
             'keterangan' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.tipe_item' => ['required', 'in:BIBIT,ABSOLUTE'],
+            'items.*.tipe_item' => ['required', 'in:BIBIT,ABSOLUTE,BOTOL'],
+            'items.*.id_gudang' => ['nullable', 'integer', 'exists:tm_gudang,id'],
             'items.*.item_id' => ['required', 'integer'],
             'items.*.id_barang' => ['nullable', 'exists:tm_barang_bibit,id'],
             'items.*.id_botol' => ['nullable', 'exists:tm_botol,id'],

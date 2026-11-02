@@ -20,12 +20,13 @@ class SupplierStockService
         $query = DB::table('tt_stok_supplier')->where('item_type', $type)->where('item_id', $itemId)
             ->where('id_gudang', $warehouse)->where('id_botol', $variant ?: null);
         if ($delta > 0) {
-            $supplier = Supplier::query()->where('status', 'AKTIF')->find($meta['id_supplier'] ?? null);
-            if (!$supplier) throw ValidationException::withMessages(['id_supplier' => 'Pilih supplier asal stok yang aktif.']);
+            $transfer = ($meta['sumber_transaksi'] ?? '') === 'TRANSFER';
+            $supplier = Supplier::query()->when(!$transfer, fn ($q) => $q->where('status', 'AKTIF'))->find($meta['id_supplier'] ?? null);
+            if (!$supplier && !$transfer) throw ValidationException::withMessages(['id_supplier' => 'Pilih supplier asal stok yang aktif.']);
             $item = $type === 'BOTOL' ? BotolKosong::query()->findOrFail($itemId) : BarangBibit::query()->findOrFail($itemId);
             $id = DB::table('tt_stok_supplier')->insertGetId([
                 'item_type' => $type, 'item_id' => $itemId, 'id_gudang' => $warehouse,
-                'id_supplier' => $supplier->id, 'id_botol' => $variant ?: null, 'supplier_name' => $supplier->nama_supplier,
+                'id_supplier' => $supplier?->id ?? ($transfer ? ($meta['id_supplier'] ?? null) : null), 'id_botol' => $variant ?: null, 'supplier_name' => ($transfer ? ($meta['supplier_name'] ?? null) : null) ?? $supplier?->nama_supplier ?? 'Saldo awal — supplier belum diketahui',
                 'kode_barang' => $item->kode_barang ?? $item->kode_botol, 'nama_barang' => $item->nama_barang ?? $item->nama_botol,
                 'unit' => $type === 'BOTOL' ? 'PCS' : 'ML', 'tanggal' => $date,
                 'reference' => $meta['no_transaksi'] ?? 'MANUAL', 'qty_received' => $quantity, 'qty_remaining' => $quantity,
@@ -48,6 +49,37 @@ class SupplierStockService
         }
     }
 
+    public function transfer(array $payload, bool $bottle): \Illuminate\Database\Eloquent\Model
+    {
+        return DB::transaction(function () use ($payload, $bottle) {
+            $type = $bottle ? 'BOTOL' : 'BIBIT';
+            $remaining = round((float) ($bottle ? $payload['jumlah_botol'] : $payload['qty_ml']), 2);
+            $lots = DB::table('tt_stok_supplier')->where('item_type', $type)->where('item_id', $payload['id_barang'])
+                ->where('id_gudang', $payload['id_gudang'])->where('qty_remaining', '>', 0)
+                ->when(!$bottle && !empty($payload['id_botol']), fn ($q) => $q->where('id_botol', $payload['id_botol']))
+                ->orderBy('tanggal')->orderBy('id')->lockForUpdate()->get();
+            if (round($lots->sum('qty_remaining'), 2) < $remaining) throw ValidationException::withMessages(['items' => 'Stok gudang sumber tidak cukup untuk dipindahkan.']);
+            $business = app(BusinessService::class);
+            foreach ($lots as $lot) {
+                $take = min($remaining, (float) $lot->qty_remaining);
+                $meta = ['supplier_name' => $lot->supplier_name, 'id_supplier' => $lot->id_supplier, 'sumber_transaksi' => 'TRANSFER', 'no_transaksi' => $payload['no_transaksi'], 'created_by' => $payload['created_by'], 'keterangan' => $payload['keterangan'] ?? 'Pindah gudang'];
+                if ($bottle) {
+                    foreach (['KELUAR' => $payload['id_gudang'], 'MASUK' => $payload['id_gudang_tujuan']] as $direction => $warehouse) {
+                        $business->adjustBotolKosongStock([...$meta, 'id_barang' => $lot->item_id, 'id_gudang' => $warehouse, 'tipe_mutasi' => $direction, 'jumlah_botol' => $take]);
+                    }
+                } else {
+                    $business->replaceStock((int) $payload['id_gudang'], (int) $lot->item_id, -$take, $meta, $lot->id_botol);
+                    $business->replaceStock((int) $payload['id_gudang_tujuan'], (int) $lot->item_id, $take, $meta, $lot->id_botol);
+                }
+                $remaining = round($remaining - $take, 2);
+                if ($remaining <= 0) break;
+            }
+            $result = $bottle ? BotolKosong::query()->findOrFail($payload['id_barang']) : \App\Models\Business\StokGudang::query()->where('id_gudang', $payload['id_gudang_tujuan'])->where('id_barang', $payload['id_barang'])->firstOrFail();
+            $result->setAttribute('no_transaksi', $payload['no_transaksi']);
+            return $result;
+        });
+    }
+
     private function journal(int $lot, string $date, string $direction, float $quantity, float $before, float $after, array $meta): void
     {
         DB::table('tt_mutasi_stok_supplier')->insert([
@@ -57,6 +89,16 @@ class SupplierStockService
             'created_by' => $meta['created_by'] ?? null, 'notes' => $meta['keterangan'] ?? null,
             'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    public function withBottleLocations(\Illuminate\Support\Collection $bottles): \Illuminate\Support\Collection
+    {
+        $locations = DB::table('tt_stok_supplier')->where('item_type', 'BOTOL')->whereIn('item_id', $bottles->pluck('id'))
+            ->select('item_id', 'id_gudang')->selectRaw('SUM(qty_remaining) as quantity')->groupBy('item_id', 'id_gudang')->get()->groupBy('item_id');
+        return $bottles->map(function ($bottle) use ($locations) {
+            $bottle->setAttribute('warehouse_stocks', $locations->get($bottle->id, collect())->values());
+            return $bottle;
+        });
     }
 
     public function query(string $mode, array $filters = []): Builder

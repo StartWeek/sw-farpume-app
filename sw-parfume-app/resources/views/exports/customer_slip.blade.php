@@ -56,6 +56,7 @@ if (isset($validation)) {
 @if(!empty($receipt['items']))<div class="rule"></div>@endif
 @foreach($receipt['items'] ?? [] as $item)
 <div class="item"><strong>{{ $item['name'] }}</strong><p class="muted">Kode / Barcode: {{ $item['code'] ?? '-' }}</p>@if(!empty($item['variant']))<p class="muted">{{ $item['variant'] }}</p>@endif<div class="line"><span>{{ $n($item['qty']) }} {{ $item['unit'] }}</span>@if(isset($item['subtotal']))<span>{{ $rp($item['subtotal']) }}</span>@endif</div>@if(isset($item['price']))<p class="muted">{{ $rp($item['price']) }} / {{ $item['price_unit'] ?? $item['unit'] }}</p>@endif</div>
+@if(!empty($item['warehouse']))<p class="muted">Gudang: {{ $item['warehouse'] }}</p>@endif
 @endforeach
 <div class="rule"></div>
 @if(($receipt['discount'] ?? 0) > 0)<div class="line"><span>Diskon</span><span>{{ $rp($receipt['discount']) }}</span></div>@endif

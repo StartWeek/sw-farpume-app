@@ -52,7 +52,7 @@ class EnsureUserHasMenuAccess
             'business.barang.index', 'business.barang.store', 'business.barang.update', 'business.barang.destroy' => 'barang-bibit',
             'business.stock.index' => 'stok-gudang',
             'business.stock.low' => 'stok-menipis',
-            'business.mutation.index', 'business.mutation.store' => 'mutasi-stok',
+            'business.mutation.index', 'business.mutation.store', 'business.mutation.transfer' => 'mutasi-stok',
             'business.destroy-stock.index', 'business.destroy-stock.store' => 'hancur-stock',
             'business.pembelian.index', 'business.pembelian.store' => 'pembelian',
             'business.penjualan-botol-kosong.index', 'business.penjualan-botol-kosong.store' => 'penjualan-retail',

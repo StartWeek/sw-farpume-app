@@ -33,6 +33,7 @@ $date = fn($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('d-m-Y') : 
     @if(!empty($s['warehouse']) || !empty($s['sales']))
         <tr><td>@if(!empty($s['warehouse']))Gudang: {{ $s['warehouse'] }}@endif</td><td>@if(!empty($s['sales']))Sales: {{ $s['sales'] }}@endif</td></tr>
     @endif
+    @if(!empty($s['warehouse_target']))<tr><td colspan="2">Gudang tujuan: {{ $s['warehouse_target'] }}</td></tr>@endif
     @if($reference)<tr><td colspan="2">Referensi: {{ $reference }}</td></tr>@endif
     @if(!empty($s['payment_method']) || !empty($s['direction']) || !empty($s['due_date']))
         <tr><td>@if(!empty($s['payment_method']))Metode: {{ $s['payment_method'] === 'SPLIT' ? 'Cash + Transfer' : $s['payment_method'] }}@elseif(!empty($s['direction']))Arah: {{ $s['direction'] }}@endif</td><td>@if(!empty($s['due_date']))Jatuh tempo: {{ $date($s['due_date']) }}@endif</td></tr>

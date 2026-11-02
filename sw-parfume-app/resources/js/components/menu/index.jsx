@@ -157,12 +157,6 @@ export const menuAdmin = [
                 accessKey: "penjualan-grosir",
             },
             {
-                label: "Penjualan Botol Kosong",
-                icon: IconBottle,
-                href: "/admin/penjualan-botol-kosong",
-                accessKey: "penjualan-retail",
-            },
-            {
                 label: "Hutang Supplier",
                 icon: IconCreditCardPay,
                 href: "/admin/hutang",
@@ -199,6 +193,12 @@ export const menuAdmin = [
         label: "Riwayat Transaksi",
         icon: IconClipboardData,
         children: [
+            {
+                label: "Botol Kosong (Lama)",
+                icon: IconBottle,
+                href: "/admin/penjualan-botol-kosong",
+                accessKey: "penjualan-retail",
+            },
             {
                 label: "Lihat Pembelian Supplier",
                 icon: IconPackageImport,

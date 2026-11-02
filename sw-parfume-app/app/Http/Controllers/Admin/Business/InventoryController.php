@@ -36,7 +36,7 @@ class InventoryController extends Controller
             'barang' => BarangBibit::query()->with(['brand', 'botol', 'suppliers:id,nama_supplier'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
-            'botolKosong' => BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
+            'botolKosong' => app(\App\Services\Business\SupplierStockService::class)->withBottleLocations(BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get()),
             'stokGudangList' => StokGudang::query()->where('stok_ml', '>', 0)->get(['id_gudang', 'id_barang', 'id_botol', 'stok_ml']),
             // Untuk filter barang berdasarkan gudang saat tambah stok (BIBIT only)
             'stokGudangMap' => StokGudang::query()
@@ -74,7 +74,7 @@ class InventoryController extends Controller
             'barang' => BarangBibit::query()->with(['brand', 'botol', 'suppliers:id,nama_supplier'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
-            'botolKosong' => BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
+            'botolKosong' => app(\App\Services\Business\SupplierStockService::class)->withBottleLocations(BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get()),
             // Untuk filter barang berdasarkan gudang saat mutasi KELUAR
             'stokGudangMap' => StokGudang::query()
                 ->where('stok_ml', '>', 0)
@@ -82,6 +82,23 @@ class InventoryController extends Controller
                 ->groupBy('id_gudang')
                 ->map(fn ($items) => $items->pluck('id_barang')->unique()->values()),
         ]);
+    }
+
+    public function transfer(Request $request): RedirectResponse
+    {
+        $warehouse = Gudang::query()->where('status', 'AKTIF')->findOrFail($request->input('id_gudang'));
+        $bottle = $warehouse->tipe_gudang === 'BOTOL';
+        $payload = $request->validate([
+            'id_gudang' => ['required', 'exists:tm_gudang,id'],
+            'id_gudang_tujuan' => ['required', 'different:id_gudang', 'exists:tm_gudang,id'],
+            'id_barang' => ['required', $bottle ? 'exists:tm_botol_kosong,id' : 'exists:tm_barang_bibit,id'],
+            'id_botol' => ['nullable', 'exists:tm_botol,id'],
+            'jumlah_botol' => [$bottle ? 'required' : 'nullable', 'integer', 'min:1'],
+            'qty_ml' => [$bottle ? 'nullable' : 'required', 'numeric', 'min:0.01'],
+            'keterangan' => ['nullable', 'string', 'max:1000'],
+        ]);
+        $validation = $this->validations->submit($bottle ? 'pindah-botol' : 'pindah-stok', [...$payload, 'tipe_mutasi' => 'KELUAR'], $request->user());
+        return back()->with('success', TransactionValidationService::SUBMITTED_MESSAGE)->with('pendingValidation', $validation->only(['id', 'number', 'status', 'pdf_url', 'receipt_url']));
     }
 
     public function storeMutation(Request $request): RedirectResponse
@@ -159,7 +176,7 @@ class InventoryController extends Controller
             'barang' => BarangBibit::query()->with(['brand', 'botol', 'suppliers:id,nama_supplier'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
-            'botolKosong' => BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
+            'botolKosong' => app(\App\Services\Business\SupplierStockService::class)->withBottleLocations(BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get()),
             'stokGudangList' => StokGudang::query()->where('stok_ml', '>', 0)->get(['id_gudang', 'id_barang', 'id_botol', 'stok_ml']),
             'stokGudangMap' => StokGudang::query()
                 ->where('stok_ml', '>', 0)

@@ -61,6 +61,7 @@ Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group
     Route::get('/stok-gudang', [InventoryController::class, 'stock'])->name('business.stock.index');
     Route::get('/stok-menipis', [InventoryController::class, 'lowStock'])->name('business.stock.low');
     Route::get('/mutasi-stok', [InventoryController::class, 'mutations'])->name('business.mutation.index');
+    Route::post('/mutasi-stok/pindah', [InventoryController::class, 'transfer'])->name('business.mutation.transfer');
     Route::post('/mutasi-stok', [InventoryController::class, 'storeMutation'])->name('business.mutation.store');
     Route::get('/hancur-stock', [InventoryController::class, 'destroyStock'])->name('business.destroy-stock.index');
     Route::post('/hancur-stock', [InventoryController::class, 'storeDestroyStock'])->name('business.destroy-stock.store');
