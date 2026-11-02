@@ -61,24 +61,33 @@ class BusinessService
     public function createBarang(array $payload): BarangBibit
     {
         return DB::transaction(function () use ($payload) {
+            $supplierIds = $payload['supplier_ids'] ?? null;
+            unset($payload['supplier_ids']);
             $brand = Brand::query()->findOrFail($payload['id_brand']);
 
             if (BarangBibit::query()->where('id_brand', $brand->id)->where('nama_barang', $payload['nama_barang'])->exists()) {
                 throw ValidationException::withMessages(['nama_barang' => 'Nama barang sudah ada.']);
             }
 
-            return BarangBibit::query()->create([
+            $barang = BarangBibit::query()->create([
                 ...$payload,
                 'kode_barang' => $this->nextCode(BarangBibit::class, 'kode_barang', 'BRG'),
                 'jenis_barang' => $payload['jenis_barang'] ?? 'BIBIT',
                 'satuan_dasar' => 'ML',
             ]);
+            if ($supplierIds !== null) {
+                $barang->suppliers()->sync($supplierIds);
+            }
+
+            return $barang;
         });
     }
 
     public function updateBarang(BarangBibit $barang, array $payload): BarangBibit
     {
         return DB::transaction(function () use ($barang, $payload) {
+            $supplierIds = $payload['supplier_ids'] ?? null;
+            unset($payload['supplier_ids']);
             $brand = Brand::query()->findOrFail($payload['id_brand']);
 
             $exists = BarangBibit::query()
@@ -91,7 +100,7 @@ class BusinessService
                 throw ValidationException::withMessages(['nama_barang' => 'Nama barang sudah ada.']);
             }
 
-            $newBottleId = (int) $payload['id_botol'];
+            $newBottleId = (int) ($payload['id_botol'] ?? $barang->id_botol ?? 0);
             $currentBottleId = (int) ($barang->id_botol ?? 0);
             $existingStocks = $barang->stok()->where('stok_ml', '>', 0)->get();
             if ($currentBottleId > 0 && $currentBottleId !== $newBottleId && $existingStocks->isNotEmpty()) {
@@ -103,18 +112,20 @@ class BusinessService
                 'jenis_barang' => $payload['jenis_barang'] ?? 'BIBIT',
                 'satuan_dasar' => 'ML',
             ]);
+            if ($supplierIds !== null) {
+                $barang->suppliers()->sync($supplierIds);
+            }
 
             return $barang->refresh();
         });
     }
 
-    public function replaceStock(int $gudangId, int $barangId, float $qtyMl, array $meta, bool $skipBottleCheck = false, ?int $idBotol = 0): StokGudang
+    public function replaceStock(int $gudangId, int $barangId, float $qtyMl, array $meta, ?int $idBotol = null): StokGudang
     {
+        if (DB::transactionLevel() === 0) return DB::transaction(fn () => $this->replaceStock($gudangId, $barangId, $qtyMl, $meta, $idBotol));
+
         $barang = BarangBibit::query()->with('botol')->findOrFail($barangId);
-        if (! $skipBottleCheck && ! $idBotol && $barang->jenis_barang !== 'ABSOLUTE' && ! $barang->botol) {
-            throw ValidationException::withMessages(['items' => "Botol stok untuk {$barang->nama_barang} belum dipilih — pilih varian botol atau atur botol default di master barang."]);
-        }
-        $stock = StokGudang::query()->firstOrCreate(
+        $stock = StokGudang::query()->lockForUpdate()->firstOrCreate(
             ['id_gudang' => $gudangId, 'id_barang' => $barangId, 'id_botol' => $idBotol ?: null],
             ['stok_ml' => 0, 'stok_reserved_ml' => 0, 'minimum_stok_ml' => $barang->minimum_stok_ml]
         );
@@ -125,6 +136,8 @@ class BusinessService
         if ($after < 0) {
             throw ValidationException::withMessages(['items' => 'Stok barang tidak mencukupi.']);
         }
+
+        app(SupplierStockService::class)->move('BIBIT', $barangId, $gudangId, $idBotol, $qtyMl, $meta);
 
         $stock->update([
             'stok_ml' => $after,
@@ -141,7 +154,7 @@ class BusinessService
             'no_transaksi' => $meta['no_transaksi'] ?? 'MANUAL',
             'id_gudang' => $gudangId,
             'id_barang' => $barangId,
-            'id_botol' => $idBotol,
+            'id_botol' => $idBotol ?: null,
             'qty_ml' => abs($qtyMl),
             'stok_sebelum_ml' => $before,
             'stok_sesudah_ml' => $after,
@@ -235,8 +248,12 @@ class BusinessService
         $qtyMl = (float) ($payload['qty_ml'] ?? 0);
         $idBotol = isset($payload['id_botol']) ? (int) $payload['id_botol'] : null;
 
-        if ($multiplier === 1 && isset($payload['jumlah_botol'])) {
+        if ($multiplier === 1) {
             $barang = BarangBibit::query()->with('botol')->findOrFail($payload['id_barang']);
+            $idBotol = $idBotol ?: $barang->id_botol;
+        }
+
+        if ($multiplier === 1 && isset($payload['jumlah_botol'])) {
             if ($barang->jenis_barang === 'ABSOLUTE') {
                 $qtyMl = (float) $payload['jumlah_botol'];
             } else {
@@ -258,17 +275,19 @@ class BusinessService
             $qtyMl * $multiplier,
             [
                 'sumber_transaksi' => $payload['sumber_transaksi'] ?? 'ADJUSTMENT',
+                'id_supplier' => $payload['id_supplier'] ?? null,
                 'no_transaksi' => $payload['no_transaksi'] ?? 'MANUAL',
                 'keterangan' => $payload['keterangan'] ?? 'Input manual inventory',
                 'created_by' => $payload['created_by'] ?? auth()->user()?->name,
             ],
-            skipBottleCheck: true,
             idBotol: $idBotol,
         ));
     }
 
     public function adjustBotolKosongStock(array $payload): void
     {
+        if (DB::transactionLevel() === 0) { DB::transaction(fn () => $this->adjustBotolKosongStock($payload)); return; }
+
         $multiplier = ($payload['tipe_mutasi'] ?? 'MASUK') === 'KELUAR' ? -1 : 1;
         $qty = (int) $payload['jumlah_botol'] * $multiplier;
 
@@ -280,6 +299,11 @@ class BusinessService
             throw ValidationException::withMessages(['jumlah_botol' => 'Stok botol kosong tidak mencukupi.']);
         }
 
+        app(SupplierStockService::class)->move('BOTOL', $botol->id, (int) $botol->id_gudang, null, $qty, [
+            'id_supplier' => $payload['id_supplier'] ?? null, 'no_transaksi' => $payload['no_transaksi'] ?? 'MANUAL',
+            'sumber_transaksi' => $payload['sumber_transaksi'] ?? 'ADJUSTMENT', 'created_by' => $payload['created_by'] ?? auth()->user()?->name,
+            'keterangan' => $payload['keterangan'] ?? null,
+        ]);
         $botol->update(['stock' => $after]);
     }
 
@@ -531,12 +555,10 @@ class BusinessService
 
             // Penjualan (KELUAR) tanpa varian spesifik: cari stok dari baris varian manapun (FIFO)
             if ($direction === -1 && $idBotol === null) {
-                $stokTersedia = StokGudang::query()
-                    ->where('id_gudang', $gudangId)
-                    ->where('id_barang', (int) $detail['id_barang'])
-                    ->where('stok_ml', '>', 0)
-                    ->orderBy('id')
-                    ->get();
+                $stokTersedia = DB::table('tt_stok_supplier')->where('item_type', 'BIBIT')
+                    ->where('id_gudang', $gudangId)->where('item_id', (int) $detail['id_barang'])
+                    ->where('qty_remaining', '>', 0)->orderBy('tanggal')->orderBy('id')->lockForUpdate()
+                    ->select('id_botol')->selectRaw('qty_remaining as stok_ml')->get();
 
                 if ($stokTersedia->isEmpty()) {
                     throw ValidationException::withMessages(['items' => 'Stok barang tidak mencukupi.']);
@@ -551,11 +573,12 @@ class BusinessService
                         -$kurangi,
                         [
                             'sumber_transaksi' => $source,
+                            'id_supplier' => $payload['id_supplier'] ?? null,
                             'no_transaksi' => $number,
                             'keterangan' => $source === 'PEMBELIAN' ? 'Pembelian supplier' : 'POS penjualan',
                             'created_by' => $payload['created_by'] ?? auth()->user()?->name,
                         ],
-                        idBotol: (int) $stock->id_botol,
+                        idBotol: $stock->id_botol === null ? null : (int) $stock->id_botol,
                     );
                     $sisaDikurangi -= $kurangi;
                     if ($sisaDikurangi <= 0) {
@@ -576,6 +599,7 @@ class BusinessService
                 $direction * (float) $detail['konversi_qty_dasar'],
                 [
                     'sumber_transaksi' => $source,
+                            'id_supplier' => $payload['id_supplier'] ?? null,
                     'no_transaksi' => $number,
                     'keterangan' => $source === 'PEMBELIAN' ? 'Pembelian supplier' : 'POS penjualan',
                     'created_by' => $payload['created_by'] ?? auth()->user()?->name,
@@ -600,6 +624,10 @@ class BusinessService
         $before = (float) $botol->stock;
         $quantity = (float) $detail['konversi_qty_dasar'];
 
+        app(SupplierStockService::class)->move('BOTOL', $botol->id, $gudangId, null, $direction * $quantity, [
+            'id_supplier' => $payload['id_supplier'] ?? null, 'no_transaksi' => $number, 'sumber_transaksi' => $source,
+            'created_by' => $payload['created_by'] ?? auth()->user()?->name, 'keterangan' => $payload['keterangan'] ?? null,
+        ]);
         $botol->update(['stock' => $after]);
         TransaksiBotolKosong::query()->create([
             'tanggal' => $this->operationalDate()->toDateString(),
@@ -660,8 +688,31 @@ class BusinessService
         );
     }
 
+    private function ensurePurchaseSuppliers(array $payload): void
+    {
+        $supplier = Supplier::query()->where('status', 'AKTIF')->find($payload['id_supplier'] ?? null);
+        if (! $supplier) {
+            throw ValidationException::withMessages(['id_supplier' => 'Pilih supplier yang aktif.']);
+        }
+        $ids = collect($payload['items'])->reject(fn (array $item) => ($item['tipe_item'] ?? 'BIBIT') === 'BOTOL')
+            ->map(fn (array $item) => $item['item_id'] ?? $item['id_barang'])->unique();
+        $items = BarangBibit::query()->with('suppliers')->whereIn('id', $ids)->get()->keyBy('id');
+        foreach ($ids as $id) {
+            $barang = $items->get($id);
+            if (! $barang) {
+                throw ValidationException::withMessages(['items' => 'Barang pembelian sudah tidak tersedia. Muat ulang halaman.']);
+            }
+            if (! $barang->suppliers->contains('id', $supplier->id)) {
+                throw ValidationException::withMessages(['items' => "Supplier {$supplier->nama_supplier} belum dihubungkan ke {$barang->nama_barang}. Atur supplier di master Barang Bibit sebelum melakukan penerimaan."]);
+            }
+        }
+    }
+
     public function previewTransaction(array $payload, bool $purchase): array
     {
+        if ($purchase) {
+            $this->ensurePurchaseSuppliers($payload);
+        }
         if (in_array($payload['metode_pembayaran'], ['TEMPO', 'DP'], true) && empty($payload['jatuh_tempo'])) {
             throw ValidationException::withMessages(['jatuh_tempo' => 'Jatuh tempo wajib untuk pembayaran tempo atau DP.']);
         }
@@ -702,6 +753,7 @@ class BusinessService
         }
 
         return DB::transaction(function () use ($payload) {
+            $this->ensurePurchaseSuppliers($payload);
             $details = [];
             $totalQtyMl = 0;
             $totalQtyBotol = 0;

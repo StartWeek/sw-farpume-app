@@ -132,7 +132,7 @@
 
     @if(!empty($botolStockColumns))
         <h3>STOK ISI / CAIRAN</h3>
-        <p>Persediaan bibit dan absolute dalam ML. Perkiraan botol isi dihitung dari volume dibagi kapasitas botol, dibulatkan ke atas. Botol terakhir bisa terisi sebagian.</p>
+        <p>Saldo Inventory dan Pembelian dijumlahkan per barang dan gudang. Rincian varian botol tetap terpisah. Perkiraan wadah dijumlahkan per catatan varian yang memiliki kapasitas, dibulatkan ke atas. Botol terakhir bisa terisi sebagian.</p>
     @endif
 
     @if($portraitValidation ?? false)

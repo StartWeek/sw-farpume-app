@@ -173,7 +173,7 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolStoc
     const rowsArray = reportData(rows);
     const summaryFooter = type === "barang-summary" && rowsArray.length > 0 ? (
         <tr className="bg-amber-50 dark:bg-amber-900/20 font-semibold">
-            <td className="px-4 py-2 text-center text-[11px] uppercase tracking-widest text-muted" colSpan={4}>GRAND TOTAL</td>
+            <td className="px-4 py-2 text-center text-[11px] uppercase tracking-widest text-muted" colSpan={3}>GRAND TOTAL</td>
             <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Stok Awal ML"] || 0)}</td>
             <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Masuk ML"] || 0)}</td>
             <td className="px-4 py-2 text-right text-[11px] tabular-nums">{number(summary?.["Total Keluar ML"] || 0)}</td>
@@ -188,14 +188,6 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolStoc
         <ProtectedLayout title={titles[type] || "Laporan"}>
             <div className="space-y-5">
                 <PageHeader title={titles[type] || "Laporan"} subtitle={dynamicSubtitle} />
-                {type === "barang-summary" && (
-                    <Card className="space-y-2 text-sm">
-                        <h2 className="font-bold text-main">Ringkasan Pergerakan Stok</h2>
-                        <p className="text-muted">Melihat saldo awal, barang masuk, barang keluar, dan saldo akhir per barang, gudang, dan varian botol selama periode yang dipilih.</p>
-                        <p className="font-semibold text-main">Stok awal + masuk − keluar = stok akhir.</p>
-                        <p className="text-xs text-muted">Periode awal mengikuti tanggal operasional toko, bukan tanggal perangkat. Cairan dihitung dalam ML; botol kosong dalam PCS. Transaksi yang belum disetujui tidak menambah pergerakan stok.</p>
-                    </Card>
-                )}
                 <Card>
                     <form onSubmit={submit} className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-4">
@@ -380,11 +372,11 @@ export default function ReportPage({ type, rows = [], botolStock = [], botolStoc
                                         <div className="flex flex-wrap items-start justify-between gap-4">
                                             <div>
                                                 <h2 id="stock-content-heading" className="text-lg font-extrabold text-main">Stok Isi / Cairan</h2>
-                                                <p className="mt-1 text-sm text-muted">Stok ditampilkan per barang dan gudang dalam mililiter (ML).</p>
+                                                <p className="mt-1 text-sm text-muted">Stok Inventory dan Pembelian dijumlahkan per barang/barcode di gudang yang sama, dalam mililiter (ML).</p>
                                             </div>
                                         </div>
                                         <SimpleTable rows={rows} columns={columns("stok")} hidePagination />
-                                        <p className="text-xs leading-5 text-muted">Jumlah isi menunjukkan stok di tiap barang dan gudang. Perkiraan wadah adalah jumlah botol untuk menampung stok; botol terakhir bisa terisi sebagian.</p>
+                                        <p className="text-xs leading-5 text-muted">Buka rincian untuk melihat saldo tiap varian botol. Perkiraan wadah dijumlahkan per catatan varian yang memiliki kapasitas; botol terakhir bisa terisi sebagian. Gudang berbeda tidak digabung.</p>
                                         {!Array.isArray(rows) && rows ? <PaginationBar pagination={rows} /> : null}
                                     </section>
                                 </Card>
@@ -632,9 +624,19 @@ function columns(type) {
         { key: "kode_barang", label: "Kode / Barcode" },
         { key: "nama_item", label: "Barang" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
-        { key: "botol", label: "Kapasitas Botol", render: (row) => row.botol?.nama_botol || "-" },
+        { key: "variants", label: "Rincian Varian Botol", render: (row) => (
+            <details className="min-w-40">
+                <summary className="cursor-pointer rounded font-semibold text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Lihat rincian ({row.variants.length})</summary>
+                <ul className="mt-2 space-y-1 text-sm">
+                    {row.variants.map((variant) => <li key={variant.id}>
+                        {variant.nama_botol || "-"}: <span className="font-semibold tabular-nums">{number(variant.stok_ml)} ML</span>
+                        {variant.varian_ml > 0 && <span className="text-muted"> ({number(variant.stok_botol_isi)} botol)</span>}
+                    </li>)}
+                </ul>
+            </details>
+        ) },
         { key: "stok_ml", label: "Jumlah Isi (ML)", render: (row) => <span className="block text-right font-bold tabular-nums">{number(row.stok_ml)} ML</span> },
-        { key: "stok_botol_isi", label: "Perkiraan Wadah", render: (row) => <span className="block text-right tabular-nums">{Number(row.botol?.varian_ml) > 0 ? `${number(row.stok_botol_isi)} botol` : "-"}</span> },
+        { key: "stok_botol_isi", label: "Perkiraan Wadah", render: (row) => <span className="block text-right tabular-nums">{row.has_bottle_capacity ? `${number(row.stok_botol_isi)} botol` : "-"}</span> },
     ];
     if (type === "mutasi-stok") return [
         { key: "tanggal", label: "Tanggal" },
@@ -646,7 +648,6 @@ function columns(type) {
     ];
     if (type === "barang-summary") return [
         { key: "barcode", label: "Kode / Barcode", render: (row) => row.barang?.kode_barang || "-" },
-        { key: "varian", label: "Varian Botol", render: (row) => row.botol_variant?.nama_botol || row.barang?.botol?.nama_botol || "-" },
         { key: "barang", label: "Barang", render: (row) => row.barang?.nama_barang || "-" },
         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
         { key: "stok_awal_ml", label: "Stok Awal", render: (row) => number(row.stok_awal_ml) },

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Business\BarangBibit;
 use App\Models\Business\Brand;
 use App\Models\Business\Gudang;
+use App\Models\Business\Supplier;
 use App\Services\Business\BusinessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,12 +22,13 @@ class BarangBibitController extends Controller
     {
         return Inertia::render('admin/business/BarangBibitPage', [
             'rows' => BarangBibit::query()
-                ->with(['brand', 'gudang'])
+                ->with(['brand', 'gudang', 'suppliers'])
                 ->withSum('stok as stok_saat_ini_ml', 'stok_ml')
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
             'brand' => Brand::query()->where('status', 'AKTIF')->orderBy('nama_brand')->get(),
+            'supplier' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(['id', 'kode_supplier', 'nama_supplier']),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->where('tipe_gudang', 'BIBIT')->orderBy('nama_gudang')->get(['id', 'kode_gudang', 'nama_gudang', 'tipe_gudang']),
         ]);
     }
@@ -80,6 +82,8 @@ class BarangBibitController extends Controller
             'id_gudang' => ['nullable', Rule::exists('tm_gudang', 'id')->where('tipe_gudang', 'BIBIT')->where('status', 'AKTIF')],
             'id_botol' => ['nullable', 'exists:tm_botol,id'],
             'jenis_barang' => ['required', 'in:BIBIT,ABSOLUTE'],
+            'supplier_ids' => ['sometimes', 'array'],
+            'supplier_ids.*' => ['required', 'integer', 'distinct', Rule::exists('tm_supplier', 'id')->where('status', 'AKTIF')],
             'harga_beli_per_ml' => ['required', 'numeric', 'min:0.01'],
             'harga_jual_retail_per_ml' => ['required', 'numeric', 'min:0.01'],
             'harga_jual_grosir_per_ml' => ['required', 'numeric', 'min:0.01'],
@@ -109,6 +113,8 @@ class BarangBibitController extends Controller
             'minimum_stok_ml.numeric' => 'Minimum stok harus berupa angka.',
             'status.required' => 'Status belum dipilih.',
             'jenis_barang.required' => 'Jenis barang belum dipilih.',
+            'supplier_ids.*.exists' => 'Pilih supplier yang aktif.',
+            'supplier_ids.*.distinct' => 'Supplier tidak boleh dipilih lebih dari sekali.',
             'numeric' => 'Harus berupa angka.',
             'min' => 'Nilai minimal :min.',
         ];

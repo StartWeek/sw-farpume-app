@@ -6,7 +6,7 @@ import { IconCreditCard, IconDotsVertical, IconPencil, IconPlus, IconFileTypePdf
 import toast from "react-hot-toast";
 import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, formatInputNumber, money, number, todayDate, useFlashMessages } from "./_components";
 import { TransactionChoiceButton, TransactionDialog, TransactionPickerModal } from "./TransactionDialogs";
-import { automaticWarehouse, availableBarcodeItems, barcodeMatches, defaultTransactionUnit, transactionItemCode } from "./barcode";
+import { automaticWarehouse, availableBarcodeItems, barcodeMatches, defaultTransactionUnit, matchesPurchaseSupplier, purchaseWarehouse, transactionItemCode } from "./barcode";
 import BarcodeLookup from "./BarcodeLookup";
 import { openCustomerSlip } from "./CustomerSlipModal";
 import useTransactionSubmissionOptions from "./useTransactionSubmissionOptions";
@@ -25,7 +25,7 @@ const paymentLabels = {
 };
 const paymentErrorKeys = ["metode_pembayaran", "jumlah_bayar", "cash_amount", "transfer_amount", "jatuh_tempo", "discount"];
 
-export default function TransactionPage({ type, mode = "form", rows = [], refs = {}, operationalDate = todayDate() }) {
+export default function TransactionPage({ type, mode = "form", rows = [], refs: allRefs = {}, operationalDate = todayDate() }) {
     useFlashMessages();
     const submissionOptions = useTransactionSubmissionOptions();
     const { errors = {} } = usePage().props;
@@ -56,6 +56,9 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         items: [],
     };
     const [form, setForm] = useState(initial);
+    const refs = isBuy && !isHistory
+        ? { ...allRefs, barang: (allRefs.barang || []).filter((item) => matchesPurchaseSupplier(item, form.id_supplier)) }
+        : allRefs;
     const [submitting, setSubmitting] = useState(false);
     const [paymentOpen, setPaymentOpen] = useState(false);
     const [addedPayment, setAddedPayment] = useState(null);
@@ -65,6 +68,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     const [tempoPayment, setTempoPayment] = useState(null);
     const [tempoAmount, setTempoAmount] = useState("");
     const [modalOpen, setModalOpen] = useState(false);
+    const [bulkOpen, setBulkOpen] = useState(false);
     const [modalForm, setModalForm] = useState(emptyItem);
     const [editingIndex, setEditingIndex] = useState(null);
     const urlParams = new URLSearchParams(window.location.search);
@@ -87,12 +91,30 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     };
 
     const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-    const visibleSupplier = (refs.supplier || []).filter((row) => {
-        if (!form.id_gudang) return true;
-        const selectedGudang = (refs.gudang || []).find((g) => String(g.id) === String(form.id_gudang));
-        if (!selectedGudang) return false;
-        return !row.id_gudang || String(row.id_gudang) === String(selectedGudang.id);
-    });
+    const visibleSupplier = refs.supplier || [];
+    const selectedSupplier = visibleSupplier.find((row) => String(row.id) === String(form.id_supplier));
+    const changePurchaseSupplier = (id) => {
+        const incompatible = form.items.some((item) => item.tipe_item !== "BOTOL"
+            && !matchesPurchaseSupplier(findSelectedItem(allRefs, item) || {}, id));
+        if (incompatible) {
+            toast.error("Ada barang yang tidak terhubung ke supplier ini. Hapus barang tersebut dari daftar sebelum mengganti supplier.");
+            return;
+        }
+        set("id_supplier", id);
+        setPicker(null);
+    };
+    const resolveItemWarehouse = (item, bottle) => isBuy
+        ? purchaseWarehouse(item, bottle, refs.gudang || [], form.id_gudang)
+        : automaticWarehouse(item, bottle, refs.gudang || [], refs.stok_gudang || []);
+    const changePurchaseWarehouse = (id) => {
+        try {
+            for (const item of form.items) {
+                purchaseWarehouse(findSelectedItem(refs, item), item.tipe_item === "BOTOL", refs.gudang || [], id);
+            }
+        } catch (failure) { toast.error(failure.message); return; }
+        const warehouse = (refs.gudang || []).find((row) => Number(row.id) === Number(id));
+        setForm((previous) => ({ ...previous, id_gudang: id, tipe_gudang: warehouse?.tipe_gudang || "" }));
+    };
     const updateItem = (index, key, value) => setForm((prev) => ({ ...prev, items: prev.items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item) }));
     const updateItemQty = (index, value) => setForm((prev) => ({
         ...prev,
@@ -112,9 +134,29 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         if (!isBuy && !salesChosen) { setPicker("sales"); return; }
         if (!isBuy && !form.id_customer && !form.manual_customer_name.trim()) { setPicker("customer"); return; }
         if (isBuy && !form.id_supplier) { toast.error("Pilih supplier terlebih dahulu."); return; }
+        if (isBuy && !form.id_gudang) { toast.error("Pilih gudang tujuan terlebih dahulu."); return; }
         setEditingIndex(null);
         setModalForm(emptyItem);
-        setModalOpen(true);
+        setBulkOpen(true);
+    };
+    const saveBulkItems = (items) => {
+        if (!items.length) { toast.error("Pilih minimal satu barang."); return; }
+        let warehouseId = form.items.length || isBuy ? form.id_gudang : "";
+        let location;
+        for (const item of items) {
+            const selected = findSelectedItem(refs, item);
+            if (!selected) { toast.error("Barang tidak tersedia. Buka kembali pilihan barang."); return; }
+            if (!Number.isFinite(Number(item.qty_input)) || Number(item.qty_input) <= 0) { toast.error("Jumlah setiap barang harus lebih dari nol."); return; }
+            if (item.harga !== "" && (!Number.isFinite(Number(item.harga)) || Number(item.harga) < 0)) { toast.error("Harga barang tidak valid."); return; }
+            if (item.tipe_item !== "BOTOL" && item.satuan_input === "BOTOL" && !item.id_botol && !selected.botol?.varian_ml) { toast.error(`Pilih varian botol untuk ${selected.nama_barang}.`); return; }
+            try { location = resolveItemWarehouse(selected, item.tipe_item === "BOTOL"); }
+            catch (failure) { toast.error(failure.message); return; }
+            if (warehouseId && Number(warehouseId) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Pilih barang dari satu gudang."); return; }
+            warehouseId = location.id;
+        }
+        setForm((previous) => ({ ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang, items: [...previous.items, ...items] }));
+        setBulkOpen(false);
+        toast.success(`${items.length} barang berhasil ditambahkan.`);
     };
     const openEditModal = (index) => { setEditingIndex(index); setModalForm({ ...form.items[index] }); setModalOpen(true); };
     const saveModalItem = () => {
@@ -123,11 +165,9 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         if (modalForm.tipe_item !== "BOTOL" && modalForm.satuan_input === "BOTOL" && !modalForm.id_botol && !selected?.botol?.varian_ml) { toast.error("Pilih varian botol terlebih dahulu."); return; }
         if (!modalForm.qty_input || Number(modalForm.qty_input) <= 0) { toast.error("Jumlah harus lebih dari 0."); return; }
         let location;
-        try { location = automaticWarehouse(selected, modalForm.tipe_item === "BOTOL", refs.gudang || [], refs.stok_gudang || []); }
+        try { location = resolveItemWarehouse(selected, modalForm.tipe_item === "BOTOL"); }
         catch (failure) { toast.error(failure.message); return; }
 
-        const supplier = (refs.supplier || []).find((value) => Number(value.id) === Number(form.id_supplier));
-        if (isBuy && supplier?.id_gudang && Number(supplier.id_gudang) !== Number(location.id)) { toast.error("Supplier tidak sesuai dengan gudang barang. Pilih supplier yang sesuai."); return; }
         if (form.items.some((_, index) => index !== editingIndex) && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return; }
         setForm((previous) => ({ ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang }));
         if (editingIndex !== null) {
@@ -140,7 +180,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
     };
     const removeItem = (index) => setForm((previous) => {
         const items = previous.items.filter((_, itemIndex) => itemIndex !== index);
-        return { ...previous, items, ...(items.length ? {} : { id_gudang: "", tipe_gudang: isBuy ? "" : isBottleSale ? "BOTOL" : "BIBIT" }) };
+        return { ...previous, items, ...(items.length || isBuy ? {} : { id_gudang: "", tipe_gudang: isBottleSale ? "BOTOL" : "BIBIT" }) };
     });
     const customers = useMemo(() => (refs.customer || []).filter((row) => isWholesale ? ["SALES"].includes(row.tipe_customer) : row.tipe_customer === "RETAIL"), [refs.customer, isWholesale]);
     const selectedCustomer = customers.find((row) => String(row.id) === String(form.id_customer));
@@ -239,6 +279,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
 
     const prepareBarcodeSelection = () => {
         if (isBuy && !form.id_supplier) { toast.error("Pilih supplier terlebih dahulu."); return false; }
+        if (isBuy && !form.id_gudang) { toast.error("Pilih gudang tujuan terlebih dahulu."); return false; }
         if (!isBuy && !salesChosen) { setPicker("sales"); return false; }
         if (!isBuy && !form.id_customer && !form.manual_customer_name.trim()) { setPicker("customer"); return false; }
         return true;
@@ -250,14 +291,12 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
             ...(!isBottleSale ? (refs.barang || []).map((row) => ({ row, type: row.jenis_barang === "ABSOLUTE" ? "ABSOLUTE" : "BIBIT" })) : []),
             ...((isBuy || isBottleSale) ? (refs.botol_kosong || []).map((row) => ({ row, type: "BOTOL" })) : []),
         ].filter(({ row }) => barcodeMatches(row, code));
-        if (candidates.length !== 1) { toast.error(candidates.length ? "Kode barcode ganda. Perbaiki kode di master barang." : "Barcode tidak ditemukan untuk jenis transaksi ini."); return false; }
+        if (candidates.length !== 1) { toast.error(candidates.length ? "Kode barcode ganda. Perbaiki kode di master barang." : isBuy ? "Barcode tidak ditemukan atau barang belum dihubungkan ke supplier yang dipilih. Periksa master Barang Bibit." : "Barcode tidak ditemukan untuk jenis transaksi ini."); return false; }
         const { row, type: itemType } = candidates[0];
         let location;
-        try { location = automaticWarehouse(row, itemType === "BOTOL", refs.gudang || [], refs.stok_gudang || []); }
+        try { location = resolveItemWarehouse(row, itemType === "BOTOL"); }
         catch (failure) { toast.error(failure.message); return false; }
 
-        const supplier = (refs.supplier || []).find((value) => Number(value.id) === Number(form.id_supplier));
-        if (isBuy && supplier?.id_gudang && Number(supplier.id_gudang) !== Number(location.id)) { toast.error("Supplier tidak sesuai dengan gudang barang. Pilih supplier yang sesuai."); return false; }
         if (form.items.length && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return false; }
         const unit = defaultTransactionUnit(itemType, row, isBuy, isWholesale);
         const item = { tipe_item: itemType, item_id: row.id, qty_input: 1, satuan_input: unit, harga: "", ...(itemType === "BIBIT" && unit === "BOTOL" && row.id_botol ? { id_botol: row.id_botol } : {}) };
@@ -291,8 +330,8 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
         bottles: isBuy || isBottleSale ? refs.botol_kosong || [] : [],
         warehouses: refs.gudang || [],
         stocks: refs.stok_gudang || [],
-        warehouseId: form.items.length ? form.id_gudang : "",
-        supplierWarehouseId: isBuy ? (refs.supplier || []).find((row) => Number(row.id) === Number(form.id_supplier))?.id_gudang : "",
+        warehouseId: isBuy || form.items.length ? form.id_gudang : "",
+        purchase: isBuy,
     });
 
     const openTempoPayment = (row) => {
@@ -336,19 +375,29 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                     <form onSubmit={submit} className="space-y-5">
                         <div className="border-b border-stroke pb-4">
                             <h2 className="text-base font-extrabold text-main">Informasi Transaksi</h2>
-                            <p className="mt-1 text-sm text-muted">{isBuy ? "Pilih supplier, scan barang, lalu lanjut ke pembayaran." : "Pilih sales, pilih customer, lalu scan barang. Pembayaran diatur pada langkah terakhir."}</p>
+                            <p className="mt-1 text-sm text-muted">{isBuy ? "Pilih supplier dan gudang tujuan, tambahkan barang, lalu lanjut ke pembayaran." : "Pilih sales, pilih customer, lalu scan barang. Pembayaran diatur pada langkah terakhir."}</p>
                         </div>
                         {!isBuy && <div className="grid gap-3 md:grid-cols-2">
                             <TransactionChoiceButton label="1. Sales" value={salesChosen ? selectedSales?.nama_sales || "Tanpa sales" : "Pilih sales"} hint={salesChosen ? "Ubah sales transaksi" : "Pilih sales atau pilih tanpa sales"} icon={IconUsers} error={errors.id_sales} onClick={() => setPicker("sales")} />
                             <TransactionChoiceButton label="2. Customer" value={customerName} hint={!salesChosen ? "Pilih sales terlebih dahulu" : selectedCustomer?.kode_customer || (form.manual_customer_name ? "Nama untuk transaksi ini" : "Pilih dari daftar atau isi nama")} icon={IconUser} error={errors.id_customer || errors.manual_customer_name} disabled={!salesChosen} onClick={() => setPicker("customer")} />
                         </div>}
-                        {isBuy && <Field label="Supplier"><Select error={!!errors.id_supplier} value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}><option value="">Pilih supplier</option>{visibleSupplier.map((row) => <option key={row.id} value={row.id}>{row.kode_supplier} — {row.nama_supplier}</option>)}</Select>{errors.id_supplier && <p className="text-xs text-red-500">{errors.id_supplier}</p>}</Field>}
+                        {isBuy && <div className="grid gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                                <span className="text-[11px] font-bold uppercase tracking-widest text-muted">Supplier</span>
+                                <div className={`flex min-h-11 items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2 ${errors.id_supplier ? "border-red-500" : "border-stroke"}`}>
+                                    <div className="min-w-0"><p className="break-words text-sm font-bold text-main">{selectedSupplier?.nama_supplier || "Belum dipilih"}</p>{selectedSupplier?.kode_supplier && <p className="text-xs text-muted">{selectedSupplier.kode_supplier}</p>}</div>
+                                    <Button variant="outline" aria-haspopup="dialog" onClick={() => setPicker("supplier")}>{selectedSupplier ? "Ganti" : "Pilih Supplier"}</Button>
+                                </div>
+                                {errors.id_supplier && <p role="alert" className="text-xs text-red-500">{errors.id_supplier}</p>}
+                            </div>
+                            <Field label="Gudang Tujuan"><Select error={!!errors.id_gudang} value={form.id_gudang} onChange={(event) => changePurchaseWarehouse(event.target.value)}><option value="">Pilih gudang tujuan</option>{(refs.gudang || []).map((row) => <option key={row.id} value={row.id}>{row.nama_gudang} ({row.tipe_gudang === "BOTOL" ? "Botol Kosong" : "Cairan"})</option>)}</Select></Field>
+                        </div>}
                         <Field label="Scan Barcode">
                             <div className="flex flex-wrap items-start gap-2">
                                 <div className="min-w-0 flex-1">
                                     <Input value={barcode} onChange={(event) => setBarcode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); scanBarcode(); } }} placeholder="Scan barcode, lalu Enter" />
                                 </div>
-                                <BarcodeLookup items={barcodeItems} onSelect={selectBarcodeItem} onOpen={prepareBarcodeSelection} enabled={!picker && !paymentOpen && !modalOpen && !tempoPayment && !submitting} />
+                                <BarcodeLookup items={barcodeItems} onSelect={selectBarcodeItem} onOpen={prepareBarcodeSelection} purchase={isBuy} enabled={!picker && !paymentOpen && !modalOpen && !bulkOpen && !tempoPayment && !submitting} />
                             </div>
                         </Field>
                         {errors.id_gudang && <p role="alert" className="text-sm text-red-600">{errors.id_gudang}</p>}
@@ -360,7 +409,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                                 <span className="text-xs font-medium text-muted">{form.items.length} item</span>
                             </div>
                             <div className="flex flex-wrap items-start gap-2">
-                               <Button icon={IconPlus} variant="outline" onClick={openAddModal}>Pilih Barang</Button>
+                               <Button icon={IconPlus} variant="outline" onClick={openAddModal}>Tambah Barang</Button>
                             </div>
                         </div>
                         {!form.items.length && <div className="rounded-xl border border-dashed border-stroke bg-page/40 px-5 py-8 text-center"><p className="text-sm font-bold text-main">Belum ada barang</p><p className="mt-1 text-xs text-muted">{!isBuy && !salesChosen ? "Mulai dengan memilih sales di atas." : !isBuy && !form.id_customer && !form.manual_customer_name ? "Pilih customer sebelum menambahkan barang." : "Scan barcode lalu tekan Enter, atau buka Pilih Barang untuk mencari dan mengatur jumlah."}</p></div>}
@@ -441,6 +490,17 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                     </form>
                 </Card>}
 
+                {picker === "supplier" && isBuy && (
+                    <TransactionPickerModal
+                        title="Pilih Supplier"
+                        searchLabel="Supplier"
+                        options={visibleSupplier.map((row) => ({ value: row.id, label: row.nama_supplier, description: row.kode_supplier }))}
+                        selectedValue={form.id_supplier}
+                        onSelect={changePurchaseSupplier}
+                        onClose={() => setPicker(null)}
+                        error={errors.id_supplier}
+                    />
+                )}
                 {picker && !isBuy && (
                     <TransactionPickerModal
                         key={picker}
@@ -604,6 +664,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs =
                 /></>}
 
                 {/* Item Modal */}
+                {bulkOpen && <BulkItemModal refs={refs} isBuy={isBuy} isWholesale={isWholesale} isBottleSale={isBottleSale} gudangId={form.id_gudang} onSave={saveBulkItems} onClose={() => setBulkOpen(false)} />}
                 {modalOpen && (
                     <ItemModal
                         form={modalForm}
@@ -761,9 +822,82 @@ function KebabMenu({ row, isBuy, onPrint, onPayTempo }) {
     );
 }
 
+function BulkItemModal({ refs, isBuy, isWholesale, isBottleSale, gudangId, onSave, onClose }) {
+    const [search, setSearch] = useState("");
+    const [type, setType] = useState(isBottleSale ? "BOTOL" : "ALL");
+    const [chosen, setChosen] = useState({});
+    const candidates = [
+        ...(!isBottleSale ? (refs.barang || []).map((row) => ({ row, type: row.jenis_barang === "ABSOLUTE" ? "ABSOLUTE" : "BIBIT" })) : []),
+        ...(isBuy || isBottleSale ? (refs.botol_kosong || []).map((row) => ({ row, type: "BOTOL" })) : []),
+    ].filter(({ row, type: itemType }) => {
+        if (row.status && row.status !== "AKTIF") return false;
+        if (isBuy) {
+            const warehouse = (refs.gudang || []).find((entry) => Number(entry.id) === Number(gudangId));
+            return warehouse?.tipe_gudang === (itemType === "BOTOL" ? "BOTOL" : "BIBIT")
+                && (itemType !== "BOTOL" || Number(row.id_gudang) === Number(gudangId));
+        }
+        return !gudangId || !row.id_gudang || Number(row.id_gudang) === Number(gudangId);
+    }).map((entry) => ({ ...entry, key: `${entry.type}-${entry.row.id}` }));
+    const query = search.trim().toLocaleLowerCase();
+    const visible = candidates.filter((entry) => (type === "ALL" || entry.type === type)
+        && `${entry.row.kode_barang || entry.row.kode_botol || ""} ${entry.row.nama_barang || entry.row.nama_botol}`.toLocaleLowerCase().includes(query));
+    const createItem = ({ row, type: itemType }) => {
+        const unit = defaultTransactionUnit(itemType, row, isBuy, isWholesale);
+        return { tipe_item: itemType, item_id: row.id, qty_input: 1, satuan_input: unit, harga: "", id_botol: itemType === "BIBIT" && unit === "BOTOL" ? row.id_botol || "" : "" };
+    };
+    const toggle = (entry) => setChosen((previous) => {
+        const next = { ...previous };
+        if (next[entry.key]) delete next[entry.key];
+        else next[entry.key] = createItem(entry);
+        return next;
+    });
+    const update = (key, values) => setChosen((previous) => ({ ...previous, [key]: { ...previous[key], ...values } }));
+    const allVisible = visible.length > 0 && visible.every((entry) => chosen[entry.key]);
+    const selectVisible = () => setChosen((previous) => {
+        const next = { ...previous };
+        visible.forEach((entry) => {
+            if (allVisible) delete next[entry.key];
+            else if (!next[entry.key]) next[entry.key] = createItem(entry);
+        });
+        return next;
+    });
+    const count = Object.keys(chosen).length;
+    return <TransactionDialog title="Tambah Beberapa Barang" onClose={onClose} width="max-w-3xl">
+        <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Cari Barang"><Input data-autofocus type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nama atau kode barang" /></Field>
+                {!isBottleSale && <Field label="Tipe Barang"><Select value={type} onChange={(event) => setType(event.target.value)}><option value="ALL">Semua jenis</option><option value="BIBIT">Bibit</option><option value="ABSOLUTE">Absolute</option>{isBuy && <option value="BOTOL">Botol Kosong</option>}</Select></Field>}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+                <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm font-bold text-main"><input type="checkbox" checked={allVisible} disabled={!visible.length} onChange={selectVisible} className="size-4 accent-primary" />Pilih semua hasil</label>
+                <span className="text-sm tabular-nums text-muted">{count} dipilih</span>
+            </div>
+            <div className="max-h-[45vh] space-y-3 overflow-y-auto">
+                {visible.map((entry) => {
+                    const item = chosen[entry.key];
+                    return <div key={entry.key} className={`rounded-xl border p-3 ${item ? "border-primary bg-primary/5" : "border-stroke"}`}>
+                        <label className="flex min-h-10 cursor-pointer items-center gap-3">
+                            <input type="checkbox" checked={!!item} onChange={() => toggle(entry)} className="size-4 shrink-0 accent-primary" />
+                            <span className="min-w-0"><span className="block break-words text-sm font-bold text-main">{entry.row.nama_barang || entry.row.nama_botol}</span><span className="text-xs text-muted">{entry.row.kode_barang || entry.row.kode_botol} · {entry.type}</span></span>
+                        </label>
+                        {item && <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                            <Field label="Jumlah"><Input type="number" min="0.01" step="any" value={item.qty_input} onChange={(event) => update(entry.key, { qty_input: event.target.value })} /></Field>
+                            <Field label="Satuan"><Select value={item.satuan_input} onChange={(event) => update(entry.key, { satuan_input: event.target.value, id_botol: "", harga: "" })}>{(entry.type === "BOTOL" ? bottleUnits : isBuy ? purchaseLiquidUnits : liquidUnits).map((unit) => <option key={unit} value={unit}>{unit === "BOTOL" && entry.type !== "BOTOL" ? "BOTOL ISI" : unit}</option>)}</Select></Field>
+                            <Field label={entry.type === "BOTOL" ? "Harga" : "Harga / ML"}><CurrencyInput value={item.harga || defaultItemPrice(entry.row, item, isBuy, isWholesale) || ""} readOnly={!isBuy} onChange={isBuy ? (event) => update(entry.key, { harga: event.target.value }) : undefined} /></Field>
+                            {entry.type !== "BOTOL" && item.satuan_input === "BOTOL" && <div className="sm:col-span-3"><Field label="Varian Botol"><Select value={item.id_botol || ""} onChange={(event) => update(entry.key, { id_botol: event.target.value })}><option value="">{entry.row.botol ? `Default: ${entry.row.botol.nama_botol}` : "Pilih varian botol"}</option>{(refs.botol || []).map((bottle) => <option key={bottle.id} value={bottle.id}>{bottle.nama_botol}</option>)}</Select></Field></div>}
+                        </div>}
+                    </div>;
+                })}
+                {!visible.length && <p role="status" className="py-6 text-center text-sm text-muted">Tidak ada barang yang sesuai dengan supplier, gudang, atau pencarian.</p>}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-stroke pt-4"><Button variant="outline" onClick={onClose}>Batal</Button><Button icon={IconPlus} disabled={!count} onClick={() => onSave(Object.values(chosen))}>Tambahkan Terpilih ({count})</Button></div>
+        </div>
+    </TransactionDialog>;
+}
+
 function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale, refs, gudangId, isBottleSale }) {
     const selected = findSelectedItem(refs, form);
-    const options = itemOptions(refs, form.tipe_item);
+    const options = itemOptions(refs, form.tipe_item).filter((row) => !isBuy || form.tipe_item !== "BOTOL" || Number(row.id_gudang) === Number(gudangId));
     const unitOptions = form.tipe_item === "BOTOL"
         ? bottleUnits
         : (isBuy ? purchaseLiquidUnits : liquidUnits);
@@ -816,6 +950,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                             <option value="">Pilih barang...</option>
                             {options.map((row) => <option key={row.id} value={row.id}>{itemOptionLabel(row, form.tipe_item, isBuy, isWholesale, refs, gudangId)}</option>)}
                         </Select>
+                        {isBuy && form.tipe_item !== "BOTOL" && options.length === 0 && <p role="status" className="mt-1 text-xs text-amber-700">Belum ada barang untuk supplier ini. Hubungkan supplier di master Barang Bibit terlebih dahulu.</p>}
                         {!isBuy && gudangId && options.length === 0 && <p className="mt-1 text-[11px] font-medium text-amber-600">Tidak ada stok untuk tipe barang ini di gudang yang dipilih.</p>}
                     </Field>
                     {form.tipe_item !== "BOTOL" && form.satuan_input === "BOTOL" && (

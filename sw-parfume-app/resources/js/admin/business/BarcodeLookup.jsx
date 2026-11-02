@@ -8,7 +8,7 @@ import { filterBarcodeItems, isBarcodeShortcut } from "./barcode";
 const pageSize = 20;
 const types = { BIBIT: "Bibit", ABSOLUTE: "Absolute", BOTOL: "Botol Kosong" };
 
-export default function BarcodeLookup({ items, onSelect, onOpen, enabled = true }) {
+export default function BarcodeLookup({ items, onSelect, onOpen, enabled = true, purchase = false, incoming = false }) {
     const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -43,13 +43,13 @@ export default function BarcodeLookup({ items, onSelect, onOpen, enabled = true 
         <div className="space-y-1.5">
             <Button variant="outline" icon={IconBarcode} onClick={openLookup} disabled={!enabled} aria-haspopup="dialog" aria-keyshortcuts={isMac ? "F1" : "Control+F1"}>Cari Barcode</Button>
             <p className="text-xs text-muted">Ctrl+F1 · Mac: Fn+F1</p>
-            {open && <TransactionDialog title="Cari Barcode Barang" description="Pilih barang dengan stok tersedia untuk mengisi transaksi." onClose={() => setOpen(false)} width="max-w-2xl">
+            {open && <TransactionDialog title="Cari Barcode Barang" description={purchase ? "Barang mengikuti supplier terpilih. Gudang adalah tujuan pembelian, bukan supplier barang." : incoming ? "Pilih barang untuk menambah stok. Supplier mengikuti master barang, bukan lokasi gudang." : "Pilih barang dengan stok tersedia untuk mengisi transaksi."} onClose={() => setOpen(false)} width="max-w-2xl">
                 <div className="space-y-4">
                     <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
-                        <Field label="Cari nama / barcode">
+                        <Field label="Cari nama / barcode / supplier">
                             <div className="relative">
                                 <IconSearch size={17} className="pointer-events-none absolute left-3 top-3 text-muted" aria-hidden="true" />
-                                <Input data-autofocus type="search" aria-label="Cari nama atau barcode" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Nama barang atau kode barcode" className="pl-10" />
+                                <Input data-autofocus type="search" aria-label="Cari nama, barcode, atau supplier" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Nama barang, barcode, atau supplier" className="pl-10" />
                             </div>
                         </Field>
                         <Field label="Jenis Barang">
@@ -65,11 +65,12 @@ export default function BarcodeLookup({ items, onSelect, onOpen, enabled = true 
                             <span className="min-w-0">
                                 <span className="block break-all font-mono text-xs font-bold text-primary">{item.code}</span>
                                 <span className="mt-1 block break-words text-sm font-bold text-main">{item.name}</span>
-                                <span className="mt-1 block break-words text-xs text-muted">{types[item.type]} · {item.warehouse}</span>
+                                <span className="mt-1 block break-words text-xs text-muted">{types[item.type]} · {purchase ? "Gudang tujuan" : "Gudang"}: {item.warehouse}</span>
+                                {item.type !== "BOTOL" && <span className="mt-1 block break-words text-xs text-muted">Supplier barang: {item.suppliers?.length ? item.suppliers.join(", ") : "Belum ditentukan"}</span>}
                             </span>
                             <span className="shrink-0 text-right text-xs font-bold tabular-nums text-main">{number(item.stock)} {item.unit}</span>
                         </button>)}
-                        {!visible.length && <p className="py-6 text-center text-sm text-muted">{items.length ? "Tidak ada barang yang sesuai pencarian." : "Tidak ada barcode barang dengan stok tersedia untuk transaksi ini."}</p>}
+                        {!visible.length && <p className="py-6 text-center text-sm text-muted">{items.length ? "Tidak ada barang yang sesuai pencarian." : purchase ? "Tidak ada barcode barang yang sesuai dengan supplier dan gudang tujuan." : incoming ? "Tidak ada barcode barang dengan gudang aktif yang sesuai. Periksa master barang." : "Tidak ada barcode barang dengan stok tersedia untuk transaksi ini."}</p>}
                     </div>
                     {totalPages > 1 && <div className="flex items-center justify-between gap-2">
                         <Button variant="outline" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Sebelumnya</Button>

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { automaticWarehouse, availableBarcodeItems, barcodeMatches, filterBarcodeItems, isBarcodeShortcut, transactionItemCode } from "../../resources/js/admin/business/barcode.js";
+import { automaticWarehouse, availableBarcodeItems, barcodeMatches, filterBarcodeItems, isBarcodeShortcut, matchesPurchaseSupplier, purchaseWarehouse, transactionItemCode } from "../../resources/js/admin/business/barcode.js";
 
 test("bibit and absolute use their existing item code as barcode", () => {
     for (const jenis_barang of ["BIBIT", "ABSOLUTE"]) {
@@ -108,6 +108,41 @@ test("warehouse lookup preserves automatic assignment and errors", () => {
     assert.equal(automaticWarehouse({ id: 1 }, false, warehouses.slice(0, 2)).id, 1);
     assert.throws(() => automaticWarehouse({ id: 1, id_gudang: 2 }, false, warehouses), /tidak aktif atau tipenya/);
     assert.throws(() => automaticWarehouse({ id: 1 }, false, warehouses, [{ id_barang: 1, id_gudang: 1, stok_ml: 5 }, { id_barang: 1, id_gudang: 3, stok_ml: 5 }]), /belum dapat ditentukan/);
+});
+
+test("purchase destination overrides the liquid master warehouse and permits zero stock", () => {
+    const item = catalogData.barang[0];
+    assert.equal(purchaseWarehouse(item, false, warehouses, 3).id, 3);
+    const items = availableBarcodeItems({ ...catalogData, purchase: true, warehouseId: 3 });
+    assert.equal(items.find((entry) => entry.code === item.kode_barang).warehouse, "Gudang Cadangan");
+    assert.equal(items.find((entry) => entry.code === "BRG-0003").stock, 0);
+    assert.equal(items.some((entry) => entry.code === "BRG-0004"), false);
+    assert.equal(items.some((entry) => entry.type === "BOTOL"), false);
+    assert.deepEqual(availableBarcodeItems({ ...catalogData, purchase: true }), []);
+});
+
+test("purchase supplier filtering covers both liquid types, multiple suppliers and unassigned legacy items", () => {
+    const barang = [
+        { id: 1, kode_barang: "BRG-A", jenis_barang: "BIBIT", suppliers: [{ id: 1 }, { id: 2 }] },
+        { id: 2, kode_barang: "ABS-B", jenis_barang: "ABSOLUTE", suppliers: [{ id: 2 }] },
+        { id: 3, kode_barang: "BRG-OLD" },
+    ];
+    assert.deepEqual(barang.filter((item) => matchesPurchaseSupplier(item, "1")).map((item) => item.id), [1]);
+    const selected = barang.filter((item) => matchesPurchaseSupplier(item, 2));
+    assert.deepEqual(selected.map((item) => item.id), [1, 2]);
+    assert.equal(selected.some((item) => barcodeMatches(item, "BRG-OLD")), false);
+    assert.equal(barang.some((item) => matchesPurchaseSupplier(item, "")), false);
+    const lookup = availableBarcodeItems({ warehouses, barang: selected, purchase: true, warehouseId: 3 });
+    assert.deepEqual(lookup.map((item) => item.code), ["BRG-A", "ABS-B"]);
+});
+
+test("purchase rejects unavailable and incompatible destinations and preserves empty bottle location", () => {
+    assert.throws(() => purchaseWarehouse({}, false, warehouses, ""), /Pilih gudang tujuan/);
+    assert.throws(() => purchaseWarehouse({}, false, [{ ...warehouses[0], status: "NONAKTIF" }], 1), /Pilih gudang tujuan/);
+    assert.throws(() => purchaseWarehouse({}, false, warehouses, 2), /Jenis gudang/);
+    assert.throws(() => purchaseWarehouse({ id_gudang: 9 }, true, warehouses, 2), /Botol kosong/);
+    assert.equal(purchaseWarehouse({ id_gudang: 2 }, true, warehouses, 2).id, 2);
+    assert.equal(availableBarcodeItems({ ...catalogData, purchase: true, warehouseId: 2 }).length, 2);
 });
 
 test("lookup searches full and partial codes, names, warehouses and filters kinds", () => {

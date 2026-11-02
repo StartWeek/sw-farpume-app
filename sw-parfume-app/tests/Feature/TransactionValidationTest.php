@@ -495,6 +495,112 @@ class TransactionValidationTest extends TestCase
         $this->assertSame($this->user->id, $request->fresh()->submitted_by_id);
     }
 
+    public function test_purchase_requires_master_supplier_links_and_rechecks_before_approval(): void
+    {
+        $this->createTradingSchema();
+        DB::table('tm_supplier')->insert(['id' => 2, 'nama_supplier' => 'Supplier B', 'status' => 'AKTIF']);
+        $payload = [
+            'id_supplier' => 2, 'id_gudang' => 2, 'metode_pembayaran' => 'CASH',
+            'items' => [['tipe_item' => 'BIBIT', 'item_id' => 1, 'qty_input' => 100, 'satuan_input' => 'ML', 'harga' => 100]],
+        ];
+        $this->post('/admin/pembelian', $payload, ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasErrors('items');
+        DB::table('tm_barang_supplier')->delete();
+        $this->post('/admin/pembelian', [...$payload, 'id_supplier' => 1], ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasErrors('items');
+        $this->assertDatabaseCount('tt_validasi_transaksi', 0);
+
+        DB::table('tm_barang_supplier')->insert([
+            ['id_barang' => 1, 'id_supplier' => 1],
+            ['id_barang' => 1, 'id_supplier' => 2],
+        ]);
+        $this->post('/admin/pembelian', $payload, ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasNoErrors();
+        $request = TransactionValidation::query()->latest('id')->firstOrFail();
+        DB::table('tm_barang_supplier')->where('id_supplier', 2)->delete();
+        $this->post("/admin/validasi-transaksi/{$request->id}/setujui")->assertSessionHasErrors('items');
+        $this->assertSame('PENDING', $request->fresh()->status);
+        $this->assertDatabaseCount('tt_stok_gudang', 0);
+        $this->assertDatabaseCount('tt_pembelian', 0);
+        DB::table('tm_barang_supplier')->insert(['id_barang' => 1, 'id_supplier' => 2]);
+        DB::table('tm_supplier')->where('id', 2)->update(['status' => 'NONAKTIF']);
+        $this->post("/admin/validasi-transaksi/{$request->id}/setujui")->assertSessionHasErrors('id_supplier');
+        DB::table('tm_supplier')->where('id', 2)->update(['status' => 'AKTIF']);
+        $this->post("/admin/validasi-transaksi/{$request->id}/setujui")->assertSessionHasNoErrors();
+        $this->assertSame('APPROVED', $request->fresh()->status);
+        $this->assertDatabaseHas('tt_pembelian', ['id_supplier' => 2]);
+    }
+
+    public function test_purchase_uses_selected_liquid_destination_without_moving_existing_stock(): void
+    {
+        $this->createTradingSchema();
+        Schema::table('tm_barang_bibit', fn (Blueprint $table) => $table->unsignedBigInteger('id_gudang')->nullable());
+        Schema::table('tm_supplier', fn (Blueprint $table) => $table->unsignedBigInteger('id_gudang')->nullable());
+        DB::table('tm_barang_bibit')->where('id', 1)->update(['id_gudang' => 2]);
+        DB::table('tm_supplier')->where('id', 1)->update(['id_gudang' => 2]);
+        DB::table('tm_gudang')->insert(['id' => 3, 'nama_gudang' => 'Gudang Cairan Baru', 'tipe_gudang' => 'BIBIT', 'status' => 'AKTIF']);
+        DB::table('tt_stok_gudang')->insert(['id_gudang' => 2, 'id_barang' => 1, 'id_botol' => 1, 'stok_ml' => 500]);
+        $this->post('/admin/pembelian', [
+            'id_supplier' => 1, 'id_gudang' => 3, 'metode_pembayaran' => 'CASH',
+            'items' => [['tipe_item' => 'BIBIT', 'item_id' => 1, 'qty_input' => 1000, 'satuan_input' => 'ML', 'harga' => 100]],
+        ], ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasNoErrors();
+        $request = TransactionValidation::query()->latest('id')->firstOrFail();
+        $this->assertSame('Gudang Cairan Baru', $request->snapshot['warehouse']);
+        $this->assertDatabaseMissing('tt_stok_gudang', ['id_gudang' => 3]);
+        $this->post("/admin/validasi-transaksi/{$request->id}/setujui")->assertSessionHasNoErrors();
+        $this->assertSame('APPROVED', $request->fresh()->status);
+        $this->assertDatabaseHas('tt_pembelian', ['id_gudang' => 3, 'id_supplier' => 1, 'total_qty_ml' => 1000]);
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_gudang' => 3, 'id_barang' => 1, 'stok_ml' => 1000]);
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_gudang' => 2, 'id_barang' => 1, 'stok_ml' => 500]);
+        $this->assertDatabaseHas('tm_barang_bibit', ['id' => 1, 'id_gudang' => 2]);
+        $this->assertDatabaseHas('tm_supplier', ['id' => 1, 'id_gudang' => 2]);
+        $this->assertDatabaseHas('tt_mutasi_stok', ['id_gudang' => 3, 'id_barang' => 1, 'qty_ml' => 1000]);
+    }
+
+    public function test_purchase_rejects_wrong_or_inactive_destination_and_rechecks_at_approval(): void
+    {
+        $this->createTradingSchema();
+        $payload = [
+            'id_supplier' => 1, 'id_gudang' => 1, 'metode_pembayaran' => 'CASH',
+            'items' => [['tipe_item' => 'BIBIT', 'item_id' => 1, 'qty_input' => 100, 'satuan_input' => 'ML', 'harga' => 100]],
+        ];
+        $this->post('/admin/pembelian', $payload, ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasErrors('id_gudang');
+        DB::table('tm_gudang')->where('id', 2)->update(['status' => 'NONAKTIF']);
+        $payload['id_gudang'] = 2;
+        $this->post('/admin/pembelian', $payload, ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasErrors('id_gudang');
+        $this->assertDatabaseCount('tt_validasi_transaksi', 0);
+        DB::table('tm_gudang')->where('id', 2)->update(['status' => 'AKTIF']);
+        $this->post('/admin/pembelian', $payload, ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasNoErrors();
+        $request = TransactionValidation::query()->latest('id')->firstOrFail();
+        DB::table('tm_gudang')->where('id', 2)->update(['status' => 'NONAKTIF']);
+        $this->post("/admin/validasi-transaksi/{$request->id}/setujui")->assertSessionHasErrors('id_gudang');
+        $this->assertSame('PENDING', $request->fresh()->status);
+        $this->assertDatabaseCount('tt_pembelian', 0);
+        $this->assertDatabaseCount('tt_stok_gudang', 0);
+    }
+
+    public function test_liquid_ml_purchase_and_sale_can_be_approved_without_a_master_bottle(): void
+    {
+        $this->createTradingSchema();
+        DB::table('tm_barang_bibit')->where('id', 1)->update(['id_botol' => null]);
+        $this->post('/admin/pembelian', [
+            'id_supplier' => 1, 'id_gudang' => 2, 'metode_pembayaran' => 'CASH',
+            'items' => [['tipe_item' => 'BIBIT', 'item_id' => 1, 'qty_input' => 1, 'satuan_input' => 'LITER', 'harga' => 100]],
+        ], ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasNoErrors();
+        $purchase = TransactionValidation::query()->latest('id')->firstOrFail();
+        $this->assertDatabaseCount('tt_stok_gudang', 0);
+        $this->post("/admin/validasi-transaksi/{$purchase->id}/setujui")->assertSessionHasNoErrors();
+        $this->assertSame('APPROVED', $purchase->fresh()->status);
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_barang' => 1, 'id_botol' => null, 'stok_ml' => 1000]);
+
+        $this->post('/admin/penjualan', [
+            'id_customer' => 1, 'id_gudang' => 2, 'tipe_penjualan' => 'RETAIL', 'metode_pembayaran' => 'CASH',
+            'items' => [['tipe_item' => 'BIBIT', 'item_id' => 1, 'qty_input' => 100, 'satuan_input' => 'ML']],
+        ], ['Idempotency-Key' => (string) Str::uuid()])->assertSessionHasNoErrors();
+        $sale = TransactionValidation::query()->latest('id')->firstOrFail();
+        $this->post("/admin/validasi-transaksi/{$sale->id}/setujui")->assertSessionHasNoErrors();
+        $this->assertSame('APPROVED', $sale->fresh()->status);
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_barang' => 1, 'id_botol' => null, 'stok_ml' => 900]);
+        $this->assertDatabaseHas('tt_mutasi_stok', ['id_barang' => 1, 'id_botol' => null, 'tipe_mutasi' => 'KELUAR', 'qty_ml' => 100]);
+    }
+
     public function test_all_sale_types_remain_pending_without_changing_inventory_or_cash(): void
     {
         $this->createTradingSchema();
@@ -715,9 +821,7 @@ class TransactionValidationTest extends TestCase
             $table->string('kode_botol')->nullable();
             $table->string('status')->default('AKTIF');
         });
-        foreach (['tm_supplier', 'tm_customer'] as $name) {
-            Schema::table($name, fn (Blueprint $table) => $table->string('status')->default('AKTIF'));
-        }
+        Schema::table('tm_customer', fn (Blueprint $table) => $table->string('status')->default('AKTIF'));
         DB::table('tm_barang_bibit')->where('id', 1)->update(['kode_barang' => 'BRG-0001']);
         DB::table('tm_barang_bibit')->insert(['id' => 2, 'nama_barang' => 'Absolute', 'jenis_barang' => 'ABSOLUTE', 'kode_barang' => 'BRG-0002']);
         DB::table('tm_botol_kosong')->where('id', 1)->update(['kode_botol' => 'BTK-0001']);
@@ -773,6 +877,49 @@ class TransactionValidationTest extends TestCase
         $this->get('/admin/laporan/stok?search=1&barcode[]=BRG-0001')->assertSessionHasErrors('barcode');
     }
 
+    public function test_inventory_and_supplier_purchase_use_the_same_default_stock_variant_after_approval(): void
+    {
+        $this->createTradingSchema();
+        Schema::table('tm_barang_bibit', fn (Blueprint $table) => $table->unsignedBigInteger('id_gudang')->nullable());
+        DB::table('tm_barang_bibit')->where('id', 1)->update(['id_gudang' => 2]);
+        $service = app(TransactionValidationService::class);
+        $inventory = $service->submit('mutasi-stok', [
+            'id_gudang' => 2, 'id_barang' => 1, 'jumlah_botol' => 10, 'tipe_mutasi' => 'MASUK',
+        ], $this->user, (string) Str::uuid());
+        $purchase = $service->submit('pembelian', [
+            'id_supplier' => 1, 'id_gudang' => 2, 'metode_pembayaran' => 'CASH',
+            'items' => [['tipe_item' => 'BIBIT', 'item_id' => 1, 'qty_input' => 500, 'satuan_input' => 'ML']],
+        ], $this->user, (string) Str::uuid());
+        $this->assertDatabaseCount('tt_stok_gudang', 0);
+        $service->approve($inventory->id, $this->user);
+        $service->approve($purchase->id, $this->user);
+        $this->assertDatabaseCount('tt_stok_gudang', 1);
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_gudang' => 2, 'id_barang' => 1, 'id_botol' => 1, 'stok_ml' => 1500]);
+        $this->assertDatabaseHas('tt_mutasi_stok', ['sumber_transaksi' => 'ADJUSTMENT', 'qty_ml' => 1000]);
+        $this->assertDatabaseHas('tt_mutasi_stok', ['sumber_transaksi' => 'PEMBELIAN', 'qty_ml' => 500]);
+        $this->assertSame(1500.0, (float) DB::table('tt_saldo_barang')->sum('stok_akhir_ml'));
+    }
+
+    public function test_sale_without_variant_still_deducts_legacy_and_explicit_variants_in_fifo_order(): void
+    {
+        $this->createTradingSchema();
+        DB::table('tt_stok_gudang')->insert([
+            ['id_gudang' => 2, 'id_barang' => 1, 'id_botol' => null, 'stok_ml' => 100],
+            ['id_gudang' => 2, 'id_barang' => 1, 'id_botol' => 1, 'stok_ml' => 500],
+        ]);
+        $service = app(TransactionValidationService::class);
+        $sale = $service->submit('penjualan', [
+            'id_customer' => 1, 'id_gudang' => 2, 'tipe_penjualan' => 'RETAIL', 'metode_pembayaran' => 'CASH',
+            'items' => [['tipe_item' => 'BIBIT', 'item_id' => 1, 'qty_input' => 150, 'satuan_input' => 'ML']],
+        ], $this->user, (string) Str::uuid());
+        $service->approve($sale->id, $this->user);
+        $this->assertDatabaseCount('tt_stok_gudang', 2);
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_botol' => null, 'stok_ml' => 0]);
+        $this->assertDatabaseHas('tt_stok_gudang', ['id_botol' => 1, 'stok_ml' => 450]);
+        $this->assertDatabaseHas('tt_mutasi_stok', ['id_botol' => null, 'tipe_mutasi' => 'KELUAR', 'qty_ml' => 100]);
+        $this->assertDatabaseHas('tt_mutasi_stok', ['id_botol' => 1, 'tipe_mutasi' => 'KELUAR', 'qty_ml' => 50]);
+    }
+
     private function createTradingSchema(): void
     {
         $this->user->update(['role' => 'superadmin']);
@@ -791,6 +938,7 @@ class TransactionValidationTest extends TestCase
         Schema::create('tm_supplier', function (Blueprint $table): void {
             $table->id();
             $table->string('nama_supplier');
+            $table->string('status')->default('AKTIF');
             $table->timestamps();
         });
         Schema::create('tm_customer', function (Blueprint $table): void {
@@ -825,6 +973,7 @@ class TransactionValidationTest extends TestCase
         DB::table('tm_customer')->insert([['id' => 1, 'nama_customer' => 'Rina', 'tipe_customer' => 'RETAIL'], ['id' => 2, 'nama_customer' => 'Toko Harum', 'tipe_customer' => 'SALES']]);
         DB::table('tm_botol')->insert(['id' => 1, 'nama_botol' => '100 ML', 'varian_ml' => 100]);
         DB::table('tm_barang_bibit')->insert(['id' => 1, 'nama_barang' => 'Lavender', 'jenis_barang' => 'BIBIT', 'id_botol' => 1, 'harga_beli_per_ml' => 100, 'harga_jual_retail_per_ml' => 200, 'harga_jual_grosir_per_ml' => 150]);
+        DB::table('tm_barang_supplier')->insert(['id_barang' => 1, 'id_supplier' => 1]);
         foreach (['pembelian', 'penjualan'] as $kind) {
             Schema::create('tt_'.$kind, function (Blueprint $table) use ($kind): void {
                 $table->id();

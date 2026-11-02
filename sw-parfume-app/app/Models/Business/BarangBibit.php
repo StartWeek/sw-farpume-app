@@ -4,6 +4,7 @@ namespace App\Models\Business;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BarangBibit extends Model
@@ -50,5 +51,10 @@ class BarangBibit extends Model
     public function stok(): HasMany
     {
         return $this->hasMany(StokGudang::class, 'id_barang');
+    }
+
+    public function suppliers(): BelongsToMany
+    {
+        return $this->belongsToMany(Supplier::class, 'tm_barang_supplier', 'id_barang', 'id_supplier');
     }
 }

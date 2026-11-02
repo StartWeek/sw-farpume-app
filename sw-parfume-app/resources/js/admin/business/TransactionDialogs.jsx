@@ -48,7 +48,7 @@ export function TransactionDialog({ title, description, onClose, children, width
     );
 }
 
-export function TransactionPickerModal({ title, options, selectedValue, onSelect, onClose, manualName = "", onManualConfirm, error }) {
+export function TransactionPickerModal({ title, options, selectedValue, onSelect, onClose, manualName = "", onManualConfirm, error, searchLabel = onManualConfirm ? "Customer" : "Sales" }) {
     const [search, setSearch] = useState("");
     const [manualMode, setManualMode] = useState(!!manualName && !selectedValue);
     const [name, setName] = useState(manualName);
@@ -101,7 +101,7 @@ export function TransactionPickerModal({ title, options, selectedValue, onSelect
                 ) : (
                     <>
                         {onManualConfirm && <p className="text-sm text-muted">Klik customer untuk memilih dan melanjutkan.</p>}
-                        <Field label={`Cari ${onManualConfirm ? "Customer" : "Sales"}`}>
+                        <Field label={`Cari ${searchLabel}`}>
                             <div className="relative">
                                 <IconSearch size={17} className="pointer-events-none absolute left-3 top-3 text-muted" aria-hidden="true" />
                                 <Input data-autofocus type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama atau kode…" className="pl-10" />

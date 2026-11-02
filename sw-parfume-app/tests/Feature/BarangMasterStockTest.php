@@ -33,6 +33,13 @@ class BarangMasterStockTest extends TestCase
             $table->unsignedBigInteger('id_brand')->nullable();
             $table->unsignedBigInteger('id_gudang')->nullable();
         });
+        Schema::create('tm_supplier', function (Blueprint $table): void {
+            $table->id();
+            $table->string('kode_supplier');
+            $table->string('nama_supplier');
+            $table->string('status')->default('AKTIF');
+        });
+        (require database_path('migrations/2026_11_02_000001_create_barang_supplier_table.php'))->up();
         Schema::create('tt_stok_gudang', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('id_barang');

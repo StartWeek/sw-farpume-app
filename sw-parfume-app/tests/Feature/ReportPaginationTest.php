@@ -19,6 +19,7 @@ class ReportPaginationTest extends TestCase
     {
         parent::setUp();
 
+        $this->travelTo(Carbon::parse('2026-10-31 12:00:00', 'Asia/Jakarta'));
         $this->mock(SettingsService::class, fn ($mock) => $mock->shouldReceive('get')->andReturn([]));
         $this->createSchema();
         $this->actingAs(User::query()->create([
@@ -367,6 +368,126 @@ class ReportPaginationTest extends TestCase
         DB::table('tm_botol')->where('id', 2)->update(['varian_ml' => 0]);
         $this->get('/admin/laporan/stok?search=1&barcode=BRG-001')->assertOk()
             ->assertInertia(fn (Assert $page) => $page->where('summary.Total Perkiraan Botol Isi', 0));
+    }
+
+    public function test_stock_report_combines_variants_per_item_and_warehouse_before_pagination_and_export(): void
+    {
+        DB::table('tt_stok_gudang')->where('id', 1)->update(['stok_ml' => 1000, 'id_botol' => null]);
+        DB::table('tm_botol')->insert(['id' => 2, 'kode_botol' => 'BTL-250', 'nama_botol' => '250 ML', 'varian_ml' => 250]);
+        DB::table('tt_stok_gudang')->insert([
+            ['id_gudang' => 1, 'id_barang' => 1, 'id_botol' => 1, 'stok_ml' => 500, 'minimum_stok_ml' => 10],
+            ['id_gudang' => 1, 'id_barang' => 1, 'id_botol' => 2, 'stok_ml' => 250, 'minimum_stok_ml' => 10],
+            ['id_gudang' => 1, 'id_barang' => 1, 'id_botol' => 2, 'stok_ml' => 0, 'minimum_stok_ml' => 10],
+            ['id_gudang' => 2, 'id_barang' => 1, 'id_botol' => 1, 'stok_ml' => 75, 'minimum_stok_ml' => 10],
+        ]);
+        DB::table('tm_gudang')->insert(['id' => 2, 'kode_gudang' => 'GDG-002', 'nama_gudang' => 'GUDANG LAIN']);
+        $url = '/admin/laporan/stok?search=1&barcode=BRG-001';
+        $this->get($url)->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('rows.total', 2)->has('rows.data', 2)
+            ->where('rows.data.0.stok_ml', 1750)->where('rows.data.0.stok_botol_isi', 16)
+            ->has('rows.data.0.variants', 4)
+            ->where('rows.data.0.variants.0.stok_ml', 1000)
+            ->where('rows.data.1.stok_ml', 75)
+            ->where('summary.Total Stok Cairan (ML)', 1825)
+            ->where('summary.Total Perkiraan Botol Isi', 17));
+        $this->get($url.'&stok_status=HABIS')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('rows.total', 0));
+        $this->get($url.'&id_gudang=1&id_botol=1')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('rows.total', 1)
+                ->where('rows.data.0.stok_ml', 1500)->has('rows.data.0.variants', 2));
+        $this->get($url.'&id_gudang=1&id_botol=2')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('rows.data.0.stok_ml', 250));
+        $this->get('/admin/laporan/stok?search=1&page=2')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('rows.total', 62)->has('rows.data', 10));
+        $response = $this->get($url.'&id_gudang=1&page=2&export=excel')->assertOk();
+        $sheetRows = IOFactory::load($response->baseResponse->getFile()->getPathname())->getActiveSheet()->toArray();
+        $stockRows = array_values(array_filter($sheetRows, fn (array $row) => $row[0] === 'BRG-001'));
+        $this->assertCount(1, $stockRows);
+        $this->assertSame(1750.0, (float) $stockRows[0][4]);
+        $this->assertStringContainsString('250 ML: 250 ML', $stockRows[0][3]);
+        $values = array_merge(...$sheetRows);
+        $this->assertContains('Rincian Varian Botol', $values);
+        $this->get($url.'&export=pdf')->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->assertSame(5, DB::table('tt_stok_gudang')->where('id_barang', 1)->count(), 'Historical variant rows must not be rewritten.');
+    }
+
+    public function test_legacy_stock_uses_the_only_known_variant_in_its_warehouse_for_bottle_estimates(): void
+    {
+        DB::table('tm_barang_bibit')->where('id', 1)->update(['id_botol' => null]);
+        DB::table('tt_stok_gudang')->where('id', 1)->update(['stok_ml' => 100, 'id_botol' => null]);
+        DB::table('tt_stok_gudang')->insert([
+            'id_gudang' => 1, 'id_barang' => 1, 'id_botol' => 1, 'stok_ml' => 200,
+        ]);
+        $url = '/admin/laporan/stok?search=1&barcode=BRG-001';
+        foreach (['', '&id_botol=1'] as $filter) {
+            $this->get($url.$filter)->assertOk()->assertInertia(fn (Assert $page) => $page
+                ->where('rows.total', 1)->where('rows.data.0.stok_ml', 300)
+                ->where('rows.data.0.stok_botol_isi', 3)
+                ->where('summary.Total Perkiraan Botol Isi', 3)
+                ->where('rows.data.0.variants.0.nama_botol', 'Mengikuti varian: 100 ML'));
+        }
+        $response = $this->get($url.'&export=excel')->assertOk();
+        $sheetRows = IOFactory::load($response->baseResponse->getFile()->getPathname())->getActiveSheet()->toArray();
+        $stockRows = array_values(array_filter($sheetRows, fn (array $row) => $row[0] === 'BRG-001'));
+        $this->assertSame(300.0, (float) $stockRows[0][4]);
+        $this->assertSame(3, (int) $stockRows[0][5]);
+        $this->assertDatabaseHas('tt_stok_gudang', ['id' => 1, 'id_botol' => null, 'stok_ml' => 100]);
+
+        DB::table('tm_botol')->insert(['id' => 2, 'kode_botol' => 'BTL-250', 'nama_botol' => '250 ML', 'varian_ml' => 250]);
+        DB::table('tt_stok_gudang')->insert([
+            'id_gudang' => 2, 'id_barang' => 1, 'id_botol' => 2, 'stok_ml' => 250,
+        ]);
+        $this->get($url.'&id_gudang=1')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('rows.data.0.stok_botol_isi', 3));
+        DB::table('tt_stok_gudang')->where('id_gudang', 2)->update(['id_gudang' => 1]);
+        $this->get($url)->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('rows.data.0.stok_ml', 550)
+            ->where('rows.data.0.variants.0.varian_ml', 0)
+            ->where('rows.data.0.variants.0.nama_botol', 'Tanpa varian (kapasitas belum diketahui)'));
+    }
+
+    public function test_item_summary_combines_variant_boundaries_without_summing_daily_balances(): void
+    {
+        DB::table('th_saldo_barang')->insert([
+            'tanggal' => '2026-10-30', 'id_gudang' => 1, 'id_barang' => 1, 'id_botol' => null,
+            'stok_awal_ml' => 40, 'masuk_ml' => 70, 'keluar_ml' => 10, 'stok_akhir_ml' => 100,
+            'minimum_stok_ml' => 7, 'total_mutasi' => 2, 'terakhir_mutasi' => '2026-10-30',
+        ]);
+        DB::table('tt_saldo_barang')->insert([
+            'tanggal' => '2026-10-31', 'id_gudang' => 1, 'id_barang' => 1, 'id_botol' => null,
+            'stok_awal_ml' => 100, 'masuk_ml' => 50, 'keluar_ml' => 20, 'stok_akhir_ml' => 130,
+            'minimum_stok_ml' => 7, 'total_mutasi' => 2, 'terakhir_mutasi' => '2026-10-31',
+        ]);
+        $url = '/admin/laporan/barang-summary?search=1&barcode=BRG-001&tanggal_dari=2026-10-29&tanggal_sampai=2026-10-31';
+        $this->get($url)->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('rows.total', 1)->has('rows.data', 1)
+            ->where('rows.data.0.stok_awal_ml', '140.00')
+            ->where('rows.data.0.total_masuk_ml', 180)->where('rows.data.0.total_keluar_ml', 45)
+            ->where('rows.data.0.stok_akhir_ml', '275.00')
+            ->where('rows.data.0.minimum_stok_ml', '7.00')
+            ->where('summary.Total Stok Awal ML', 140)->where('summary.Total Stok Akhir ML', 275));
+        $this->get($url.'&id_botol=1')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('rows.total', 1)->where('rows.data.0.stok_akhir_ml', '145.00'));
+        $this->get('/admin/laporan/barang-summary?search=1&page=2')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('rows.total', 61)->has('rows.data', 10));
+
+        $response = $this->get($url.'&page=2&export=excel')->assertOk();
+        $sheetRows = IOFactory::load($response->baseResponse->getFile()->getPathname())->getActiveSheet()->toArray();
+        $stockRows = array_values(array_filter($sheetRows, fn (array $row) => $row[0] === 'BRG-001'));
+        $this->assertCount(1, $stockRows);
+        $this->assertSame(140.0, (float) $stockRows[0][3]);
+        $this->assertSame(275.0, (float) $stockRows[0][6]);
+        $this->get($url.'&export=pdf')->assertOk()->assertHeader('content-type', 'application/pdf');
+
+        DB::table('tt_saldo_barang')->insert([
+            'tanggal' => '2026-10-31', 'id_gudang' => 2, 'id_barang' => 1, 'id_botol' => null,
+            'stok_awal_ml' => 0, 'masuk_ml' => 25, 'keluar_ml' => 0, 'stok_akhir_ml' => 25,
+            'minimum_stok_ml' => 7,
+        ]);
+        $this->get($url)->assertOk()->assertInertia(fn (Assert $page) => $page->where('rows.total', 2)
+            ->where('summary.Total Stok Akhir ML', 300));
+        $this->get($url.'&id_gudang=1')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('rows.total', 1)->where('rows.data.0.stok_akhir_ml', '275.00'));
     }
 
     public function test_customer_recap_aggregates_all_matching_invoices(): void

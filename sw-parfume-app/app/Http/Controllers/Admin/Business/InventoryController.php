@@ -9,6 +9,8 @@ use App\Models\Business\BotolKosong;
 use App\Models\Business\Gudang;
 use App\Models\Business\MutasiStok;
 use App\Models\Business\StokGudang;
+use App\Models\Business\Supplier;
+use App\Services\Business\SupplierStockService;
 use App\Services\Business\BusinessService;
 use App\Services\Business\TransactionValidationService;
 use Illuminate\Http\RedirectResponse;
@@ -24,12 +26,14 @@ class InventoryController extends Controller
     {
         return Inertia::render('admin/business/InventoryPage', [
             'mode' => 'stock',
+            'supplierRows' => app(SupplierStockService::class)->query('stok', request()->only(['id_supplier', 'id_gudang', 'barcode']))->paginate($this->perPage())->withQueryString(),
+            'suppliers' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
             'rows' => StokGudang::query()
                 ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
-            'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
+            'barang' => BarangBibit::query()->with(['brand', 'botol', 'suppliers:id,nama_supplier'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
             'botolKosong' => BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
@@ -59,13 +63,15 @@ class InventoryController extends Controller
     {
         return Inertia::render('admin/business/InventoryPage', [
             'mode' => 'mutations',
+            'supplierRows' => app(SupplierStockService::class)->query('mutasi-stok', request()->only(['id_supplier', 'id_gudang', 'barcode']))->paginate($this->perPage())->withQueryString(),
+            'suppliers' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
             'rows' => MutasiStok::query()
                 ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
             'stokGudangList' => StokGudang::query()->where('stok_ml', '>', 0)->get(['id_gudang', 'id_barang', 'id_botol', 'stok_ml']),
-            'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
+            'barang' => BarangBibit::query()->with(['brand', 'botol', 'suppliers:id,nama_supplier'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
             'botolKosong' => BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
@@ -85,6 +91,7 @@ class InventoryController extends Controller
         if ($gudang && $gudang->tipe_gudang === 'BOTOL') {
             // Mutasi stok botol kosong
             $validated = $this->uppercase($request->validate([
+                'id_supplier' => ['nullable', 'exists:tm_supplier,id'],
                 'id_gudang' => ['required', 'exists:tm_gudang,id'],
                 'id_barang' => ['required', 'exists:tm_botol_kosong,id'],
                 'tipe_mutasi' => ['required', 'in:MASUK,KELUAR'],
@@ -108,7 +115,8 @@ class InventoryController extends Controller
 
         // Default: mutasi stok barang bibit
         $validated = $this->uppercase($request->validate([
-            'id_gudang' => ['required', 'exists:tm_gudang,id'],
+            'id_supplier' => ['nullable', 'exists:tm_supplier,id'],
+                'id_gudang' => ['required', 'exists:tm_gudang,id'],
             'id_barang' => ['required', 'exists:tm_barang_bibit,id'],
             'id_botol' => ['nullable', 'exists:tm_botol,id'],
             'tipe_mutasi' => ['required', 'in:MASUK,KELUAR'],
@@ -141,13 +149,14 @@ class InventoryController extends Controller
     {
         return Inertia::render('admin/business/InventoryPage', [
             'mode' => 'destroy-stock',
+            'suppliers' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
             'rows' => StokGudang::query()
                 ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
                 ->where('stok_ml', '>', 0)
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
-            'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
+            'barang' => BarangBibit::query()->with(['brand', 'botol', 'suppliers:id,nama_supplier'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(['id', 'kode_barang', 'nama_barang', 'jenis_barang', 'id_botol', 'id_gudang']),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->orderBy('nama_gudang')->get(),
             'botolKosong' => BotolKosong::query()->with('gudang')->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
@@ -166,6 +175,7 @@ class InventoryController extends Controller
 
         if ($gudang && $gudang->tipe_gudang === 'BOTOL') {
             $validated = $this->uppercase($request->validate([
+                'id_supplier' => ['nullable', 'exists:tm_supplier,id'],
                 'id_gudang' => ['required', 'exists:tm_gudang,id'],
                 'id_barang' => ['required', 'exists:tm_botol_kosong,id'],
                 'jumlah_botol' => ['required', 'integer', 'min:1'],
@@ -188,7 +198,8 @@ class InventoryController extends Controller
         }
 
         $validated = $this->uppercase($request->validate([
-            'id_gudang' => ['required', 'exists:tm_gudang,id'],
+            'id_supplier' => ['nullable', 'exists:tm_supplier,id'],
+                'id_gudang' => ['required', 'exists:tm_gudang,id'],
             'id_barang' => ['required', 'exists:tm_barang_bibit,id'],
             'id_botol' => ['nullable', 'exists:tm_botol,id'],
             'qty_ml' => ['required', 'numeric', 'min:0.01'],

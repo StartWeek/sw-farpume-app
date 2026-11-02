@@ -191,10 +191,11 @@ function optionText(label) {
     return "";
 }
 
-export function Select({ children, value, onChange, placeholder = "Pilih data", disabled = false, searchable = true, error, ...props }) {
+export function Select({ children, value, onChange, placeholder = "Pilih data", disabled = false, searchable = true, closeOnSelect = true, multiple = false, selectionLabel = "dipilih", error, ...props }) {
     const [open, setOpen] = React.useState(false);
     const [search, setSearch] = React.useState("");
     const wrapperRef = React.useRef(null);
+    const searchRef = React.useRef(null);
     const options = React.Children.toArray(children)
         .filter((child) => React.isValidElement(child))
         .map((child) => ({
@@ -204,6 +205,7 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
             disabled: Boolean(child.props.disabled),
         }));
     const selected = options.find((option) => option.value === String(value ?? ""));
+    const selectedValues = multiple && Array.isArray(value) ? value.map(String) : [];
     const menuOptions = options.filter((option) => option.value !== "");
     const filteredOptions = search.trim()
         ? menuOptions.filter((option) => option.text.includes(search.trim().toLowerCase()))
@@ -223,9 +225,14 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
 
     const pick = (option) => {
         if (option.disabled) return;
-        onChange?.({ target: { value: option.value, name: props.name } });
-        setOpen(false);
-        setSearch("");
+        const nextValue = multiple
+            ? selectedValues.includes(option.value) ? selectedValues.filter((entry) => entry !== option.value) : [...selectedValues, option.value]
+            : option.value;
+        onChange?.({ target: { value: nextValue, name: props.name } });
+        if (closeOnSelect) {
+            setOpen(false);
+            setSearch("");
+        }
     };
 
     const errorClass = error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "border-stroke hover:border-primary/60 focus:border-primary focus:ring-primary/20";
@@ -235,11 +242,12 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
             <button
                 type="button"
                 disabled={disabled}
+                aria-expanded={open}
                 onClick={() => setOpen((current) => !current)}
                 className={`flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border bg-card px-3.5 py-2.5 text-left text-sm font-medium text-main shadow-sm outline-none transition-all duration-200 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${errorClass}`}
             >
-                <span className={selected?.value ? "" : "text-muted"}>
-                    {selected?.label || placeholder}
+                <span className={selected?.value || selectedValues.length ? "" : "text-muted"}>
+                    {multiple ? selectedValues.length ? `${selectedValues.length} ${selectionLabel}` : placeholder : selected?.label || placeholder}
                 </span>
                 <IconChevronDown
                     size={16}
@@ -254,6 +262,7 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
                             <div className="relative">
                                 <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
                                 <input
+                                    ref={searchRef}
                                     autoFocus
                                     type="text"
                                     value={search}
@@ -265,7 +274,13 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
                         </div>
                     ) : null}
                     {filteredOptions.length ? filteredOptions.map((option) => {
-                        const active = option.value === String(value ?? "");
+                        const active = multiple ? selectedValues.includes(option.value) : option.value === String(value ?? "");
+                        if (multiple) return (
+                            <label key={option.value} className={`flex min-h-10 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 font-medium ${active ? "bg-primary/10 text-primary" : "text-main hover:bg-page"}`}>
+                                <input type="checkbox" checked={active} disabled={option.disabled} onChange={() => pick(option)} className="size-4 shrink-0 accent-primary" />
+                                <span>{option.label}</span>
+                            </label>
+                        );
                         return (
                             <button
                                 key={`${option.value}-${option.label}`}
@@ -287,6 +302,7 @@ export function Select({ children, value, onChange, placeholder = "Pilih data", 
                             Data tidak ditemukan.
                         </div>
                     )}
+                    {!closeOnSelect && <div className="sticky bottom-0 border-t border-stroke bg-card pt-1.5"><Button fullWidth variant="outline" onClick={() => { setOpen(false); setSearch(""); }}>Selesai</Button></div>}
                 </div>
             ) : null}
             {error && <p className="mt-1 text-sm text-red-500">{error}</p>}

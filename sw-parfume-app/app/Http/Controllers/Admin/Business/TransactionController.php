@@ -206,7 +206,7 @@ class TransactionController extends Controller
         }
 
         return [
-            'barang' => BarangBibit::query()->with(['brand', 'botol'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(),
+            'barang' => BarangBibit::query()->with(['brand', 'botol', 'suppliers:id,nama_supplier'])->where('status', 'AKTIF')->orderBy('nama_barang')->get(),
             'botol' => Botol::query()->where('status', 'AKTIF')->orderBy('varian_ml')->get(),
             'botol_kosong' => BotolKosong::query()->where('status', 'AKTIF')->orderBy('nama_botol')->get(),
             'gudang' => $gudangQuery->orderBy('nama_gudang')->get(),

@@ -10,12 +10,12 @@ import BarcodeLookup from "./BarcodeLookup";
 import { TransactionDialog } from "./TransactionDialogs";
 import useTransactionSubmissionOptions from "./useTransactionSubmissionOptions";
 
-export default function InventoryPage({ mode, rows = [], barang = [], botol = [], gudang = [], stokGudangMap = {}, botolKosong = [], stokGudangList = [] }) {
+export default function InventoryPage({ mode, rows = [], barang = [], botol = [], gudang = [], stokGudangMap = {}, botolKosong = [], stokGudangList = [], suppliers = [], supplierRows = null }) {
     useFlashMessages();
     const submissionOptions = useTransactionSubmissionOptions();
     const { errors: pageErrors } = usePage().props;
     const errors = pageErrors || {};
-    const emptyForm = { tipe_mutasi: "MASUK", jumlah_botol: "", qty_ml: "", id_barang: "", id_botol: "", id_gudang: "", tipe_gudang: "", jenis_barang: "BIBIT", keterangan: "" };
+    const emptyForm = { id_supplier: "", tipe_mutasi: "MASUK", jumlah_botol: "", qty_ml: "", id_barang: "", id_botol: "", id_gudang: "", tipe_gudang: "", jenis_barang: "BIBIT", keterangan: "" };
     const [form, setForm] = useState(emptyForm);
     const [barcode, setBarcode] = useState("");
     const [showModal, setShowModal] = useState(false);
@@ -75,7 +75,8 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
         return true;
     };
     const scanBarcode = () => applyBarcode(barcode);
-    const barcodeItems = availableBarcodeItems({ barang, bottles: botolKosong, warehouses: gudang, stocks: stokGudangList });
+    const incoming = isStock || (isMutation && form.tipe_mutasi === "MASUK");
+    const barcodeItems = availableBarcodeItems({ barang, bottles: botolKosong, warehouses: gudang, stocks: stokGudangList, incoming });
 
     const filteredRows = kodeGudang
         ? (Array.isArray(rows) ? rows : rows.data || []).filter((row) => row.barang?.kode_barang?.toLowerCase().includes(kodeGudang.toLowerCase()))
@@ -140,9 +141,10 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                             <div className="md:col-span-2 lg:col-span-3"><Field label="Scan Barcode">
                                 <div className="flex flex-wrap items-start gap-2">
                                     <div className="flex min-w-0 flex-1 gap-2"><Input value={barcode} onChange={(event) => setBarcode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); scanBarcode(); } }} placeholder="Scan barcode dengan scanner, lalu Enter" /><Button onClick={scanBarcode}>Gunakan Kode</Button></div>
-                                    <BarcodeLookup items={barcodeItems} onSelect={(item) => applyBarcode(item.code)} />
+                                    <BarcodeLookup items={barcodeItems} onSelect={(item) => applyBarcode(item.code)} incoming={incoming} />
                                 </div>
                             </Field></div>
+                            {incoming && <Field label="Supplier Asal Stok"><Select value={form.id_supplier} onChange={(event) => set("id_supplier", event.target.value)}><option value="">Pilih supplier</option>{suppliers.map((row) => <option key={row.id} value={row.id}>{row.nama_supplier}</option>)}</Select>{errors.id_supplier && <p role="alert" className="text-xs text-red-600">{errors.id_supplier}</p>}</Field>}
                             <Field label="Jenis Barang"><Select value={form.jenis_barang} onChange={(event) => {
                                 const jenisBarang = event.target.value;
                                 setForm((previous) => ({ ...previous, jenis_barang: jenisBarang, tipe_gudang: "", id_barang: "", id_gudang: "", id_botol: "", jumlah_botol: "", qty_ml: "" }));
@@ -227,7 +229,13 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                     </TransactionDialog>
                 )}
 
-                <SimpleTable
+                {supplierRows ? <SimpleTable rows={supplierRows} columns={[
+                    ...(isMutation ? [{ key: "tanggal", label: "Tanggal" }, { key: "reference", label: "Referensi" }] : []),
+                    { key: "kode_barang", label: "Barcode" }, { key: "nama_barang", label: "Barang" },
+                    { key: "supplier_name", label: "Supplier Asal" }, { key: "nama_gudang", label: "Gudang" },
+                    ...(isMutation ? [{ key: "direction", label: "Arah" }] : []),
+                    { key: "quantity", label: isMutation ? "Jumlah" : "Stok", render: (row) => `${number(row.quantity)} ${row.unit}` },
+                ]} /> : (<SimpleTable
                     rows={filteredRows}
                     columns={isMutation ? [
                         { key: "tanggal", label: "Tanggal" },
@@ -248,7 +256,8 @@ export default function InventoryPage({ mode, rows = [], barang = [], botol = []
                         { key: "stok_botol_isi", label: "Botol Isi", render: (row) => number(row.stok_botol_isi) },
                         { key: "minimum_stok_ml", label: "Minimum", render: (row) => number(row.minimum_stok_ml) },
                     ]}
-                />
+                />)}
+
             </div>
         </ProtectedLayout>
     );

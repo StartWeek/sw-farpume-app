@@ -23,6 +23,7 @@ use App\Models\Business\Supplier;
 use App\Models\Business\TransactionValidation;
 use App\Models\Business\TransaksiBotolKosong;
 use App\Services\Business\BusinessService;
+use App\Services\Business\SupplierStockService;
 use App\Services\Business\TransactionValidationService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Database\Eloquent\Builder;
@@ -30,6 +31,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -100,6 +102,8 @@ class ReportController extends Controller
                 'validation_type' => ['nullable', Rule::in(array_keys(TransactionValidationService::TYPES))],
             ]);
         }
+        if (in_array($type, ['stok', 'barang-summary', 'mutasi-stok'], true)) return $this->supplierStockReport($request, $type, $filters, $searched);
+
         if (! $searched) {
             return Inertia::render('admin/business/ReportPage', [
                 'type' => $type, 'searched' => false, 'filters' => $filters,
@@ -119,7 +123,7 @@ class ReportController extends Controller
         if ($searched && in_array($export, ['pdf', 'excel'], true)) {
             $exportRows = (clone $rows)->get();
             if ($type === 'stok') {
-                $exportRows = $exportRows->map(fn (StokGudang $stock) => $this->formatStockRow($stock));
+                $exportRows = $this->formatStockRows($exportRows, $filters);
             }
             $groups = $groups?->get()->map(fn (object $group) => (array) $group)->all() ?? [];
             $botolSummaryExport = $type === 'barang-summary' ? $this->botolSummaryRows($filters) : [];
@@ -169,7 +173,7 @@ class ReportController extends Controller
             'searched' => $searched,
             'filters' => $filters,
             'refs' => $this->refs($type, $filters),
-            'rows' => $searched ? $this->paginateReportRows($type, $rows) : [],
+            'rows' => $searched ? $this->paginateReportRows($type, $rows, $filters) : [],
             'botolStock' => $botolStock ? (clone $botolStock)->paginate($this->perPage(), ['*'], 'botol_page')->withQueryString()
                 ->through(fn (BotolKosong $botol) => $this->formatBotolStockRow($botol)) : [],
             'botolStockTotal' => $botolStock ? (float) (clone $botolStock)->sum('stock') : 0,
@@ -177,6 +181,48 @@ class ReportController extends Controller
                 ->through(fn (TransaksiBotolKosong $row) => $this->formatBotolSummaryRow($row)) ?? [],
             'summary' => $summary,
             'groups' => $groups?->paginate($this->perPage(), ['*'], 'groups_page')->withQueryString() ?? [],
+        ]);
+    }
+
+    private function supplierStockReport(Request $request, string $type, array $filters, bool $searched): InertiaResponse|SymfonyResponse
+    {
+        $request->validate([
+            'id_supplier' => ['nullable', 'integer', 'min:1'], 'id_gudang' => ['nullable', 'integer', 'min:1'],
+            'jenis_barang' => ['nullable', Rule::in(['BIBIT', 'ABSOLUTE', 'BOTOL'])],
+            'tipe_mutasi' => ['nullable', Rule::in(['MASUK', 'KELUAR'])],
+        ]);
+        $query = app(SupplierStockService::class)->query($type, $filters);
+        $columns = [
+            ['key' => 'kode_barang', 'label' => 'Barcode'], ['key' => 'nama_barang', 'label' => 'Barang'],
+            ['key' => 'supplier_name', 'label' => 'Supplier Asal'], ['key' => 'nama_gudang', 'label' => 'Gudang'],
+            ['key' => 'unit', 'label' => 'Satuan'],
+        ];
+        if ($type === 'barang-summary') {
+            foreach (['opening' => 'Awal', 'incoming' => 'Masuk', 'outgoing' => 'Keluar'] as $key => $label) $columns[] = ['key' => $key, 'label' => $label];
+        }
+        if ($type === 'mutasi-stok') {
+            $columns[] = ['key' => 'tanggal', 'label' => 'Tanggal'];
+            $columns[] = ['key' => 'direction', 'label' => 'Arah'];
+            $columns[] = ['key' => 'reference', 'label' => 'Referensi'];
+        }
+        $columns[] = ['key' => 'quantity', 'label' => $type === 'mutasi-stok' ? 'Jumlah' : 'Stok Akhir'];
+        $title = $this->getExportTitle($type).' per Supplier dan Gudang';
+        if ($searched && in_array($request->query('export'), ['pdf', 'excel'], true)) {
+            $rows = $query->get();
+            $formattedFilters = $this->formatFiltersForExport($filters);
+            $filename = str($title)->slug();
+            if ($request->query('export') === 'excel') {
+                return Excel::download(new ReportExport($title, $formattedFilters, $columns, $rows), $filename.'.xlsx');
+            }
+            $orientation = $request->query('orientation') === 'portrait' ? 'portrait' : 'landscape';
+            return Pdf::loadView('exports.supplier_stock', ['title' => $title, 'filters' => $formattedFilters, 'columns' => $columns, 'rows' => $rows])
+                ->setPaper('a4', $orientation)->download($filename.'.pdf');
+        }
+        return Inertia::render('admin/business/SupplierStockReportPage', [
+            'type' => $type, 'title' => $title, 'filters' => $filters, 'searched' => $searched,
+            'rows' => $searched ? $query->paginate($this->perPage())->withQueryString() : [],
+            'suppliers' => Supplier::query()->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
+            'warehouses' => Gudang::query()->orderBy('nama_gudang')->get(['id', 'nama_gudang']),
         ]);
     }
 
@@ -201,6 +247,16 @@ class ReportController extends Controller
 
     private function reportAvailable(string $type, array $filters): bool
     {
+        if ($type === 'stok') {
+            $stocks = ($filters['stok_status'] ?? null) === 'HABIS'
+                ? $this->stockReportQuery($filters)
+                : (empty($filters['id_botol'])
+                    ? $this->applyStockFilters(StokGudang::query(), $filters)
+                        ->when(($filters['jenis_barang'] ?? null) === 'BOTOL', fn (Builder $query) => $query->whereRaw('1 = 0'))
+                    : $this->stockVariantQuery($filters));
+
+            return $stocks->reorder()->exists() || $this->botolStockQuery($filters)->reorder()->exists();
+        }
         if ($type === 'barang-summary') {
             // Check source rows, not the expensive grouped summary and boundary calculations.
             return (($filters['jenis_barang'] ?? null) !== 'BOTOL' && (
@@ -209,8 +265,7 @@ class ReportController extends Controller
             )) || $this->bottleSummaryTransactionsQuery($filters)->exists();
         }
 
-        return $this->reportRowsQuery($type, $filters)->reorder()->exists()
-            || ($type === 'stok' && $this->botolStockQuery($filters)->reorder()->exists());
+        return $this->reportRowsQuery($type, $filters)->reorder()->exists();
     }
 
     private function reportSummary(string $type, Builder $rows): array
@@ -292,7 +347,7 @@ class ReportController extends Controller
         if (in_array($type, ['penjualan', 'laba-kotor', 'piutang'], true)) {
             $definitions['customer'] = [Customer::class, 'id_customer', 'nama_customer', null];
         }
-        if (in_array($type, ['pembelian', 'hutang', 'piutang-supplier'], true)) {
+        if (in_array($type, ['pembelian', 'hutang', 'piutang-supplier', 'stok', 'barang-summary', 'mutasi-stok'], true)) {
             $definitions['supplier'] = [Supplier::class, 'id_supplier', 'nama_supplier', null];
         }
 
@@ -455,20 +510,61 @@ class ReportController extends Controller
 
     private function stockReportQuery(array $filters): Builder
     {
+        $variantFilters = $filters;
+        unset($variantFilters['stok_status']);
+        $variants = $this->stockVariantQuery($variantFilters)->reorder()->toBase();
+        $balances = DB::query()->fromSub($variants, 'variants')
+            ->select('id_gudang', 'id_barang')
+            ->selectRaw('MIN(id) as id, SUM(stok_ml) as stok_ml, MAX(minimum_stok_ml) as minimum_stok_ml')
+            ->selectRaw('SUM(stok_botol_isi) as stok_botol_isi')
+            ->groupBy('id_gudang', 'id_barang');
+
+        return StokGudang::query()->fromSub($balances, 'tt_stok_gudang')
+            ->with(['gudang', 'barang'])
+            ->join('tm_barang_bibit', 'tt_stok_gudang.id_barang', '=', 'tm_barang_bibit.id')
+            ->when(($filters['stok_status'] ?? null) === 'HABIS', fn (Builder $query) => $query->where('stok_ml', 0))
+            ->when(($filters['stok_status'] ?? null) === 'TERSEDIA', fn (Builder $query) => $query->where('stok_ml', '>', 0))
+            ->orderBy('tm_barang_bibit.nama_barang')
+            ->orderBy('tt_stok_gudang.id_gudang')
+            ->orderBy('tt_stok_gudang.id_barang')
+            ->select('tt_stok_gudang.*');
+    }
+
+    private function stockVariantQuery(array $filters): Builder
+    {
+        $bottleId = $filters['id_botol'] ?? null;
+        unset($filters['id_botol']);
+        $knownVariants = DB::table('tt_stok_gudang as known_stock')
+            ->select('known_stock.id_barang', 'known_stock.id_gudang')
+            ->selectRaw('MIN(known_stock.id_botol) as id_botol')
+            ->whereNotNull('known_stock.id_botol')
+            ->groupBy('known_stock.id_barang', 'known_stock.id_gudang')
+            ->havingRaw('COUNT(DISTINCT known_stock.id_botol) = 1');
         $query = $this->applyStockFilters(
-            StokGudang::query()->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant']), $filters
+            StokGudang::query(), $filters
         )
             ->join('tm_barang_bibit', 'tt_stok_gudang.id_barang', '=', 'tm_barang_bibit.id')
             ->leftJoin('tm_botol', 'tt_stok_gudang.id_botol', '=', 'tm_botol.id')
             ->leftJoin('tm_botol as default_botol', 'tm_barang_bibit.id_botol', '=', 'default_botol.id')
+            ->leftJoinSub($knownVariants, 'known_variants', fn ($join) => $join
+                ->on('known_variants.id_barang', '=', 'tt_stok_gudang.id_barang')
+                ->on('known_variants.id_gudang', '=', 'tt_stok_gudang.id_gudang'))
+            ->leftJoin('tm_botol as inferred_botol', function ($join): void {
+                $join->on('inferred_botol.id', '=', 'known_variants.id_botol')
+                    ->whereNull('tt_stok_gudang.id_botol')
+                    ->whereNull('tm_barang_bibit.id_botol');
+            })
             ->orderBy('tm_botol.varian_ml')
             ->orderBy('tm_barang_bibit.nama_barang')
             ->orderBy('tt_stok_gudang.id')
             ->select('tt_stok_gudang.*');
-        $capacity = 'COALESCE(tm_botol.varian_ml, default_botol.varian_ml, 0)';
+        $query->when($bottleId, fn (Builder $query, $id) => $query->whereRaw('COALESCE(tt_stok_gudang.id_botol, tm_barang_bibit.id_botol, inferred_botol.id) = ?', [(int) $id]));
+        $capacity = 'COALESCE(tm_botol.varian_ml, default_botol.varian_ml, inferred_botol.varian_ml, 0)';
         $bottles = "1.0 * tt_stok_gudang.stok_ml / NULLIF({$capacity}, 0)";
         // ROUND plus a remainder check is CEIL-compatible on both SQLite and MySQL.
         $query->selectRaw("CASE WHEN {$capacity} > 0 THEN ROUND({$bottles}, 0) + CASE WHEN {$bottles} > ROUND({$bottles}, 0) THEN 1 ELSE 0 END ELSE 0 END as stok_botol_isi");
+        $query->selectRaw("{$capacity} as capacity_ml, COALESCE(tm_botol.nama_botol, default_botol.nama_botol, inferred_botol.nama_botol) as bottle_name")
+            ->selectRaw('inferred_botol.id as inferred_bottle_id');
 
         if (($filters['jenis_barang'] ?? null) === 'BOTOL') {
             $query->whereRaw('1 = 0');
@@ -477,18 +573,44 @@ class ReportController extends Controller
         return $query;
     }
 
-    private function formatStockRow(StokGudang $stock): array
+    private function formatStockRows(Collection $stocks, array $filters): Collection
     {
-        return [
-            'id' => 'cairan-'.$stock->id,
-            'kode_barang' => $stock->barang?->kode_barang,
-            'nama_item' => $stock->barang?->nama_barang ?? '-',
-            'gudang' => $stock->gudang,
-            'botol' => $stock->botolVariant ?? $stock->barang?->botol,
-            'stok_ml' => (float) $stock->stok_ml,
-            'stok_botol_isi' => $stock->stok_botol_isi,
-            'minimum_stok_ml' => (float) $stock->minimum_stok_ml,
-        ];
+        if ($stocks->isEmpty()) {
+            return $stocks;
+        }
+        unset($filters['stok_status']);
+        $variants = $this->stockVariantQuery($filters)
+            ->whereIn('tt_stok_gudang.id_barang', $stocks->pluck('id_barang'))
+            ->whereIn('tt_stok_gudang.id_gudang', $stocks->pluck('id_gudang'))
+            ->toBase()->get()->groupBy(fn (object $row) => $row->id_gudang.'-'.$row->id_barang);
+
+        return $stocks->map(function (StokGudang $stock) use ($variants): array {
+            $details = $variants->get($stock->id_gudang.'-'.$stock->id_barang, collect())
+                ->map(fn (object $variant) => [
+                    'id' => $variant->id,
+                    'id_botol' => $variant->id_botol,
+                    'nama_botol' => $variant->id_botol === null
+                        ? ($variant->bottle_name
+                            ? ($variant->inferred_bottle_id ? 'Mengikuti varian: ' : 'Default: ').$variant->bottle_name
+                            : 'Tanpa varian (kapasitas belum diketahui)')
+                        : $variant->bottle_name,
+                    'varian_ml' => (float) $variant->capacity_ml,
+                    'stok_ml' => (float) $variant->stok_ml,
+                    'stok_botol_isi' => (int) $variant->stok_botol_isi,
+                ])->values();
+
+            return [
+                'id' => 'cairan-'.$stock->id_gudang.'-'.$stock->id_barang,
+                'kode_barang' => $stock->barang?->kode_barang,
+                'nama_item' => $stock->barang?->nama_barang ?? '-',
+                'gudang' => $stock->gudang,
+                'variants' => $details,
+                'stok_ml' => (float) $stock->stok_ml,
+                'stok_botol_isi' => (int) $stock->getRawOriginal('stok_botol_isi'),
+                'has_bottle_capacity' => $details->contains(fn (array $variant) => $variant['varian_ml'] > 0),
+                'minimum_stok_ml' => (float) $stock->minimum_stok_ml,
+            ];
+        });
     }
 
     private function botolStockQuery(array $filters): Builder
@@ -620,11 +742,18 @@ class ReportController extends Controller
             $grouped->selectSub($boundary, $column);
         }
 
-        return SaldoBarang::query()->fromSub($grouped, 'tt_saldo_barang')
-            ->with(['gudang', 'barang.brand', 'barang.botol', 'botolVariant'])
+        $combined = DB::query()->fromSub($grouped, 'variant_balances')
+            ->select('id_gudang', 'id_barang')
+            ->selectRaw('SUM(stok_awal_ml) as stok_awal_ml, SUM(stok_akhir_ml) as stok_akhir_ml')
+            ->selectRaw('SUM(total_masuk_ml) as total_masuk_ml, SUM(total_keluar_ml) as total_keluar_ml, SUM(selisih_ml) as selisih_ml')
+            ->selectRaw('SUM(total_mutasi) as total_mutasi, MAX(minimum_stok_ml) as minimum_stok_ml, MAX(terakhir_mutasi) as terakhir_mutasi')
+            ->groupBy('id_gudang', 'id_barang');
+
+        return SaldoBarang::query()->fromSub($combined, 'tt_saldo_barang')
+            ->with(['gudang', 'barang'])
             ->withCasts(['total_masuk_ml' => 'float', 'total_keluar_ml' => 'float', 'selisih_ml' => 'float', 'total_mutasi' => 'integer'])
             ->when(($filters['jenis_barang'] ?? null) === 'BOTOL', fn (Builder $query) => $query->whereRaw('1 = 0'))
-            ->orderByDesc('terakhir_mutasi')->orderBy('id_gudang')->orderBy('id_barang')->orderBy('id_botol');
+            ->orderByDesc('terakhir_mutasi')->orderBy('id_gudang')->orderBy('id_barang');
     }
 
     private function applyStockBalanceFilters(Builder $query, array $filters): Builder
@@ -687,12 +816,12 @@ class ReportController extends Controller
         return in_array($perPage, [10, 25, 50], true) ? $perPage : 10;
     }
 
-    private function paginateReportRows(string $type, Builder $rows): LengthAwarePaginator
+    private function paginateReportRows(string $type, Builder $rows, array $filters): LengthAwarePaginator
     {
         $pagination = (clone $rows)->paginate($this->perPage())->withQueryString();
 
         if ($type === 'stok') {
-            $pagination->through(fn (StokGudang $stock) => $this->formatStockRow($stock));
+            $pagination->setCollection($this->formatStockRows($pagination->getCollection(), $filters));
         }
 
         return $pagination;
@@ -778,9 +907,11 @@ class ReportController extends Controller
                 ['key' => 'kode_barang', 'label' => 'Kode / Barcode'],
                 ['key' => 'nama_item', 'label' => 'Barang'],
                 ['label' => 'Gudang', 'format' => fn ($row) => data_get($row, 'gudang.nama_gudang', '-')],
-                ['label' => 'Kapasitas Botol', 'format' => fn ($row) => data_get($row, 'botol.nama_botol', '-')],
-                ['key' => 'stok_ml', 'label' => 'Jumlah Isi (ML)', 'format' => fn ($row) => $this->fmt((float) data_get($row, 'stok_ml'))],
-                ['key' => 'stok_botol_isi', 'label' => 'Perkiraan Wadah (Botol)', 'format' => fn ($row) => (float) data_get($row, 'botol.varian_ml') > 0 ? $this->fmt((float) data_get($row, 'stok_botol_isi')) : '-'],
+                ['label' => 'Rincian Varian Botol', 'format' => fn ($row) => collect(data_get($row, 'variants', []))
+                    ->map(fn ($variant) => data_get($variant, 'nama_botol', '-').': '.$this->fmt((float) data_get($variant, 'stok_ml')).' ML')
+                    ->implode('; ')],
+                ['key' => 'stok_ml', 'label' => 'Jumlah Isi (ML)'],
+                ['key' => 'stok_botol_isi', 'label' => 'Perkiraan Wadah (Botol)', 'format' => fn ($row) => data_get($row, 'has_bottle_capacity') ? (int) data_get($row, 'stok_botol_isi') : '-'],
             ];
         }
 
@@ -798,7 +929,6 @@ class ReportController extends Controller
         if ($type === 'barang-summary') {
             return [
                 ['label' => 'Kode / Barcode', 'format' => fn ($row) => $row->barang?->kode_barang ?? '-'],
-                ['label' => 'Varian Botol', 'format' => fn ($row) => $row->botolVariant?->nama_botol ?? $row->barang?->botol?->nama_botol ?? '-'],
                 ['label' => 'Barang', 'format' => fn ($row) => $row->barang?->nama_barang ?? '-'],
                 ['label' => 'Gudang', 'format' => fn ($row) => $row->gudang?->nama_gudang ?? '-'],
                 ['label' => 'Stok Awal', 'format' => fn ($row) => $this->fmt((float) $row->stok_awal_ml)],

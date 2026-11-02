@@ -27,15 +27,21 @@ const emptyForm = {
     harga_jual_retail_per_ml: "",
     harga_jual_grosir_per_ml: "",
     minimum_stok_ml: "",
+    supplier_ids: [],
 };
 
-export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) {
+export default function BarangBibitPage({ rows = [], brand = [], gudang = [], supplier = [] }) {
     useFlashMessages();
     const { errors: pageErrors } = usePage().props;
     const errors = pageErrors || {};
     const [editing, setEditing] = useState(null);
     const [form, setForm] = useState(emptyForm);
     const [search, setSearch] = useState("");
+    const selectedSupplierIds = new Set(form.supplier_ids.map(Number));
+    const selectedSuppliers = [
+        ...supplier,
+        ...(form.suppliers || []).filter((item) => !supplier.some((active) => Number(active.id) === Number(item.id))),
+    ].filter((item) => selectedSupplierIds.has(Number(item.id)));
 
     const doSearch = (value) => setSearch(value);
 
@@ -53,7 +59,7 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) 
 
     const open = (row = null) => {
         setEditing(row || {});
-        setForm(row ? { ...emptyForm, ...row, id_gudang: row?.id_gudang || "" } : { ...emptyForm });
+        setForm(row ? { ...emptyForm, ...row, id_gudang: row?.id_gudang || "", supplier_ids: (row.suppliers || []).map((item) => item.id) } : { ...emptyForm });
     };
     const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
     const submit = (event) => {
@@ -128,6 +134,27 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) 
                                     <option value="ABSOLUTE">Absolute</option>
                                 </Select>
                             </Field>
+                            <div className="space-y-1.5 md:col-span-2">
+                                    <span className="text-[11px] font-bold uppercase tracking-widest text-muted">Supplier Barang</span>
+                                    <Select
+                                        value={form.supplier_ids}
+                                        multiple
+                                        selectionLabel="supplier dipilih"
+                                        placeholder="Pilih / cari supplier"
+                                        closeOnSelect={false}
+                                        disabled={!supplier.length && !selectedSuppliers.length}
+                                        onChange={(event) => setForm((previous) => ({
+                                            ...previous,
+                                            supplier_ids: event.target.value.map(Number),
+                                        }))}
+                                    >
+                                        {selectedSuppliers.filter((item) => !supplier.some((active) => Number(active.id) === Number(item.id))).map((item) => <option key={item.id} value={item.id}>{item.kode_supplier} - {item.nama_supplier} (Tidak aktif)</option>)}
+                                        {supplier.map((item) => <option key={item.id} value={item.id}>{item.kode_supplier} - {item.nama_supplier}</option>)}
+                                    </Select>
+                                    <p className="mt-2 text-xs text-muted">Centang supplier, lalu klik Selesai. Hapus centang untuk membatalkan pilihan. Barang tanpa supplier tidak dapat diterima melalui Pembelian.</p>
+                                    {!supplier.length && <p className="text-xs text-amber-700">Belum ada supplier aktif. Tambahkan di master Supplier.</p>}
+                                    {Object.entries(errors).filter(([key]) => key === "supplier_ids" || key.startsWith("supplier_ids.")).map(([key, message]) => <p key={key} role="alert" className="mt-1 text-xs text-red-600">{message}</p>)}
+                            </div>
                             <Field label="Harga Beli / ML"><CurrencyInput value={form.harga_beli_per_ml || ""} onChange={(event) => set("harga_beli_per_ml", event.target.value)} error={errors.harga_beli_per_ml} /></Field>
                             <Field label="Harga Retail / ML"><CurrencyInput value={form.harga_jual_retail_per_ml || ""} onChange={(event) => set("harga_jual_retail_per_ml", event.target.value)} error={errors.harga_jual_retail_per_ml} /></Field>
                             <Field label="Harga Sales / ML"><CurrencyInput value={form.harga_jual_grosir_per_ml || ""} onChange={(event) => set("harga_jual_grosir_per_ml", event.target.value)} error={errors.harga_jual_grosir_per_ml} /></Field>
@@ -146,6 +173,7 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [] }) 
                         { key: "nama_barang", label: "Barang" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
                         { key: "jenis_barang", label: "Jenis" },
+                        { key: "suppliers", label: "Supplier", render: (row) => row.suppliers?.length ? row.suppliers.map((item) => item.nama_supplier).join(", ") : "Belum ditentukan" },
                         { key: "stok_saat_ini_ml", label: "Stok Saat Ini (ML)", render: (row) => (
                             <div className="text-right tabular-nums">
                                 <span className="whitespace-nowrap font-bold">{number(row.stok_saat_ini_ml ?? 0)} ML</span>

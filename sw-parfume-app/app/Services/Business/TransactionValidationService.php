@@ -168,7 +168,18 @@ class TransactionValidationService
     private function prepare(string $type, array $payload): array
     {
         $trade = $type === 'pembelian' || str_starts_with($type, 'penjualan-');
-        if ($trade) {
+        if ($type === 'pembelian') {
+            $warehouse = Gudang::query()->where('status', 'AKTIF')->find($payload['id_gudang'] ?? null);
+            if (! $warehouse) {
+                throw ValidationException::withMessages(['id_gudang' => 'Pilih gudang tujuan yang aktif.']);
+            }
+            foreach ($payload['items'] as $item) {
+                $bottle = ($item['tipe_item'] ?? 'BIBIT') === 'BOTOL';
+                if ($warehouse->tipe_gudang !== ($bottle ? 'BOTOL' : 'BIBIT')) {
+                    throw ValidationException::withMessages(['id_gudang' => 'Jenis gudang tujuan tidak sesuai dengan barang pembelian. Pisahkan pembelian cairan dan botol kosong.']);
+                }
+            }
+        } elseif ($trade) {
             $locations = [];
             foreach ($payload['items'] as $item) {
                 $bottle = ($item['tipe_item'] ?? 'BIBIT') === 'BOTOL';
@@ -187,8 +198,15 @@ class TransactionValidationService
             $payload['id_gudang'] = $resolved;
         }
 
+        $incomingInventory = in_array($type, ['mutasi-stok', 'mutasi-botol'], true) && ($payload['tipe_mutasi'] ?? '') === 'MASUK';
+        if ($incomingInventory) {
+            $supplier = Supplier::query()->where('status', 'AKTIF')->find($payload['id_supplier'] ?? null);
+            if (!$supplier) throw ValidationException::withMessages(['id_supplier' => 'Supplier asal stok wajib dipilih.']);
+        }
+
         $snapshot = [
             'label' => self::TYPES[$type]['label'],
+            'supplier' => !empty($payload['id_supplier']) ? Supplier::query()->findOrFail($payload['id_supplier'])->nama_supplier : null,
             'party' => $payload['pihak'] ?? '-',
             'warehouse' => ! empty($payload['id_gudang']) ? Gudang::query()->findOrFail($payload['id_gudang'])->nama_gudang : null,
             'payment_method' => $payload['metode_pembayaran'] ?? null,
@@ -241,6 +259,9 @@ class TransactionValidationService
                 }
             }
             $item = $bottle ? BotolKosong::query()->findOrFail($payload['id_barang']) : BarangBibit::query()->findOrFail($payload['id_barang']);
+            if (! $bottle && $payload['tipe_mutasi'] === 'MASUK') {
+                $payload['id_botol'] = ! empty($payload['id_botol']) ? (int) $payload['id_botol'] : $item->id_botol;
+            }
             if ($bottle && (int) $item->id_gudang !== (int) $payload['id_gudang']) {
                 throw ValidationException::withMessages(['id_barang' => 'Botol kosong tidak berada di gudang yang dipilih.']);
             }

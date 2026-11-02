@@ -61,12 +61,104 @@ tidak diposting ulang. Penolakan tetap dilakukan satu per satu.
 
 ## Membaca Laporan Stok
 
+**Barang Summary** menggabungkan seluruh varian, termasuk catatan tanpa
+varian, menjadi satu baris per master barang/barcode dan gudang.
+Saldo awal dan akhir diambil dari catatan pertama/terakhir tiap varian
+dalam periode, lalu dijumlahkan; saldo harian tidak dijumlahkan.
+Masuk, keluar, dan jumlah mutasi dijumlahkan selama periode, tanggal
+mutasi memakai yang terakhir, dan minimum memakai nilai terbesar
+(bukan dijumlahkan antarvarian). Filter varian tetap membatasi hasil
+sebelum penggabungan. PDF/Excel, pagination, dan grand total mengikuti
+saldo gabungan; botol kosong tetap terpisah dalam PCS.
+
+Laporan Stok menampilkan satu saldo cairan per barang/barcode dan gudang.
+Stok Inventory dan Pembelian Supplier yang sudah disetujui dijumlahkan:
+misalnya 1.000 ML + 500 ML menjadi 1.500 ML. Gudang berbeda tetap terpisah.
+Identitas barang tetap memakai master barang yang sama, bukan mencocokkan
+nama atau menggabungkan master berbeda yang kebetulan memiliki kode serupa.
+**Lihat rincian** menampilkan saldo tiap catatan varian botol, termasuk
+catatan lama tanpa varian (memakai kapasitas default jika tersedia).
+Jika default belum diatur dan hanya ada satu varian tercatat untuk barang
+di gudang yang sama, laporan memakai kapasitas varian tersebut dengan label
+**Mengikuti varian**. Contoh: 100 ML tanpa varian + 200 ML botol 100 ML
+menjadi 300 ML / 3 botol. Jika variannya lebih dari satu, kapasitas tidak
+ditebak; stok tanpa varian diberi label **kapasitas belum diketahui**.
+Aturan ini hanya untuk perhitungan laporan, tidak mengubah data stok lama.
+PDF/Excel menampilkan saldo gabungan dan rincian yang sama.
+Perkiraan wadah dijumlahkan per catatan varian yang memiliki kapasitas,
+bukan membagi seluruh saldo dengan satu kapasitas untuk varian campuran.
+Filter varian membatasi saldo ke varian tersebut, termasuk catatan lama
+tanpa varian yang memakai default itu; filter status diterapkan ke saldo gabungan.
+Stok masuk Inventory tanpa varian eksplisit memakai varian default master,
+sama seperti Pembelian Supplier. Catatan lama tidak dihapus atau digabung
+secara fisik, riwayat mutasi asal tetap tersimpan, dan pengeluaran tanpa
+varian tetap memakai alokasi stok FIFO yang sudah ada.
+
 Master Barang Bibit/Absolute menampilkan **Stok Saat Ini (ML)**: total stok
 yang sudah tercatat dari seluruh gudang dan varian botol untuk tiap barang.
 Pengajuan yang belum disetujui tidak dihitung. Barang tanpa catatan stok
 ditampilkan sebagai **0 ML, Habis**. Rincian per gudang tetap di laporan stok.
 Form master Bibit/Absolute hanya menyediakan Gudang Cairan yang aktif
 (tipe BIBIT); gudang tipe BOTOL digunakan untuk master Botol Kosong.
+
+Pada **Pembelian**, pilih supplier dan **Gudang Tujuan** sebelum menambahkan
+barang. Tombol **Pilih Supplier** membuka modal pencarian nama/kode; setelah
+dipilih, modal tertutup dan form hanya menampilkan nama/kode supplier serta
+tombol **Ganti**. Tidak ada pilihan Semua Supplier pada form transaksi;
+filter Semua Supplier pada riwayat/laporan tetap tersedia.
+Gunakan **+ Tambah Barang**, scan, atau Cari Barcode untuk menambahkan
+barang. **+ Tambah Barang** membuka pilihan multi-checkbox dengan pencarian
+nama/kode, filter jenis, dan **Pilih semua hasil** (hanya hasil filter yang sedang
+tampil). Pilihan tetap tersimpan saat mencari barang lain. Atur jumlah, satuan,
+varian botol, dan harga beli per barang lalu klik **Tambahkan Terpilih** sekali.
+Seluruh pilihan diperiksa sebelum dimasukkan ke tabel: jika ada jumlah/varian
+tidak valid atau gudang berbeda, tidak ada barang yang ditambahkan sebagian.
+Edit baris dan pemilihan lewat Cari Barcode tetap memakai form satu barang.
+Bibit/Absolute dapat
+dibeli ke gudang cairan aktif mana pun, tanpa dibatasi gudang di master
+barang atau supplier. Gudang master tidak diubah. Stok hanya bertambah
+di tujuan setelah pengajuan disetujui; stok lama di gudang lain tetap.
+Gudang tidak aktif atau jenis gudang yang tidak sesuai ditolak, termasuk
+saat validasi. Pembelian cairan dan botol kosong harus dipisah; Botol Kosong
+tetap mengikuti gudang master karena stoknya belum dipisahkan per gudang.
+Perubahan ini khusus Pembelian; pemilihan gudang otomatis pada Penjualan
+dan mutasi stok tetap mengikuti aturan sebelumnya.
+
+### Supplier Barang Bibit/Absolute
+
+Edit master **Barang Bibit**, lalu pilih satu atau beberapa **Supplier Barang**
+melalui dropdown yang bisa dicari berdasarkan kode atau nama. Dropdown tetap
+terbuka setelah setiap pilihan checkbox, pencarian tetap tersimpan, dan pilihan
+yang dicentang tetap berada dalam daftar tanpa berpindah ke bawah atau mengubah
+fokus ke kolom lain. Klik **Selesai** atau di luar dropdown untuk menutup;
+kolom hanya menampilkan jumlah, misalnya **100 supplier dipilih**, tanpa deretan
+label di bawahnya. Buka dropdown dan hapus centang untuk menghapus pilihan,
+termasuk supplier tidak aktif yang sebelumnya sudah terhubung.
+Cari Barcode menampilkan seluruh supplier yang terhubung secara terpisah dari
+label gudang dan bisa dicari berdasarkan nama supplier. Satu barang tetap satu
+barcode, bukan digandakan per supplier. Di Pembelian, daftar tetap mengikuti
+supplier yang dipilih. Di Tambah Stok dan Mutasi Masuk, barang dengan stok nol
+tetap dapat dicari selama gudang otomatisnya valid; mutasi keluar dan penjualan
+tetap memerlukan stok tersedia.
+Tabel master menampilkan supplier yang terhubung. Pada Pembelian, pilihan
+barang, scan, dan Cari Barcode hanya menerima Bibit/Absolute yang terhubung
+ke supplier terpilih. Mengganti supplier ditolak jika masih ada barang
+yang tidak cocok dalam daftar; hapus barang tersebut terlebih dahulu.
+Gudang tujuan tetap dipilih saat Pembelian, tidak ditentukan oleh supplier.
+
+Barang lama tidak dihubungkan otomatis berdasarkan histori atau nama supplier.
+Barang tanpa supplier boleh disimpan di master, tetapi tidak dapat diterima
+melalui Pembelian sebelum suppliernya ditentukan. Server memeriksa hubungan
+dan status aktif supplier saat pengajuan serta persetujuan; pengajuan Menunggu
+yang kehilangan hubungan supplier tetap Menunggu dan tidak memposting stok.
+Histori yang sudah disetujui tidak diubah. Botol Kosong tidak mengikuti relasi ini.
+
+Jalankan migrasi sebelum memakai fitur:
+`rtk php artisan migrate --path=database/migrations/2026_11_02_000001_create_barang_supplier_table.php`.
+Relasi disimpan di `tm_barang_supplier`, dengan pasangan unik `id_barang`
+dan `id_supplier`. Migrasi tidak mengisi relasi barang lama atau memindahkan stok.
+Rollback menghapus tabel relasi beserta pemilihannya, bukan master/transaksi;
+cadangkan relasi sebelum rollback jika sudah digunakan.
 
 Filter **Ada Stok** menampilkan jumlah lebih dari nol, **Stok Habis**
 menampilkan jumlah nol, dan **Semua stok** menampilkan keduanya.
@@ -264,9 +356,11 @@ Pilih **Customer Tanpa Registrasi** untuk mengisi nama hanya pada transaksi ini
   Tombol Cari Barcode tetap bisa digunakan
   jika shortcut ditangkap sistem operasi.
 - Daftar barcode hanya menampilkan barang aktif dengan stok **lebih dari nol**,
-  termasuk pada pembelian dan stok masuk. Cari nama/kode, filter jenis barang,
+  kecuali Pembelian yang juga menampilkan barang tanpa stok di gudang tujuan.
+  Cari nama/kode, filter jenis barang,
   lalu pilih untuk membuka form barang transaksi atau mengisi barang pada form stok.
-  Daftar mengikuti jenis transaksi, gudang otomatis, dan gudang supplier;
+  Pada Pembelian daftar mengikuti gudang tujuan, bukan gudang master barang
+  atau supplier. Pada menu lainnya daftar tetap mengikuti gudang otomatis;
   barang beda gudang harus dibuat dalam transaksi terpisah.
 - Stok di daftar mengikuti data saat halaman dimuat; validasi transaksi tetap
   memeriksa stok aktual sebelum diproses. Scan manual dan pilihan barang
@@ -274,6 +368,10 @@ Pilih **Customer Tanpa Registrasi** untuk mengisi nama hanya pada transaksi ini
 - Penjualan Retail memakai default ML untuk cairan, termasuk saat scan
   langsung atau Cari Barcode di sebelah scan. Harga cairan dilabeli per ML.
   BOTOL ISI tetap bisa dipilih manual; mengedit item mempertahankan satuannya.
+- Pembelian dan penjualan cairan dengan satuan ML/LITER dapat divalidasi tanpa
+  botol default di master. Stok tanpa varian tetap dicatat dalam ML;
+  penjualan ML mengambil stok yang tersedia secara FIFO. Kapasitas botol
+  tetap wajib untuk input BOTOL ISI agar konversi ke ML akurat.
 - Penjualan cairan mendukung satuan ML, LITER, dan BOTOL ISI. BOTOL ISI
   dikonversi menjadi ML berdasarkan varian botol yang dipilih, atau botol
   default pada master barang. Harga cairan tetap per ML; stok dikurangi
