@@ -41,7 +41,7 @@
     --border-strong: var(--gray-200);
 
     /* Theme Primary Base Default */
-    --theme-primary: var(--color-primary-600, #4f46e5);
+    --theme-primary: var(--color-primary-600, #2563eb);
 
     --theme-50: var(--color-primary-50);
     --theme-100: var(--color-primary-100);
@@ -132,6 +132,30 @@
     :where(input:not([type]), input[type="text" i], input[type="search" i], textarea):not([data-uppercase="false"]):not([autocomplete="username" i]):not([autocomplete="current-password" i]):not([autocomplete="new-password" i]):not([autocomplete="one-time-code" i]):not([name*="password" i]):not([id*="password" i]) {
         text-transform: uppercase;
     }
+}
+
+/* Keep locked fields distinct from editable controls across all forms. */
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="hidden"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [role="combobox"]):is(:disabled, [readonly]),
+textarea:is(:disabled, [readonly]),
+select:disabled,
+button:is([aria-expanded], [aria-haspopup]):disabled {
+    background-color: var(--bg-page);
+    background-color: color-mix(in srgb, var(--bg-card) 88%, var(--text-muted));
+    border-color: var(--border-strong);
+    color: var(--text-main);
+    opacity: 1;
+}
+
+input[readonly]:not([role="combobox"]),
+textarea[readonly] {
+    cursor: default;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled,
+button:is([aria-expanded], [aria-haspopup]):disabled {
+    cursor: not-allowed;
 }
 
 @theme {

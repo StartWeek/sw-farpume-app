@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin\Business;
 
 use App\Http\Controllers\Controller;
 use App\Models\Business\BarangBibit;
+use App\Models\Business\Botol;
 use App\Models\Business\Brand;
 use App\Models\Business\Gudang;
 use App\Models\Business\Supplier;
@@ -22,12 +23,13 @@ class BarangBibitController extends Controller
     {
         return Inertia::render('admin/business/BarangBibitPage', [
             'rows' => BarangBibit::query()
-                ->with(['brand', 'gudang', 'suppliers'])
+                ->with(['brand', 'gudang', 'botol', 'suppliers'])
                 ->withSum('stok as stok_saat_ini_ml', 'stok_ml')
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
             'brand' => Brand::query()->where('status', 'AKTIF')->orderBy('nama_brand')->get(),
+            'botol' => Botol::query()->where('status', 'AKTIF')->where('varian_ml', '>', 0)->orderBy('varian_ml')->get(['id', 'nama_botol', 'varian_ml']),
             'supplier' => Supplier::query()->where('status', 'AKTIF')->orderBy('nama_supplier')->get(['id', 'kode_supplier', 'nama_supplier']),
             'gudang' => Gudang::query()->where('status', 'AKTIF')->where('tipe_gudang', 'BIBIT')->orderBy('nama_gudang')->get(['id', 'kode_gudang', 'nama_gudang', 'tipe_gudang']),
         ]);
@@ -80,7 +82,7 @@ class BarangBibitController extends Controller
             'nama_barang' => ['required', 'string', 'max:255'],
             'id_brand' => ['required', 'exists:tm_brand,id'],
             'id_gudang' => ['nullable', Rule::exists('tm_gudang', 'id')->where('tipe_gudang', 'BIBIT')->where('status', 'AKTIF')],
-            'id_botol' => ['nullable', 'exists:tm_botol,id'],
+            'id_botol' => ['required', 'integer', Rule::exists('tm_botol', 'id')->where(fn ($query) => $query->where('varian_ml', '>', 0))],
             'jenis_barang' => ['required', 'in:BIBIT,ABSOLUTE'],
             'supplier_ids' => ['sometimes', 'array'],
             'supplier_ids.*' => ['required', 'integer', 'distinct', Rule::exists('tm_supplier', 'id')->where('status', 'AKTIF')],
@@ -99,7 +101,8 @@ class BarangBibitController extends Controller
             'id_brand.required' => 'Brand belum dipilih.',
             'id_gudang.required' => 'Gudang belum dipilih.',
             'id_gudang.exists' => 'Pilih gudang cairan yang aktif. Gudang botol kosong tidak dapat digunakan untuk Bibit atau Absolute.',
-            'id_botol.required' => 'Botol stok belum dipilih.',
+            'id_botol.required' => 'Pilih satu varian botol untuk barang ini.',
+            'id_botol.exists' => 'Pilih varian botol dengan kapasitas lebih dari 0 ML.',
             'harga_beli_per_ml.required' => 'Harga beli per ML belum diisi.',
             'harga_beli_per_ml.numeric' => 'Harga beli per ML harus berupa angka.',
             'harga_beli_per_ml.min' => 'Harga beli per ML minimal :min.',

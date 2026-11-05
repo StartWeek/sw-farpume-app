@@ -138,4 +138,46 @@ class SupplierStockService
         if (($filters['stok_status'] ?? null) === 'HABIS') $query->havingRaw('SUM(l.qty_remaining) = 0');
         return $query;
     }
+
+    public function withBottleEstimates(\Illuminate\Support\Collection $rows, Builder $query): \Illuminate\Support\Collection
+    {
+        $liquids = $rows->where('unit', 'ML');
+        if ($liquids->isEmpty()) return $rows;
+
+        $key = fn ($row) => implode(':', [$row->item_id, $row->id_supplier ?? '', $row->id_gudang]);
+        $variants = (clone $query)
+            ->where('l.unit', 'ML')
+            ->whereIn('l.item_id', $liquids->pluck('item_id')->unique())
+            ->whereIn('l.id_gudang', $liquids->pluck('id_gudang')->unique())
+            ->leftJoin('tm_botol as estimate_variant', 'estimate_variant.id', '=', 'l.id_botol')
+            ->leftJoin('tm_barang_bibit as estimate_item', 'estimate_item.id', '=', 'l.item_id')
+            ->leftJoin('tm_botol as estimate_default', 'estimate_default.id', '=', 'estimate_item.id_botol')
+            ->addSelect('l.id_botol')->groupBy('l.id_botol')
+            ->selectRaw('MAX(COALESCE(estimate_variant.varian_ml, estimate_default.varian_ml, 0)) as capacity_ml')
+            ->reorder()->get()->groupBy($key);
+
+        $format = fn (float $value) => rtrim(rtrim(number_format($value, 2, ',', '.'), '0'), ',');
+        foreach ($liquids as $row) {
+            $parts = [];
+            $byCapacity = $variants->get($key($row), collect())->groupBy(fn ($variant) => (string) (float) $variant->capacity_ml);
+            foreach ($byCapacity->sortKeys(SORT_NUMERIC) as $capacity => $balances) {
+                $quantity = (float) $balances->sum('quantity');
+                if (abs($quantity) < 0.00000001 && abs((float) $row->quantity) > 0.00000001) continue;
+                // An equivalent at the displayed current capacity, not a historical physical bottle count.
+                if ((float) $capacity > 0) {
+                    $fullBottles = floor(($quantity + 0.00000001) / (float) $capacity);
+                    $remainingMl = round($quantity - $fullBottles * (float) $capacity, 2);
+                    $bottleParts = [];
+                    if ($fullBottles != 0) $bottleParts[] = $format($fullBottles).' botol penuh ('.$format((float) $capacity).' ML)';
+                    if ($remainingMl > 0) $bottleParts[] = '1 botol isi '.$format($remainingMl).' ML';
+                    $parts[] = $bottleParts ? implode(' + ', $bottleParts) : '0 botol';
+                } else {
+                    $parts[] = $format($quantity).' ML (ukuran botol belum ditentukan)';
+                }
+            }
+            $row->bottle_estimate = implode('; ', $parts);
+        }
+
+        return $rows;
+    }
 }

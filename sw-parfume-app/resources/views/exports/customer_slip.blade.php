@@ -37,19 +37,17 @@ if (isset($validation)) {
         'payment_method' => $s['payment_method'] ?? null, 'jatuh_tempo' => $s['due_date'] ?? null,
         'notes' => $s['notes'] ?? null, 'source_number' => $s['reference'] ?? null,
     ];
-    $approved = $validation->status === 'APPROVED';
-    $status = ['PENDING' => 'MENUNGGU VALIDASI', 'APPROVED' => 'DISETUJUI', 'REJECTED' => 'DITOLAK'][$validation->status];
+    $status = $validation->status === 'REJECTED' ? 'DITOLAK' : '';
 } else {
-    $approved = true;
     $status = $receipt['payment_status'] ?? $receipt['status'] ?? '';
 }
 @endphp
-@if(!request()->boolean('preview'))
+@if(!($preview ?? request()->boolean('preview')))
 <div class="controls"><button type="button" onclick="window.print()">Cetak Slip</button><p class="muted">Gunakan printer thermal 80 mm pada dialog cetak browser.</p></div>
 @endif
 <main class="slip">
 <header class="center"><h1>{{ $settings['store_name'] ?? 'PARIS PARFUM' }}</h1>@if(!empty($settings['store_address']))<p class="muted">{{ $settings['store_address'] }}</p>@endif @if(!empty($settings['store_phone']))<p class="muted">{{ $settings['store_phone'] }}</p>@endif<h2>{{ $receipt['title'] ?? 'Penjualan' }}</h2><p><strong>{{ $receipt['number'] }}</strong></p><p>{{ $receipt['date'] }}</p>@if($status)<p><strong>{{ $status }}</strong></p>@endif</header>
-@if(!$approved)<p class="center muted">{{ $validation->status === 'REJECTED' ? 'Tidak diproses.' : 'Belum diproses.' }}</p>@endif
+@if(isset($validation) && $validation->status === 'REJECTED')<p class="center muted">Tidak diproses.</p>@endif
 <div class="rule"></div><p>Customer: <strong>{{ $receipt['party_name'] ?? '-' }}</strong></p>
 @if(!empty($receipt['sales']) && $receipt['sales'] !== '-')<p>Sales: {{ $receipt['sales'] }}</p>@endif
 @if(!empty($receipt['source_number']) && $receipt['source_number'] !== '-')<p>Referensi: {{ $receipt['source_number'] }}</p>@endif
@@ -61,8 +59,8 @@ if (isset($validation)) {
 <div class="rule"></div>
 @if(($receipt['discount'] ?? 0) > 0)<div class="line"><span>Diskon</span><span>{{ $rp($receipt['discount']) }}</span></div>@endif
 <div class="line total"><span>{{ isset($validation) && $validation->type === 'bayar-piutang' ? 'Pembayaran' : (($receipt['type'] ?? '') === 'piutang' ? 'Total tagihan' : 'Total') }}</span><span>{{ $rp($receipt['total']) }}</span></div>
-@if(!isset($validation) || $validation->type !== 'bayar-piutang')<div class="line"><span>{{ ($receipt['type'] ?? '') === 'piutang' ? 'Total dibayar' : ($approved ? 'Dibayar' : 'Rencana bayar') }}</span><span>{{ $rp($receipt['amount_paid'] ?? $receipt['paid'] ?? 0) }}</span></div>@endif
-<div class="line"><span>{{ isset($validation) && $validation->type === 'bayar-piutang' && $validation->status === 'PENDING' ? 'Rencana sisa tagihan' : 'Sisa tagihan' }}</span><span>{{ isset($receipt['remaining']) ? $rp($receipt['remaining']) : '-' }}</span></div>
+@if(!isset($validation) || $validation->type !== 'bayar-piutang')<div class="line"><span>{{ ($receipt['type'] ?? '') === 'piutang' ? 'Total dibayar' : 'Pembayaran' }}</span><span>{{ $rp($receipt['amount_paid'] ?? $receipt['paid'] ?? 0) }}</span></div>@endif
+<div class="line"><span>Sisa tagihan</span><span>{{ isset($receipt['remaining']) ? $rp($receipt['remaining']) : '-' }}</span></div>
 @include('exports.receipt_payment_details', ['paymentDetails' => $receipt['payment_details'] ?? null, 'formatMoney' => $rp, 'thermal' => true])
 @if(!empty($receipt['payment_method']))<p>Metode: {{ $receipt['payment_method'] === 'SPLIT' ? 'Cash + Transfer' : $receipt['payment_method'] }}</p>@endif
 @if(!empty($receipt['jatuh_tempo']))<p>Jatuh tempo: {{ $receipt['jatuh_tempo'] }}</p>@endif

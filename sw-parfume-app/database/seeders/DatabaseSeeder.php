@@ -181,7 +181,7 @@ class DatabaseSeeder extends Seeder
 
         AppSetting::query()->firstOrCreate(['id' => 1], [
             'app_name' => 'Paris Parfum Admin',
-            'primary_color' => 'amber',
+            'primary_color' => '#2563EB',
             'light_theme' => 'slate',
             'dark_theme' => 'navy',
             'is_dark_mode' => false,

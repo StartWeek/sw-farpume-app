@@ -1,6 +1,6 @@
 import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import React from "react";
-import { Card, PageHeader, SimpleTable, money, number, useFlashMessages } from "./_components";
+import { Card, PageHeader, SimpleTable, formatBusinessDate, money, number, useFlashMessages } from "./_components";
 
 export default function DashboardPage({ metrics = {} }) {
     useFlashMessages();
@@ -27,6 +27,18 @@ export default function DashboardPage({ metrics = {} }) {
                         </Card>
                     ))}
                 </div>
+                <Card>
+                    <h2 className="text-base font-bold text-main">Pengingat Jatuh Tempo H-3</h2>
+                    <p className="mb-4 mt-1 text-sm text-muted">Hutang dan piutang yang belum lunas, jatuh tempo hari ini hingga 3 hari ke depan berdasarkan tanggal operasional toko.</p>
+                    {(metrics.due_soon || []).length > 0 ? <SimpleTable rows={metrics.due_soon} columns={[
+                        { key: "type", label: "Jenis" },
+                        { key: "number", label: "No. Tagihan" },
+                        { key: "party", label: "Customer / Supplier" },
+                        { key: "due_date", label: "Jatuh Tempo", render: (row) => formatBusinessDate(row.due_date) },
+                        { key: "days_remaining", label: "Pengingat", render: (row) => <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-bold ${row.days_remaining === 0 ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-800"}`}>{row.days_remaining === 0 ? "Jatuh tempo hari ini" : `H-${row.days_remaining}`}</span> },
+                        { key: "remaining", label: "Sisa Tagihan", render: (row) => money(row.remaining) },
+                    ]} /> : <p className="text-sm text-muted">Tidak ada hutang atau piutang yang jatuh tempo dalam periode ini.</p>}
+                </Card>
                 <div className="grid gap-4 lg:grid-cols-2">
                     <Card>
                         <h2 className="mb-4 text-[13px] font-bold uppercase tracking-widest text-muted">Inventory per Gudang</h2>

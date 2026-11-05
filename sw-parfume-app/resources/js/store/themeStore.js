@@ -31,7 +31,7 @@ function normalizePrimaryColor(color) {
     if (legacyColor) return legacyColor;
     if (/^#[0-9a-f]{6}$/i.test(value)) return value.toUpperCase();
 
-    return legacyPrimaryColors.amber;
+    return legacyPrimaryColors.blue;
 }
 
 function mixHex(source, target, amount) {
@@ -61,7 +61,7 @@ function applyPrimaryColor(color) {
 export const useThemeStore = create(
     persist(
         (set) => ({
-            primaryColor: legacyPrimaryColors.amber,
+            primaryColor: legacyPrimaryColors.blue,
             lightTheme: "slate",
             darkTheme: "navy",
             isDarkMode: false,

@@ -1,176 +1,138 @@
 import { Head, useForm, usePage } from "@inertiajs/react";
-import { useState } from "react";
-import {
-    IconArrowRight,
-    IconEye,
-    IconEyeOff,
-    IconLock,
-    IconUser,
-} from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import { IconArrowRight, IconDroplet, IconEye, IconEyeOff } from "@tabler/icons-react";
 import Button from "@/components/common/Button";
-import PerfumeBottleImg from "@/assets/images/perfume-bottle.svg";
+import { useThemeStore } from "@/store/themeStore";
+import releaseVersion from "../../../version.json";
+import "./Login.css";
 
 export default function Login() {
     const [showPassword, setShowPassword] = useState(false);
-    const { appSettings } = usePage().props;
-    const loginLogoSrc =
-        appSettings?.login_logo_path ||
-        appSettings?.logo_path ||
-        PerfumeBottleImg;
+    const { appSettings, appVersion } = usePage().props;
+    const primaryColor = useThemeStore((state) => state.primaryColor);
+    const buttonTextColor = primaryTextColor(primaryColor);
+    const appName = appSettings?.app_name || "Manajemen Parfum";
+    const loginLogoSrc = appSettings?.login_logo_path || appSettings?.logo_path || "/favicon.svg?v=studio-blue-1";
 
-    const { data, setData, post, processing, errors } = useForm("Login", {
+    useEffect(() => {
+        if (appSettings) useThemeStore.getState().init(appSettings);
+    }, [appSettings]);
+
+    const { data, setData, post, processing, errors } = useForm({
         login: "",
         password: "",
         remember: false,
     });
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        try {
-            await post("/login");
-        } catch (err) {
-            console.log("Login error:", err);
-        }
+    const handleSubmit = (event) => {
+        event.preventDefault();
+        if (processing) return;
+        post("/login", { onFinish: () => setData("password", "") });
     };
 
     return (
         <>
-            <Head title="Login" />
-            <main className="min-h-screen bg-[#edf2ef] text-slate-900">
-                <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8">
-                    <div className="absolute inset-0 bg-[linear-gradient(120deg,#edf2ef_0%,#f8faf9_48%,#dce8e3_100%)]" />
-                    <div className="absolute inset-x-0 top-0 h-1/2 bg-[linear-gradient(180deg,rgba(16,45,43,0.08),transparent)]" />
-
-                    <div className="relative grid w-full max-w-5xl overflow-hidden rounded-lg border border-white/80 bg-white shadow-[0_32px_90px_-42px_rgba(16,45,43,0.55)] lg:grid-cols-[0.92fr_1.08fr]">
-                        <section className="relative hidden min-h-[560px] overflow-hidden bg-[#102d2b] lg:block">
-                            <div className="absolute inset-0 opacity-25">
-                                <div className="h-full w-full bg-[linear-gradient(135deg,#ffffff24_1px,transparent_1px),linear-gradient(45deg,#ffffff12_1px,transparent_1px)] bg-[size:36px_36px]" />
-                            </div>
-                            <div className="absolute inset-x-0 bottom-0 h-56 bg-[linear-gradient(180deg,transparent,#071f1d)]" />
-
-                            <div className="relative flex h-full items-center justify-center p-10">
-                                <div className="w-full max-w-sm">
-                                    <div className="mx-auto mb-10 flex h-64 w-64 items-center justify-center">
-                                        <img
-                                            src={loginLogoSrc}
-                                            alt=""
-                                            className="h-full w-full object-contain drop-shadow-[0_28px_42px_rgba(0,0,0,0.28)]"
-                                        />
-                                    </div>
-
-                                </div>
-                            </div>
-                        </section>
-
-                        <section className="flex min-h-[560px] items-center justify-center p-6 sm:p-10">
-                            <div className="w-full max-w-sm">
-                                <div className="mb-8 flex items-center justify-between">
-                                    <h1 className="text-3xl font-black tracking-normal text-slate-950">
-                                        Login
-                                    </h1>
-                                    <div className="flex size-12 items-center justify-center rounded-lg border border-emerald-900/10 bg-[#f8faf9] shadow-[0_14px_34px_-22px_rgba(16,45,43,0.55)]">
-                                        <img
-                                            src={loginLogoSrc}
-                                            alt="Parfum"
-                                            className="h-10 w-10 object-contain"
-                                        />
-                                    </div>
-                                </div>
-
-                                <form onSubmit={handleSubmit} className="space-y-5">
-                                    <LoginField
-                                        label="Username"
-                                        type="text"
-                                        value={data.login}
-                                        onChange={(e) => setData("login", e.target.value)}
-                                        error={errors.login}
-                                        icon={IconUser}
-                                        autoComplete="username"
-                                    />
-
-                                    <LoginField
-                                        label="Password"
-                                        type={showPassword ? "text" : "password"}
-                                        value={data.password}
-                                        onChange={(e) => setData("password", e.target.value)}
-                                        error={errors.password}
-                                        icon={IconLock}
-                                        autoComplete="current-password"
-                                        rightIcon={showPassword ? IconEyeOff : IconEye}
-                                        onRightIconClick={() => setShowPassword((v) => !v)}
-                                    />
-
-                                    <label className="flex w-fit cursor-pointer items-center">
-                                        <input
-                                            type="checkbox"
-                                            checked={data.remember}
-                                            onChange={(e) =>
-                                                setData("remember", e.target.checked)
-                                            }
-                                            className="size-4 cursor-pointer rounded border-slate-300 text-emerald-800 focus:ring-2 focus:ring-emerald-700"
-                                        />
-                                        <span className="ml-2 text-sm font-medium text-slate-600">
-                                            Ingat saya
-                                        </span>
-                                    </label>
-
-                                    <Button
-                                        type="submit"
-                                        loading={processing}
-                                        fullWidth
-                                        icon={IconArrowRight}
-                                        iconPosition="right"
-                                        className="rounded-lg bg-[#102d2b] shadow-[0_18px_36px_-22px_rgba(16,45,43,0.95)] hover:bg-[#17413e]"
-                                    >
-                                        Masuk
-                                    </Button>
-                                </form>
-                            </div>
-                        </section>
+            <Head title="Masuk">
+                <meta name="theme-color" content={primaryColor} />
+                <meta name="application-name" content={appName} />
+            </Head>
+            <main className="studio-login">
+                <div className="studio-login__art" aria-hidden="true">
+                    <div className="studio-login__ring studio-login__ring--outer" />
+                    <div className="studio-login__ring" />
+                    <div className="studio-login__shadow" />
+                    <div className="studio-login__bottle">
+                        <div className="studio-login__cap" />
+                        <div className="studio-login__neck" />
+                        <div className="studio-login__glass">
+                            <div className="studio-login__liquid" />
+                            <div className="studio-login__label"><IconDroplet size={25} stroke={1.25} /></div>
+                        </div>
                     </div>
                 </div>
+
+                <section className="studio-login__panel" aria-labelledby="login-heading">
+                    <div className="studio-login__form">
+                        <div className="studio-login__mark">
+                            <img src={loginLogoSrc} alt="" />
+                        </div>
+                        <h1 id="login-heading">Masuk ke akun</h1>
+                        <p className="studio-login__intro">Silakan gunakan akun yang telah terdaftar.</p>
+
+                        <form onSubmit={handleSubmit} className="space-y-5" aria-busy={processing}>
+                            <LoginField
+                                id="login-username"
+                                name="login"
+                                label="Username"
+                                type="text"
+                                value={data.login}
+                                onChange={(event) => setData("login", event.target.value)}
+                                error={errors.login}
+                                autoComplete="username"
+                                autoCapitalize="none"
+                                spellCheck={false}
+                                disabled={processing}
+                            />
+                            <LoginField
+                                id="login-password"
+                                name="password"
+                                label="Password"
+                                type={showPassword ? "text" : "password"}
+                                value={data.password}
+                                onChange={(event) => setData("password", event.target.value)}
+                                error={errors.password}
+                                autoComplete="current-password"
+                                rightIcon={showPassword ? IconEyeOff : IconEye}
+                                rightIconLabel={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                                rightIconPressed={showPassword}
+                                onRightIconClick={() => setShowPassword((value) => !value)}
+                                disabled={processing}
+                            />
+                            <label className="flex min-h-10 w-fit cursor-pointer items-center gap-2.5 text-sm text-muted">
+                                <input type="checkbox" name="remember" checked={data.remember} disabled={processing} onChange={(event) => setData("remember", event.target.checked)} className="size-4 rounded border-stroke accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" />
+                                Ingat saya
+                            </label>
+                            <Button type="submit" loading={processing} fullWidth icon={IconArrowRight} iconPosition="right" className="studio-login__submit" style={{ color: buttonTextColor, "--studio-button-shade": buttonTextColor === "#000000" ? "#ffffff" : "#000000" }}>
+                                Masuk
+                            </Button>
+                        </form>
+                        {/* <p className="studio-login__help">Butuh akses? Hubungi administrator.</p> */}
+                        <p className="studio-login__version">
+                            Backend v{appVersion?.backend || "—"} · Frontend v{releaseVersion.frontend}
+                        </p>
+                    </div>
+                </section>
             </main>
         </>
     );
 }
 
-function LoginField({ label, icon: Icon, rightIcon: RightIcon, onRightIconClick, error, ...props }) {
+function primaryTextColor(color) {
+    const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : "#2563EB";
+    const rgb = hex.slice(1).match(/.{2}/g).map((channel) => {
+        const value = parseInt(channel, 16) / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 0.179 ? "#000000" : "#ffffff";
+}
+
+function LoginField({ id, label, rightIcon: RightIcon, rightIconLabel, rightIconPressed, onRightIconClick, error, ...props }) {
     return (
         <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">
-                {label}
-            </label>
-            <div className="relative">
-                <Icon
-                    size={18}
-                    stroke={2}
-                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                />
+            <label htmlFor={id} className="mb-2 block text-[13px] font-medium text-main">{label}</label>
+            <div className="group relative">
                 <input
                     {...props}
+                    id={id}
                     required
-                    placeholder={label}
-                    className={`h-12 w-full rounded-lg border bg-[#f8faf9] pl-11 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-4 ${
-                        RightIcon ? "pr-11" : "pr-4"
-                    } ${
-                        error
-                            ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
-                            : "border-slate-200 focus:border-emerald-800 focus:ring-emerald-900/10"
-                    }`}
+                    aria-invalid={!!error}
+                    aria-describedby={error ? `${id}-error` : undefined}
+                    placeholder={label === "Username" ? "Masukkan username" : "Masukkan password"}
+                    className={`studio-login__input w-full rounded-[9px] border bg-card pl-3.5 text-main outline-none transition-[border-color,box-shadow] placeholder:font-normal placeholder:text-muted focus:ring-4 ${RightIcon ? "pr-12" : "pr-3.5"} ${error ? "border-red-500 focus:border-red-500 focus:ring-red-500/15" : "border-stroke focus:border-primary focus:ring-primary/15"}`}
                 />
-                {RightIcon && (
-                    <button
-                        type="button"
-                        onClick={onRightIconClick}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                        <RightIcon size={18} stroke={2} />
-                    </button>
-                )}
+                {RightIcon && <button type="button" onClick={onRightIconClick} disabled={props.disabled} aria-label={rightIconLabel} aria-pressed={rightIconPressed} aria-controls={id} className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-muted transition-colors hover:bg-card hover:text-main focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"><RightIcon size={18} stroke={1.8} aria-hidden="true" /></button>}
             </div>
-            {error ? (
-                <p className="mt-2 text-sm font-medium text-rose-600">{error}</p>
-            ) : null}
+            {error ? <p id={`${id}-error`} role="alert" className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{error}</p> : null}
         </div>
     );
 }

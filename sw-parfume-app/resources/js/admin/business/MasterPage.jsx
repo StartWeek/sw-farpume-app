@@ -2,7 +2,6 @@ import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import React, { useMemo, useState } from "react";
 import { router, usePage } from "@inertiajs/react";
 import {
-    BarcodeField,
     Card,
     CurrencyInput,
     Field,
@@ -86,7 +85,7 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
 
     const columns = useMemo(
         () => [
-            { key: codeByResource[resource], label: resource === "botol-kosong" ? "Kode / Barcode" : "Kode" },
+            { key: codeByResource[resource], label: "Kode" },
             ...tableFields.map((f) => ({
                 key: f.name,
                 label: f.label,
@@ -193,7 +192,6 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
 
     const renderForm = (insideModal = false) => (
         <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
-            {isBotolKosong && <BarcodeField code={editing?.kode_botol} />}
             {visibleFields.map((f, index) => (
                 <div
                     key={f.name}

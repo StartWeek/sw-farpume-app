@@ -22,9 +22,11 @@ class AppSetting extends Model
         'receipt_footer',
         'receipt_template',
         'payment_receipt_template',
+        'receipt_pdf_layout',
     ];
 
     protected $casts = [
         'is_dark_mode' => 'boolean',
+        'receipt_pdf_layout' => 'array',
     ];
 }

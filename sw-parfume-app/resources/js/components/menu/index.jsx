@@ -78,7 +78,7 @@ export const menuAdmin = [
                 accessKey: "master-sales",
             },
             {
-                label: "Botol Kemasan",
+                label: "Parameter Botol Varian",
                 icon: IconBottle,
                 href: "/admin/master/botol",
                 accessKey: "master-botol",
@@ -193,12 +193,6 @@ export const menuAdmin = [
         label: "Riwayat Transaksi",
         icon: IconClipboardData,
         children: [
-            {
-                label: "Botol Kosong (Lama)",
-                icon: IconBottle,
-                href: "/admin/penjualan-botol-kosong",
-                accessKey: "penjualan-retail",
-            },
             {
                 label: "Lihat Pembelian Supplier",
                 icon: IconPackageImport,

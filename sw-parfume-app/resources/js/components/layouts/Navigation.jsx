@@ -49,12 +49,13 @@ export default function Navigation() {
     };
 
     return (
-        <header className="w-full flex h-18 items-center justify-between border-b border-stroke bg-card px-5 shadow-premium transition-colors duration-300">
+        <header className="w-full flex h-18 items-center justify-between border-b border-stroke bg-white px-5 text-main transition-colors duration-300">
             {/* Left Side: Toggle */}
             <div className="flex items-center gap-3">
                 <button
                     onClick={toggleSidebar}
-                    className="p-2 rounded-xl cursor-pointer text-main hover:bg-page focus:outline-none transition-colors"
+                    aria-label="Buka atau tutup menu"
+                    className="p-2 rounded-xl cursor-pointer text-muted hover:bg-page hover:text-main focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary transition-colors"
                 >
                     <IconMenu2 size={20} />
                 </button>
@@ -75,7 +76,8 @@ export default function Navigation() {
                     <button
                         type="button"
                         onClick={() => setShowUserDropdown((v) => !v)}
-                        className={`flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors focus:outline-none ${
+                        aria-expanded={showUserDropdown}
+                        className={`flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
                             showUserDropdown ? "bg-page" : "hover:bg-page"
                         }`}
                     >

@@ -86,6 +86,19 @@ class TransactionValidationService
             $payload['tanggal'] = $system->tanggal_system->toDateString();
             [$payload, $snapshot] = $this->prepare($type, $payload);
 
+            if (str_starts_with($type, 'bayar-')) {
+                $pending = TransactionValidation::query()
+                    ->where('type', $type)
+                    ->where('status', 'PENDING')
+                    ->where('payload->record_id', (int) $payload['record_id'])
+                    ->first(['id']);
+                if ($pending) {
+                    throw ValidationException::withMessages([
+                        'jumlah_bayar' => 'Tagihan ini sudah memiliki pengajuan pembayaran '.$pending->number.' yang menunggu validasi. Tunggu persetujuan atau penolakan sebelum mengajukan pembayaran lagi.',
+                    ]);
+                }
+            }
+
             return TransactionValidation::query()->create([
                 'submission_key' => $key, 'payload_hash' => $hash, 'type' => $type, 'status' => 'PENDING',
                 'operational_date' => $system->tanggal_system, 'payload' => $payload, 'snapshot' => $snapshot,
@@ -247,7 +260,8 @@ class TransactionValidationService
             $snapshot = [...$snapshot, ...$preview['snapshot']];
             if ($type !== 'pembelian') {
                 foreach (collect($snapshot['items'])->groupBy(fn (array $item) => $item['warehouse_id'] ?? $payload['id_gudang']) as $warehouseId => $items) {
-                    $this->ensureStockAvailable((int) $warehouseId, $items->all());
+                    // The sale bottle specifies the volume sold, not the incoming stock packaging.
+                    $this->ensureStockAvailable((int) $warehouseId, $items->map(fn (array $item) => [...$item, 'variant_id' => null])->all());
                 }
                 $snapshot['warehouse'] = collect($snapshot['items'])->map(fn (array $item) => $item['warehouse'] ?? $snapshot['warehouse'])->filter()->unique()->implode(', ');
             }
@@ -272,7 +286,13 @@ class TransactionValidationService
             }
             $item = $bottle ? BotolKosong::query()->findOrFail($payload['id_barang']) : BarangBibit::query()->findOrFail($payload['id_barang']);
             if (! $bottle && $payload['tipe_mutasi'] === 'MASUK') {
-                $payload['id_botol'] = ! empty($payload['id_botol']) ? (int) $payload['id_botol'] : $item->id_botol;
+                if (! $item->botol || (float) $item->botol->varian_ml <= 0) {
+                    throw ValidationException::withMessages(['id_botol' => 'Tetapkan satu varian botol yang valid untuk barang ini di menu Barang Bibit.']);
+                }
+                if (! empty($payload['id_botol']) && (int) $payload['id_botol'] !== (int) $item->id_botol) {
+                    throw ValidationException::withMessages(['id_botol' => 'Varian stok masuk harus mengikuti varian pada master Barang Bibit.']);
+                }
+                $payload['id_botol'] = (int) $item->id_botol;
             }
             $qty = (float) ($payload['qty_ml'] ?? $payload['jumlah_botol'] ?? 0);
             $baseQty = $qty;

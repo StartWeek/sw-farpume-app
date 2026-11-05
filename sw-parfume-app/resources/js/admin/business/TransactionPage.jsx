@@ -2,12 +2,13 @@ import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { router, usePage } from "@inertiajs/react";
 import Button from "@/components/common/Button";
-import { IconCreditCard, IconDotsVertical, IconPencil, IconPlus, IconFileTypePdf, IconTrash, IconUser, IconUsers, IconX } from "@tabler/icons-react";
+import { IconChevronDown, IconCreditCard, IconDotsVertical, IconPencil, IconPlus, IconFileTypePdf, IconTrash, IconUser, IconUsers, IconX } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 import { Card, CurrencyInput, Field, Input, PageHeader, Select, SimpleTable, formatInputNumber, money, number, todayDate, useFlashMessages } from "./_components";
 import { TransactionChoiceButton, TransactionDialog, TransactionPickerModal } from "./TransactionDialogs";
-import { automaticWarehouse, availableBarcodeItems, barcodeMatches, defaultTransactionUnit, matchesPurchaseSupplier, purchaseWarehouse, transactionItemCode } from "./barcode";
+import { outgoingWarehouse, availableBarcodeItems, barcodeMatches, defaultTransactionUnit, itemStockDetails, matchesPurchaseSupplier, purchaseWarehouse, transactionItemCode } from "./barcode";
 import BarcodeLookup from "./BarcodeLookup";
+import ItemStockInfo, { itemStockLabel } from "./ItemStockInfo";
 import { openCustomerSlip } from "./CustomerSlipModal";
 import useTransactionSubmissionOptions from "./useTransactionSubmissionOptions";
 import { PaymentAmountEntry, PaymentBreakdown, PaymentHistory, PaymentSummary, PaymentTable } from "./PaymentDetails";
@@ -103,9 +104,9 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
         set("id_supplier", id);
         setPicker(null);
     };
-    const resolveItemWarehouse = (item, bottle) => isBuy
+    const resolveItemWarehouse = (item, bottle, warehouseId = "") => isBuy
         ? purchaseWarehouse(item, bottle, refs.gudang || [], form.id_gudang)
-        : automaticWarehouse(item, bottle, refs.gudang || [], refs.stok_gudang || []);
+        : outgoingWarehouse(item, bottle, refs.gudang || [], refs.stok_gudang || [], warehouseId);
     const changePurchaseWarehouse = (id) => {
         try {
             for (const item of form.items) {
@@ -149,12 +150,12 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
             if (!selected) { toast.error("Barang tidak tersedia. Buka kembali pilihan barang."); return; }
             if (!Number.isFinite(Number(item.qty_input)) || Number(item.qty_input) <= 0) { toast.error("Jumlah setiap barang harus lebih dari nol."); return; }
             if (item.harga !== "" && (!Number.isFinite(Number(item.harga)) || Number(item.harga) < 0)) { toast.error("Harga barang tidak valid."); return; }
-            if (item.tipe_item !== "BOTOL" && item.satuan_input === "BOTOL" && !item.id_botol && !selected.botol?.varian_ml) { toast.error(`Pilih varian botol untuk ${selected.nama_barang}.`); return; }
-            try { location = resolveItemWarehouse(selected, item.tipe_item === "BOTOL"); }
+            if (item.tipe_item !== "BOTOL" && !(Number(selected.botol?.varian_ml) > 0)) { toast.error(`Tetapkan varian botol ${selected.nama_barang} di menu Barang Bibit.`); return; }
+            try { location = resolveItemWarehouse(selected, item.tipe_item === "BOTOL", item.id_gudang); }
             catch (failure) { toast.error(failure.message); return; }
             if (isBuy && warehouseId && Number(warehouseId) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Pilih barang dari satu gudang."); return; }
             warehouseId = location.id;
-            resolvedItems.push({ ...item, id_gudang: location.id });
+            resolvedItems.push({ ...item, id_gudang: location.id, id_botol: item.tipe_item === "BOTOL" ? item.id_botol : selected.id_botol });
         }
         setForm((previous) => ({ ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang, items: [...previous.items, ...resolvedItems] }));
         setBulkOpen(false);
@@ -164,14 +165,14 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
     const saveModalItem = () => {
         const selected = findSelectedItem(refs, modalForm);
         if (!modalForm.item_id) { toast.error("Pilih barang terlebih dahulu."); return; }
-        if (modalForm.tipe_item !== "BOTOL" && modalForm.satuan_input === "BOTOL" && !modalForm.id_botol && !selected?.botol?.varian_ml) { toast.error("Pilih varian botol terlebih dahulu."); return; }
+        if (modalForm.tipe_item !== "BOTOL" && !(Number(selected?.botol?.varian_ml) > 0)) { toast.error("Tetapkan varian botol barang di menu Barang Bibit terlebih dahulu."); return; }
         if (!modalForm.qty_input || Number(modalForm.qty_input) <= 0) { toast.error("Jumlah harus lebih dari 0."); return; }
         let location;
-        try { location = !isBuy && modalForm.id_gudang ? purchaseWarehouse(selected, modalForm.tipe_item === "BOTOL", refs.gudang || [], modalForm.id_gudang) : resolveItemWarehouse(selected, modalForm.tipe_item === "BOTOL"); }
+        try { location = resolveItemWarehouse(selected, modalForm.tipe_item === "BOTOL", modalForm.id_gudang); }
         catch (failure) { toast.error(failure.message); return; }
 
         if (isBuy && form.items.some((_, index) => index !== editingIndex) && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return; }
-        const savedItem = { ...modalForm, id_gudang: location.id };
+        const savedItem = { ...modalForm, id_gudang: location.id, id_botol: modalForm.tipe_item === "BOTOL" ? modalForm.id_botol : selected.id_botol };
         setForm((previous) => ({ ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang }));
         if (editingIndex !== null) {
             setForm((prev) => ({ ...prev, items: prev.items.map((item, i) => i === editingIndex ? savedItem : item) }));
@@ -296,15 +297,16 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
         ].filter(({ row }) => barcodeMatches(row, code));
         if (candidates.length !== 1) { toast.error(candidates.length ? "Kode barcode ganda. Perbaiki kode di master barang." : isBuy ? "Barcode tidak ditemukan atau barang belum dihubungkan ke supplier yang dipilih. Periksa master Barang Bibit." : "Barcode tidak ditemukan untuk jenis transaksi ini."); return false; }
         const { row, type: itemType } = candidates[0];
+        if (itemType !== "BOTOL" && !(Number(row.botol?.varian_ml) > 0)) { toast.error(`Tetapkan varian botol ${row.nama_barang} di menu Barang Bibit.`); return false; }
         let location;
         try { location = resolveItemWarehouse(row, itemType === "BOTOL"); }
         catch (failure) { toast.error(failure.message); return false; }
 
         if (isBuy && form.items.length && Number(form.id_gudang) !== Number(location.id)) { toast.error("Barang berasal dari gudang berbeda. Buat transaksi terpisah."); return false; }
         const unit = defaultTransactionUnit(itemType, row, isBuy, isWholesale);
-        const item = { tipe_item: itemType, item_id: row.id, id_gudang: location.id, qty_input: 1, satuan_input: unit, harga: "", ...(itemType === "BIBIT" && unit === "BOTOL" && row.id_botol ? { id_botol: row.id_botol } : {}) };
+        const item = { tipe_item: itemType, item_id: row.id, id_gudang: location.id, qty_input: 1, satuan_input: unit, harga: "", ...(itemType !== "BOTOL" && row.id_botol ? { id_botol: row.id_botol } : {}) };
         setForm((previous) => {
-            const index = previous.items.findIndex((value) => value.tipe_item === itemType && Number(value.item_id) === Number(row.id) && value.satuan_input === item.satuan_input && Number(value.id_botol || 0) === Number(item.id_botol || 0));
+            const index = previous.items.findIndex((value) => value.tipe_item === itemType && Number(value.item_id) === Number(row.id) && Number(value.id_gudang) === Number(location.id) && value.satuan_input === item.satuan_input && Number(value.id_botol || 0) === Number(item.id_botol || 0));
             return { ...previous, id_gudang: location.id, tipe_gudang: location.tipe_gudang, items: index < 0 ? [...previous.items, item] : previous.items.map((value, i) => i === index ? { ...value, qty_input: Number(value.qty_input) + 1 } : value) };
         });
         setBarcode("");
@@ -316,14 +318,18 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
         if (!prepareBarcodeSelection()) return false;
         const row = itemOptions(refs, entry.type).find((item) => Number(item.id) === Number(entry.itemId));
         if (!row) { toast.error("Barang tidak ditemukan. Muat ulang halaman."); return false; }
+        let location;
+        try { location = resolveItemWarehouse(row, entry.type === "BOTOL", entry.warehouseId); }
+        catch (failure) { toast.error(failure.message); return false; }
         const unit = defaultTransactionUnit(entry.type, row, isBuy, isWholesale);
         setEditingIndex(null);
         setModalForm({
             ...emptyItem,
             tipe_item: entry.type,
             item_id: row.id,
+            id_gudang: location.id,
             satuan_input: unit,
-            id_botol: entry.type === "BIBIT" && unit === "BOTOL" ? row.id_botol || "" : "",
+            id_botol: entry.type !== "BOTOL" ? row.id_botol || "" : "",
         });
         setModalOpen(true);
         return true;
@@ -340,6 +346,10 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
     const openTempoPayment = (row) => {
         const record = getTempoRecord(row, isBuy);
         if (!record) return;
+        if (record.payment_history?.pending?.length) {
+            toast.error("Pembayaran faktur ini sedang menunggu validasi.");
+            return;
+        }
 
         setTempoPayment({
             isDp: isDpPayment(row),
@@ -384,15 +394,22 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
                             <TransactionChoiceButton label="1. Sales" value={salesChosen ? selectedSales?.nama_sales || "Tanpa sales" : "Pilih sales"} hint={salesChosen ? "Ubah sales transaksi" : "Pilih sales atau pilih tanpa sales"} icon={IconUsers} error={errors.id_sales} onClick={() => setPicker("sales")} />
                             <TransactionChoiceButton label="2. Customer" value={customerName} hint={!salesChosen ? "Pilih sales terlebih dahulu" : selectedCustomer?.kode_customer || (form.manual_customer_name ? "Nama untuk transaksi ini" : "Pilih dari daftar atau isi nama")} icon={IconUser} error={errors.id_customer || errors.manual_customer_name} disabled={!salesChosen} onClick={() => setPicker("customer")} />
                         </div>}
-                        {isBuy && <div className="grid gap-3 md:grid-cols-2">
-                            <div className="space-y-1.5">
-                                <span className="text-[11px] font-bold uppercase tracking-widest text-muted">Supplier</span>
-                                <div className={`flex min-h-11 items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2 ${errors.id_supplier ? "border-red-500" : "border-stroke"}`}>
-                                    <div className="min-w-0"><p className="break-words text-sm font-bold text-main">{selectedSupplier?.nama_supplier || "Belum dipilih"}</p>{selectedSupplier?.kode_supplier && <p className="text-xs text-muted">{selectedSupplier.kode_supplier}</p>}</div>
-                                    <Button variant="outline" aria-haspopup="dialog" onClick={() => setPicker("supplier")}>{selectedSupplier ? "Ganti" : "Pilih Supplier"}</Button>
-                                </div>
+                        {isBuy && <div className="grid items-start gap-3 md:grid-cols-2">
+                            <Field label="Supplier">
+                                <button
+                                    type="button"
+                                    aria-haspopup="dialog"
+                                    aria-label={selectedSupplier ? `Ganti supplier: ${selectedSupplier.nama_supplier}` : "Pilih supplier"}
+                                    aria-invalid={!!errors.id_supplier}
+                                    onClick={() => setPicker("supplier")}
+                                    className={`flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border bg-card px-3.5 py-2.5 text-left text-sm font-medium shadow-sm outline-none transition-colors duration-200 focus:ring-2 ${errors.id_supplier ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "border-stroke hover:border-primary/60 focus:border-primary focus:ring-primary/20"}`}
+                                >
+                                    <span className={`min-w-0 truncate ${selectedSupplier ? "text-main" : "text-muted"}`} title={selectedSupplier?.nama_supplier}>{selectedSupplier?.nama_supplier || "Pilih supplier"}</span>
+                                    <IconChevronDown size={16} className="shrink-0 text-muted" aria-hidden="true" />
+                                </button>
+                                {selectedSupplier?.kode_supplier && <p className="text-xs text-muted">{selectedSupplier.kode_supplier}</p>}
                                 {errors.id_supplier && <p role="alert" className="text-xs text-red-500">{errors.id_supplier}</p>}
-                            </div>
+                            </Field>
                             <Field label="Gudang Tujuan"><Select error={!!errors.id_gudang} value={form.id_gudang} onChange={(event) => changePurchaseWarehouse(event.target.value)}><option value="">Pilih gudang tujuan</option>{(refs.gudang || []).map((row) => <option key={row.id} value={row.id}>{row.nama_gudang} ({row.tipe_gudang === "BOTOL" ? "Botol Kosong" : "Cairan"})</option>)}</Select></Field>
                         </div>}
                         <Field label="Scan Barcode">
@@ -455,7 +472,7 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
                                                     : selected?.botol ? ` ${selected.botol.varian_ml} ML` : "";
                                                 const qtyDisplay = item.tipe_item === "BOTOL"
                                                     ? `${number(convertedQty)} Botol`
-                                                    : `${number(item.qty_input)} ${isBuy && item.satuan_input === "BOTOL" ? "BOTOL ISI" : item.satuan_input}${botolInfo}`;
+                                                    : `${number(item.qty_input)} ${item.satuan_input}${botolInfo}`;
                                                 const no = runningNo++;
                                                 return (
                                                     <tr key={index} className="transition-colors duration-150 hover:bg-page/50">
@@ -534,15 +551,17 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
                                     </Select>
                                     {errors.metode_pembayaran && <p role="alert" className="text-xs text-red-500">{errors.metode_pembayaran}</p>}
                                 </Field>
-                                {["CASH", "TRANSFER"].includes(form.metode_pembayaran) && <div><Field label={form.metode_pembayaran === "CASH" ? "Uang Cash (Rp)" : "Nominal Transfer (Rp)"}>
-                                    <CurrencyInput required error={!!errors.jumlah_bayar} value={form.jumlah_bayar} onChange={(event) => set("jumlah_bayar", event.target.value)} placeholder="Isi nominal pembayaran" />
+                                {["CASH", "TRANSFER"].includes(form.metode_pembayaran) && <div><Field label={form.metode_pembayaran === "CASH" ? (isBuy ? "Tunai dibayarkan (Rp)" : "Tunai diterima (Rp)") : "Nominal Transfer (Rp)"}>
+                                    <CurrencyInput required error={!!errors.jumlah_bayar} value={form.jumlah_bayar} onChange={(event) => set("jumlah_bayar", event.target.value)} placeholder={form.metode_pembayaran === "CASH" ? "Masukkan jumlah uang tunai" : "Masukkan nominal sesuai tagihan"} />
                                     {errors.jumlah_bayar && <p role="alert" className="text-xs text-red-500">{errors.jumlah_bayar}</p>}
-                                </Field><Button className="mt-2" variant="outline" onClick={() => set("jumlah_bayar", String(paymentTotal))}>Isi Nominal Otomatis · {money(paymentTotal)}</Button></div>}
-                                {form.metode_pembayaran === "SPLIT" && <div className="grid gap-3 sm:grid-cols-2">
-                                    <div><Field label="Uang Cash (Rp)"><CurrencyInput required value={form.cash_amount} error={!!errors.cash_amount} onChange={(event) => set("cash_amount", event.target.value)} placeholder="Bagian tunai" />{errors.cash_amount && <p role="alert" className="text-xs text-red-500">{errors.cash_amount}</p>}</Field>
-                                        <Button className="mt-2" variant="outline" disabled={!Number.isFinite(splitTransfer) || splitTransfer <= 0 || remainingCash <= 0} onClick={() => set("cash_amount", String(remainingCash))}>Isi Nominal Otomatis · {money(remainingCash)}</Button>
+                                </Field><Button className="mt-2" variant="outline" onClick={() => set("jumlah_bayar", String(paymentTotal))}>{form.metode_pembayaran === "CASH" ? "Uang pas" : "Isi sesuai tagihan"} · {money(paymentTotal)}</Button></div>}
+                                {form.metode_pembayaran === "SPLIT" && <div className="space-y-3">
+                                    <p className="text-xs text-muted">Isi nominal transfer terlebih dahulu, lalu masukkan jumlah uang tunai.</p>
+                                    <Field label="Nominal Transfer (Rp)"><CurrencyInput required value={form.transfer_amount} error={!!errors.transfer_amount} onChange={(event) => set("transfer_amount", event.target.value)} placeholder="Masukkan bagian transfer" />{errors.transfer_amount && <p role="alert" className="text-xs text-red-500">{errors.transfer_amount}</p>}</Field>
+                                    <div className="flex justify-between gap-3 rounded-lg bg-page px-4 py-3 text-sm text-main" aria-live="polite"><span>Sisa bayar tunai</span><strong className="tabular-nums">{money(remainingCash)}</strong></div>
+                                    <div><Field label={isBuy ? "Tunai dibayarkan (Rp)" : "Tunai diterima (Rp)"}><CurrencyInput required value={form.cash_amount} error={!!errors.cash_amount} onChange={(event) => set("cash_amount", event.target.value)} placeholder="Masukkan jumlah uang tunai" />{errors.cash_amount && <p role="alert" className="text-xs text-red-500">{errors.cash_amount}</p>}</Field>
+                                        <Button className="mt-2" variant="outline" disabled={!Number.isFinite(splitTransfer) || splitTransfer <= 0 || remainingCash <= 0} onClick={() => set("cash_amount", String(remainingCash))}>Uang pas · {money(remainingCash)}</Button>
                                     </div>
-                                    <Field label="Nominal Transfer (Rp)"><CurrencyInput required value={form.transfer_amount} error={!!errors.transfer_amount} onChange={(event) => set("transfer_amount", event.target.value)} placeholder="Bagian transfer" />{errors.transfer_amount && <p role="alert" className="text-xs text-red-500">{errors.transfer_amount}</p>}</Field>
                                 </div>}
                                 {form.metode_pembayaran === "DP" && <Field label="Jumlah Uang Muka / DP (Rp)"><CurrencyInput required error={!!errors.jumlah_bayar} value={form.jumlah_bayar || ""} onChange={(event) => set("jumlah_bayar", event.target.value)} placeholder="0" />{errors.jumlah_bayar && <p role="alert" className="text-xs text-red-500">{errors.jumlah_bayar}</p>}</Field>}
                                 {["TEMPO", "DP"].includes(form.metode_pembayaran) && <Field label="Jatuh Tempo"><Input required error={!!errors.jatuh_tempo} type="date" value={form.jatuh_tempo || ""} onChange={(event) => set("jatuh_tempo", event.target.value)} />{errors.jatuh_tempo && <p role="alert" className="text-xs text-red-500">{errors.jatuh_tempo}</p>}</Field>}
@@ -550,13 +569,13 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
                                     <CurrencyInput error={!!errors.discount} value={form.discount || ""} onChange={(event) => set("discount", event.target.value)} placeholder="0" />
                                     {errors.discount && <p role="alert" className="text-xs text-red-500">{errors.discount}</p>}
                                 </Field>
+                                {allowsChange && <div className="space-y-2 text-sm" aria-live="polite">
+                                    <div className="flex justify-between gap-3 text-main"><span>{form.metode_pembayaran === "SPLIT" ? "Total tunai + transfer" : (isBuy ? "Tunai dibayarkan" : "Tunai diterima")}</span><strong className="tabular-nums">{money(receivedPayment)}</strong></div>
+                                    <div className="flex justify-between gap-3 text-main"><span>Kembalian tunai</span><strong className="tabular-nums">{money(change)}</strong></div>
+                                </div>}
                                 <div className="flex justify-end"><Button icon={IconPlus} onClick={addPayment} disabled={!!paymentIssue}>{paymentAdded ? "Perbarui Pembayaran" : "Tambah Pembayaran"}</Button></div>
                             </fieldset>
                             <PaymentTable rows={paymentAdded ? addedPayment.rows : []} scrollRequest={addedPayment} disabled={submitting} onRemove={() => setAddedPayment(null)} />
-                            {paymentAdded && allowsChange && <div className="space-y-2 text-sm">
-                                <div className="flex justify-between gap-3 text-main"><span>{form.metode_pembayaran === "SPLIT" ? "Total Cash + Transfer" : "Uang Cash"}</span><strong className="tabular-nums">{money(receivedPayment)}</strong></div>
-                                <div className="flex justify-between gap-3 text-main"><span>Kembalian Cash</span><strong className="tabular-nums">{money(change)}</strong></div>
-                            </div>}
                             {paymentIssue && <p role="alert" className="text-xs font-bold text-amber-700">{paymentIssue}</p>}
                             <PaymentSummary total={paymentTotal} amount={paymentAdded ? plannedPayment : 0} />
                             {!form.items.length && <p className="text-xs text-muted">Tambahkan barang sebelum menyimpan transaksi.</p>}
@@ -649,6 +668,9 @@ export default function TransactionPage({ type, mode = "form", rows = [], refs: 
                     ]}
                     renderActions={isHistory ? (row) => <KebabMenu row={row} isBuy={isBuy} onPrint={() => isBuy ? window.open(`/admin/pembelian/${row.id}/pdf`, "_blank", "noopener,noreferrer") : openCustomerSlip(`/admin/penjualan-nota/${row.id}/slip`)} onPayTempo={canPayTempo(row, isBuy) ? () => openTempoPayment(row) : null} /> : (row) => (
                         <>
+                            {getTempoRecord(row, isBuy)?.payment_history?.pending?.length ? (
+                                <span className="text-sm font-semibold text-muted">Menunggu Validasi</span>
+                            ) : null}
                             {canPayTempo(row, isBuy) ? (
                                 <Button size="sm" variant="outline" onClick={() => openTempoPayment(row)}>
                                     {isDpPayment(row) ? "Bayar Sisa DP" : "Bayar Tempo"}
@@ -708,24 +730,11 @@ function itemOptions(refs, type) {
     return (refs.barang || []).filter((row) => (type === "ABSOLUTE" ? row.jenis_barang === "ABSOLUTE" : row.jenis_barang !== "ABSOLUTE"));
 }
 
-function itemOptionLabel(row, type, isBuy, isWholesale, refs, gudangId) {
-    const stockWarehouseId = isBuy ? gudangId : row.id_gudang;
-    if (type === "BOTOL") {
-        const stockInfo = gudangId ? ` — Stok: ${number(row.stock || 0)} Botol` : "";
-        return `${row.kode_botol || "-"} - ${row.nama_botol}${stockInfo}`;
-    }
-
-    // Pembelian: hanya tampilkan kode_barang dan nama_barang
-    if (isBuy) {
-        return `${row.kode_barang || "-"} - ${row.nama_barang}`;
-    }
-
-    const botol = row.botol?.varian_ml ? ` - ${row.botol.varian_ml} ML` : " - Botol belum dipilih";
-    const stock = stockWarehouseId
-        ? refs?.stok_gudang?.filter((s) => Number(s.id_barang) === Number(row.id) && Number(s.id_gudang) === Number(stockWarehouseId)).reduce((sum, s) => sum + Number(s.stok_ml || 0), 0)
-        : null;
-    const stockInfo = stockWarehouseId ? ` — Stok: ${number(stock || 0)} ML` : "";
-    return `${row.kode_barang || "-"} - ${row.nama_barang}${botol}${stockInfo}`;
+function itemOptionLabel(row, type, isBuy, refs, gudangId) {
+    const details = itemStockDetails(row, type, { warehouses: refs?.gudang, stocks: refs?.stok_gudang, warehouseId: gudangId, incoming: isBuy });
+    const name = type === "BOTOL" ? `${row.kode_botol || "-"} - ${row.nama_botol}` : `${row.kode_barang || "-"} - ${row.nama_barang}`;
+    const variant = type !== "BOTOL" && !isBuy ? row.botol?.varian_ml ? ` - ${row.botol.varian_ml} ML` : " - Botol belum dipilih" : "";
+    return `${name}${variant} — ${itemStockLabel(details)}`;
 }
 
 function findSelectedItem(refs, item) {
@@ -751,10 +760,7 @@ function convertQty(item, selected, refs) {
     }
 
     if (item.satuan_input === "BOTOL") {
-        const botolVariant = item.id_botol
-            ? (refs?.botol || []).find((b) => Number(b.id) === Number(item.id_botol))
-            : null;
-        return qty * Number(botolVariant?.varian_ml || selected?.botol?.varian_ml || 0);
+        return qty * Number(selected?.botol?.varian_ml || 0);
     }
 
     return item.satuan_input === "LITER" ? qty * 1000 : qty;
@@ -783,6 +789,7 @@ function canPayTempo(row, isBuy) {
     if (!["TEMPO", "DP"].includes(row.metode_pembayaran)) return false;
     const record = getTempoRecord(row, isBuy);
     if (!record) return false;
+    if (record.payment_history?.pending?.length) return false;
 
     return Number(isBuy ? record.sisa_hutang || 0 : record.sisa_piutang || 0) > 0;
 }
@@ -819,6 +826,9 @@ function KebabMenu({ row, isBuy, onPrint, onPayTempo }) {
                                 {" "}{isDpPayment(row) ? "Bayar Sisa DP" : "Bayar Tempo"}
                             </button>
                         )}
+                        {getTempoRecord(row, isBuy)?.payment_history?.pending?.length ? (
+                            <span className="block px-4 py-2.5 text-xs font-semibold text-muted">Pembayaran menunggu validasi</span>
+                        ) : null}
                     </div>
                 </>
             )}
@@ -841,10 +851,14 @@ function BulkItemModal({ refs, isBuy, isWholesale, isBottleSale, gudangId, onSav
                 && (itemType !== "BOTOL" || Number(row.id_gudang) === Number(gudangId));
         }
         return true;
-    }).map((entry) => ({ ...entry, key: `${entry.type}-${entry.row.id}` }));
+    }).map((entry) => ({
+        ...entry,
+        key: `${entry.type}-${entry.row.id}`,
+        stockDetails: itemStockDetails(entry.row, entry.type, { warehouses: refs.gudang, stocks: refs.stok_gudang, warehouseId: isBuy ? gudangId : "", incoming: isBuy }),
+    }));
     const query = search.trim().toLocaleLowerCase();
     const visible = candidates.filter((entry) => (type === "ALL" || entry.type === type)
-        && `${entry.row.kode_barang || entry.row.kode_botol || ""} ${entry.row.nama_barang || entry.row.nama_botol}`.toLocaleLowerCase().includes(query));
+        && `${entry.row.kode_barang || entry.row.kode_botol || ""} ${entry.row.nama_barang || entry.row.nama_botol} ${entry.stockDetails.warehouse} ${entry.stockDetails.suppliers.join(" ")}`.toLocaleLowerCase().includes(query));
     const createItem = ({ row, type: itemType }) => {
         const unit = defaultTransactionUnit(itemType, row, isBuy, isWholesale);
         return { tipe_item: itemType, item_id: row.id, qty_input: 1, satuan_input: unit, harga: "", id_botol: itemType === "BIBIT" && unit === "BOTOL" ? row.id_botol || "" : "" };
@@ -869,7 +883,7 @@ function BulkItemModal({ refs, isBuy, isWholesale, isBottleSale, gudangId, onSav
     return <TransactionDialog title="Tambah Beberapa Barang" onClose={onClose} width="max-w-3xl">
         <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Cari Barang"><Input data-autofocus type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nama atau kode barang" /></Field>
+                <Field label="Cari Barang"><Input data-autofocus type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nama, kode, gudang, atau supplier" /></Field>
                 {!isBottleSale && <Field label="Tipe Barang"><Select value={type} onChange={(event) => setType(event.target.value)}><option value="ALL">Semua jenis</option><option value="BIBIT">Bibit</option><option value="ABSOLUTE">Absolute</option><option value="BOTOL">Botol Kosong</option></Select></Field>}
             </div>
             <div className="flex items-center justify-between gap-3">
@@ -882,13 +896,13 @@ function BulkItemModal({ refs, isBuy, isWholesale, isBottleSale, gudangId, onSav
                     return <div key={entry.key} className={`rounded-xl border p-3 ${item ? "border-primary bg-primary/5" : "border-stroke"}`}>
                         <label className="flex min-h-10 cursor-pointer items-center gap-3">
                             <input type="checkbox" checked={!!item} onChange={() => toggle(entry)} className="size-4 shrink-0 accent-primary" />
-                            <span className="min-w-0"><span className="block break-words text-sm font-bold text-main">{entry.row.nama_barang || entry.row.nama_botol}</span><span className="text-xs text-muted">{entry.row.kode_barang || entry.row.kode_botol} · {entry.type}</span></span>
+                            <span className="min-w-0 flex-1"><span className="block break-words text-sm font-bold text-main">{entry.row.nama_barang || entry.row.nama_botol}</span><span className="text-xs text-muted">{entry.row.kode_barang || entry.row.kode_botol} · {entry.type}</span><ItemStockInfo details={entry.stockDetails} incoming={isBuy} /></span>
                         </label>
                         {item && <div className="mt-3 grid gap-3 sm:grid-cols-3">
                             <Field label="Jumlah"><Input type="number" min="0.01" step="any" value={item.qty_input} onChange={(event) => update(entry.key, { qty_input: event.target.value })} /></Field>
-                            <Field label="Satuan"><Select value={item.satuan_input} onChange={(event) => update(entry.key, { satuan_input: event.target.value, id_botol: "", harga: "" })}>{(entry.type === "BOTOL" ? bottleUnits : isBuy ? purchaseLiquidUnits : liquidUnits).map((unit) => <option key={unit} value={unit}>{isBuy && unit === "BOTOL" && entry.type !== "BOTOL" ? "BOTOL ISI" : unit}</option>)}</Select></Field>
+                            <Field label="Satuan"><Select value={item.satuan_input} onChange={(event) => update(entry.key, { satuan_input: event.target.value, id_botol: "", harga: "" })}>{(entry.type === "BOTOL" ? bottleUnits : isBuy ? purchaseLiquidUnits : liquidUnits).map((unit) => <option key={unit} value={unit}>{unit}</option>)}</Select></Field>
                             <Field label={entry.type === "BOTOL" ? "Harga" : "Harga / ML"}><CurrencyInput value={item.harga || defaultItemPrice(entry.row, item, isBuy, isWholesale) || ""} readOnly={!isBuy} onChange={isBuy ? (event) => update(entry.key, { harga: event.target.value }) : undefined} /></Field>
-                            {entry.type !== "BOTOL" && item.satuan_input === "BOTOL" && <div className="sm:col-span-3"><Field label="Varian Botol"><Select value={item.id_botol || ""} onChange={(event) => update(entry.key, { id_botol: event.target.value })}><option value="">{entry.row.botol ? `Default: ${entry.row.botol.nama_botol}` : "Pilih varian botol"}</option>{(refs.botol || []).map((bottle) => <option key={bottle.id} value={bottle.id}>{bottle.nama_botol}</option>)}</Select></Field></div>}
+                            {entry.type !== "BOTOL" && <div className="sm:col-span-3"><Field label="Varian Botol Barang"><Input readOnly value={entry.row.botol ? `${entry.row.botol.nama_botol} (${number(entry.row.botol.varian_ml)} ML)` : "Belum ditentukan di Barang Bibit"} /></Field></div>}
                         </div>}
                     </div>;
                 })}
@@ -930,6 +944,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
     const handleSelectItem = (itemId) => {
         if (String(itemId) !== String(form.item_id)) set("id_gudang", "");
         set("item_id", itemId);
+        set("id_botol", itemOptions(refs, form.tipe_item).find((item) => String(item.id) === String(itemId))?.id_botol || "");
         set("harga", "");
 
     };
@@ -954,27 +969,15 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                     <Field label={isBottleSale ? "Pilih Botol Kosong" : "Pilih Barang"}>
                         <Select value={form.item_id} onChange={(event) => handleSelectItem(event.target.value)}>
                             <option value="">Pilih barang...</option>
-                            {options.map((row) => <option key={row.id} value={row.id}>{itemOptionLabel(row, form.tipe_item, isBuy, isWholesale, refs, gudangId)}</option>)}
+                            {options.map((row) => <option key={row.id} value={row.id}>{itemOptionLabel(row, form.tipe_item, isBuy, refs, isBuy ? gudangId : String(row.id) === String(form.item_id) ? form.id_gudang : "")}</option>)}
                         </Select>
                         {isBuy && form.tipe_item !== "BOTOL" && options.length === 0 && <p role="status" className="mt-1 text-xs text-amber-700">Belum ada barang untuk supplier ini. Hubungkan supplier di master Barang Bibit terlebih dahulu.</p>}
                         {!isBuy && gudangId && options.length === 0 && <p className="mt-1 text-[11px] font-medium text-amber-600">Tidak ada stok untuk tipe barang ini di gudang yang dipilih.</p>}
                     </Field>
-                    {form.tipe_item !== "BOTOL" && form.satuan_input === "BOTOL" && (
-                        <Field label="Varian Botol">
-                            <Select
-                                value={form.id_botol || ""}
-                                onChange={(e) => {
-                                    set("id_botol", e.target.value);
-                                    set("harga", "");
-                                }}
-                            >
-                                <option value="">{selected?.botol ? `Default: ${selected.botol.nama_botol}` : "Pilih varian botol"}</option>
-                                {(refs.botol || []).map((b) => (
-                                    <option key={b.id} value={b.id}>
-                                        {b.nama_botol}
-                                    </option>
-                                ))}
-                            </Select>
+                    {selected && <ItemStockInfo details={itemStockDetails(selected, form.tipe_item, { warehouses: refs.gudang, stocks: refs.stok_gudang, warehouseId: isBuy ? gudangId : form.id_gudang, incoming: isBuy })} incoming={isBuy} />}
+                    {form.tipe_item !== "BOTOL" && (
+                        <Field label="Varian Botol Barang">
+                            <Input readOnly value={selected?.botol ? `${selected.botol.nama_botol} (${number(selected.botol.varian_ml)} ML)` : "Belum ditentukan di Barang Bibit"} />
                         </Field>
                     )}
                     <div className="grid grid-cols-3 gap-3">
@@ -985,7 +988,7 @@ function ItemModal({ form, setForm, onSave, onClose, isEdit, isBuy, isWholesale,
                             <Select value={form.satuan_input} onChange={(event) => { set("satuan_input", event.target.value); set("harga", ""); if (event.target.value !== "BOTOL") set("id_botol", ""); }}>
                                 {unitOptions.map((unit) => (
                                     <option key={unit} value={unit}>
-                                        {isBuy && unit === "BOTOL" && form.tipe_item !== "BOTOL" ? "BOTOL ISI" : unit}
+                                        {unit}
                                     </option>
                                 ))}
                             </Select>

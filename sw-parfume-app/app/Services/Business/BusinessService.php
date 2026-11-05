@@ -106,6 +106,9 @@ class BusinessService
             if ($currentBottleId > 0 && $currentBottleId !== $newBottleId && $existingStocks->isNotEmpty()) {
                 throw ValidationException::withMessages(['id_botol' => 'Botol stok tidak dapat diganti selama stok barang masih tersedia.']);
             }
+            if ($currentBottleId !== $newBottleId && $existingStocks->contains(fn ($stock) => $stock->id_botol && (int) $stock->id_botol !== $newBottleId)) {
+                throw ValidationException::withMessages(['id_botol' => 'Barang masih memiliki stok dengan varian berbeda. Sesuaikan stok terlebih dahulu sebelum menetapkan varian barang.']);
+            }
 
             $barang->update([
                 ...$payload,
@@ -250,14 +253,14 @@ class BusinessService
 
         if ($multiplier === 1) {
             $barang = BarangBibit::query()->with('botol')->findOrFail($payload['id_barang']);
-            $idBotol = $idBotol ?: $barang->id_botol;
+            $idBotol = $this->liquidBottle($payload, $barang)->id;
         }
 
         if ($multiplier === 1 && isset($payload['jumlah_botol'])) {
             if ($barang->jenis_barang === 'ABSOLUTE') {
                 $qtyMl = (float) $payload['jumlah_botol'];
             } else {
-                // Gunakan varian_ml dari botol yang dipilih, fallback ke default barang
+                // Stock additions follow the single bottle variant configured on the item.
                 $varianMl = $idBotol
                     ? (float) (Botol::query()->find($idBotol)?->varian_ml ?? 0)
                     : (float) ($barang->botol->varian_ml ?? 0);
@@ -422,10 +425,8 @@ class BusinessService
             ->with('botol')
             ->findOrFail($item['item_id'] ?? $item['id_barang'] ?? null);
 
-        $botolVarian = $unit === 'BOTOL' ? $this->liquidBottle($item, $barang) : null;
-        $varianMl = $botolVarian
-            ? (float) $botolVarian->varian_ml
-            : (float) ($barang->botol->varian_ml ?? 0);
+        $botolVarian = $this->liquidBottle($item, $barang);
+        $varianMl = (float) $botolVarian->varian_ml;
 
         $qtyMl = $unit === 'BOTOL'
             ? $qtyInput * $varianMl
@@ -439,7 +440,7 @@ class BusinessService
             'item_id' => $barang->id,
             'nama_item' => $barang->nama_barang,
             'id_barang' => $barang->id,
-            'id_botol' => $botolVarian?->id ?? $barang->botol?->id,
+            'id_botol' => $botolVarian->id,
             'qty_input' => $qtyInput,
             'satuan_input' => $unit,
             'qty_ml' => $qtyMl,
@@ -499,8 +500,8 @@ class BusinessService
 
         $this->ensureUnit($unit, ['ML', 'LITER', 'BOTOL'], 'cairan');
         $barang = BarangBibit::query()->with('botol')->findOrFail($item['item_id'] ?? $item['id_barang'] ?? null);
-        $botolVarian = $unit === 'BOTOL' ? $this->liquidBottle($item, $barang) : null;
-        $qtyMl = $botolVarian
+        $botolVarian = $this->liquidBottle($item, $barang);
+        $qtyMl = $unit === 'BOTOL'
             ? $qtyInput * (float) $botolVarian->varian_ml
             : $this->convertToMl($qtyInput, $unit);
         $salesPrice = (float) $barang->harga_jual_grosir_per_ml;
@@ -517,7 +518,7 @@ class BusinessService
             'item_id' => $barang->id,
             'nama_item' => $barang->nama_barang,
             'id_barang' => $barang->id,
-            'id_botol' => $botolVarian?->id,
+            'id_botol' => $botolVarian->id,
             'qty_input' => $qtyInput,
             'satuan_input' => $unit,
             'qty_ml' => $qtyMl,
@@ -535,13 +536,16 @@ class BusinessService
 
     private function liquidBottle(array $item, BarangBibit $barang): Botol
     {
-        $bottle = ! empty($item['id_botol'])
-            ? Botol::query()->find($item['id_botol'])
-            : $barang->botol;
+        $bottle = $barang->botol;
 
         if (! $bottle || (float) $bottle->varian_ml <= 0) {
             throw ValidationException::withMessages([
-                'items' => "Pilih varian botol dengan kapasitas yang valid untuk {$barang->nama_barang}.",
+                'items' => "Tetapkan satu varian botol dengan kapasitas yang valid untuk {$barang->nama_barang} di menu Barang Bibit.",
+            ]);
+        }
+        if (! empty($item['id_botol']) && (int) $item['id_botol'] !== (int) $bottle->id) {
+            throw ValidationException::withMessages([
+                'items' => "Varian botol {$barang->nama_barang} harus mengikuti varian pada master Barang Bibit.",
             ]);
         }
 
@@ -553,8 +557,8 @@ class BusinessService
         if ($detail['satuan_dasar'] === 'ML') {
             $idBotol = isset($detail['id_botol']) ? (int) $detail['id_botol'] : null;
 
-            // Penjualan (KELUAR) tanpa varian spesifik: cari stok dari baris varian manapun (FIFO)
-            if ($direction === -1 && $idBotol === null) {
+            // Sale bottle capacity determines ML sold; consume incoming packaging variants FIFO.
+            if ($direction === -1) {
                 $stokTersedia = DB::table('tt_stok_supplier')->where('item_type', 'BIBIT')
                     ->where('id_gudang', $gudangId)->where('item_id', (int) $detail['id_barang'])
                     ->where('qty_remaining', '>', 0)->orderBy('tanggal')->orderBy('id')->lockForUpdate()
@@ -993,6 +997,28 @@ class BusinessService
         $buysToday = Pembelian::query()->whereDate('tanggal', $today)->get();
         $stocks = StokGudang::query()->with(['gudang', 'barang.brand', 'barang.botol'])->get();
         $lowStocks = $stocks->filter(fn (StokGudang $stock) => (float) $stock->stok_ml <= (float) $stock->minimum_stok_ml)->values();
+        $dueSoon = collect();
+        $dueUntil = $today->copy()->addDays(3)->toDateString();
+        foreach ([
+            [Hutang::class, 'Hutang Supplier', 'supplier', 'nama_supplier', 'no_hutang', 'sisa_hutang'],
+            [Piutang::class, 'Piutang Customer', 'customer', 'nama_customer', 'no_piutang', 'sisa_piutang'],
+            [PiutangSupplier::class, 'Piutang Supplier', 'supplier', 'nama_supplier', 'no_piutang_supplier', 'sisa_piutang'],
+        ] as [$model, $label, $relation, $name, $reference, $balance]) {
+            $records = $model::query()->with($relation)->where($balance, '>', 0)
+                ->whereDate('jatuh_tempo', '>=', $today->toDateString())
+                ->whereDate('jatuh_tempo', '<=', $dueUntil)->get();
+            foreach ($records as $record) {
+                $dueSoon->push([
+                    'id' => $reference.'-'.$record->id,
+                    'type' => $label,
+                    'number' => $record->{$reference},
+                    'party' => $record->{$relation}?->{$name} ?? '-',
+                    'due_date' => $record->jatuh_tempo->toDateString(),
+                    'days_remaining' => (int) $today->diffInDays($record->jatuh_tempo),
+                    'remaining' => (float) $record->{$balance},
+                ]);
+            }
+        }
 
         return [
             'omzet_hari_ini' => $salesToday->sum('total_penjualan'),
@@ -1001,6 +1027,7 @@ class BusinessService
             'stok_menipis' => $lowStocks,
             'total_piutang' => Piutang::query()->sum('sisa_piutang'),
             'total_hutang' => Hutang::query()->sum('sisa_hutang'),
+            'due_soon' => $dueSoon->sortBy('due_date')->values(),
             'laba_kotor_hari_ini' => $salesToday->sum('laba_kotor'),
             'laba_kotor_bulan_ini' => Penjualan::query()->where('tanggal', 'like', "{$month}%")->sum('laba_kotor'),
             'inventory_per_gudang' => $stocks->groupBy(fn ($stock) => $stock->gudang?->nama_gudang ?? 'Tidak diketahui')->map(fn ($rows, $name) => ['name' => $name, 'stok_ml' => $rows->sum('stok_ml')])->values(),

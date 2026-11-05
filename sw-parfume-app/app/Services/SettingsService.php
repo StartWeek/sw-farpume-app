@@ -51,7 +51,7 @@ class SettingsService
             'logo_path' => null,
             'login_logo_path' => null,
             'app_name' => 'Paris Parfum Admin',
-            'primary_color' => '#D97706',
+            'primary_color' => '#2563EB',
             'light_theme' => 'slate',
             'dark_theme' => 'navy',
             'is_dark_mode' => false,
@@ -61,6 +61,7 @@ class SettingsService
             'receipt_footer' => null,
             'receipt_template' => null,
             'payment_receipt_template' => null,
+            'receipt_pdf_layout' => [],
         ];
     }
 }

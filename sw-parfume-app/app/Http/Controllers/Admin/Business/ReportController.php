@@ -148,6 +148,7 @@ class ReportController extends Controller
                 return Pdf::loadView('exports.report', [
                     'title' => $title,
                     'portraitValidation' => $type === 'validasi-transaksi' && $orientation === 'portrait',
+                    'portraitCash' => $type === 'kas' && $orientation === 'portrait',
                     'filters' => $formattedFilters,
                     'columns' => $columns,
                     'rows' => $exportRows,
@@ -191,7 +192,8 @@ class ReportController extends Controller
             'jenis_barang' => ['nullable', Rule::in(['BIBIT', 'ABSOLUTE', 'BOTOL'])],
             'tipe_mutasi' => ['nullable', Rule::in(['MASUK', 'KELUAR'])],
         ]);
-        $query = app(SupplierStockService::class)->query($type, $filters);
+        $stockService = app(SupplierStockService::class);
+        $query = $stockService->query($type, $filters);
         $columns = [
             ['key' => 'kode_barang', 'label' => 'Barcode'], ['key' => 'nama_barang', 'label' => 'Barang'],
             ['key' => 'supplier_name', 'label' => 'Supplier Asal'], ['key' => 'nama_gudang', 'label' => 'Gudang'],
@@ -206,9 +208,11 @@ class ReportController extends Controller
             $columns[] = ['key' => 'reference', 'label' => 'Referensi'];
         }
         $columns[] = ['key' => 'quantity', 'label' => $type === 'mutasi-stok' ? 'Jumlah' : 'Stok Akhir'];
+        if ($type !== 'mutasi-stok') $columns[] = ['key' => 'bottle_estimate', 'label' => 'Perkiraan Botol Akhir'];
         $title = $this->getExportTitle($type).' per Supplier dan Gudang';
         if ($searched && in_array($request->query('export'), ['pdf', 'excel'], true)) {
             $rows = $query->get();
+            if ($type !== 'mutasi-stok') $rows = $stockService->withBottleEstimates($rows, $query);
             $formattedFilters = $this->formatFiltersForExport($filters);
             $filename = str($title)->slug();
             if ($request->query('export') === 'excel') {
@@ -218,9 +222,13 @@ class ReportController extends Controller
             return Pdf::loadView('exports.supplier_stock', ['title' => $title, 'filters' => $formattedFilters, 'columns' => $columns, 'rows' => $rows])
                 ->setPaper('a4', $orientation)->download($filename.'.pdf');
         }
+        $liquidRows = $searched ? (clone $query)->where('l.unit', 'ML')->paginate($this->perPage())->withQueryString() : null;
+        if ($liquidRows && $type !== 'mutasi-stok') {
+            $liquidRows->setCollection($stockService->withBottleEstimates($liquidRows->getCollection(), $query));
+        }
         return Inertia::render('admin/business/SupplierStockReportPage', [
             'type' => $type, 'title' => $title, 'filters' => $filters, 'searched' => $searched,
-            'rows' => $searched ? (clone $query)->where('l.unit', 'ML')->paginate($this->perPage())->withQueryString() : [],
+            'rows' => $liquidRows ?? [],
             'botolRows' => $searched ? (clone $query)->where('l.unit', 'PCS')->paginate($this->perPage(), ['*'], 'botol_page')->withQueryString() : [],
             'suppliers' => Supplier::query()->orderBy('nama_supplier')->get(['id', 'nama_supplier']),
             'warehouses' => Gudang::query()->orderBy('nama_gudang')->get(['id', 'nama_gudang']),
@@ -899,6 +907,7 @@ class ReportController extends Controller
                 ['label' => 'Customer', 'format' => fn ($row) => $row->customer?->nama_customer ?? '-'],
                 ['label' => 'Gudang', 'format' => fn ($row) => $row->warehouse_label],
                 ['label' => 'Detail Barang', 'format' => fn ($row) => $this->detailText($row)],
+                ['label' => 'Satuan Penjualan', 'format' => fn ($row) => $this->salesUnits($row)],
                 ['label' => 'Diskon', 'format' => fn ($row) => $this->fmt((float) $row->discount, true)],
                 ['label' => 'Penjualan', 'format' => fn ($row) => $this->fmt((float) $row->total_penjualan, true)],
                 ['label' => 'Modal', 'format' => fn ($row) => $this->fmt((float) $row->total_modal, true)],
@@ -1016,6 +1025,18 @@ class ReportController extends Controller
         $formatted = preg_replace('/,00$/', '', number_format($value, 2, ',', '.'));
 
         return $money ? 'Rp '.$formatted : $formatted;
+    }
+
+    private function salesUnits($row): string
+    {
+        return $row->details->map(function ($detail): string {
+            $hasInputUnit = $detail->satuan_input && $detail->qty_input !== null;
+            $qty = $hasInputUnit ? $detail->qty_input : ($detail->konversi_qty_dasar ?: $detail->qty_ml);
+            $unit = $hasInputUnit ? $detail->satuan_input : ($detail->satuan_dasar ?? 'ML');
+            $name = $detail->nama_item ?? $detail->barang?->nama_barang ?? $detail->botol?->nama_botol ?? '-';
+
+            return $name.': '.$this->fmt((float) $qty).' '.$unit;
+        })->implode('; ') ?: '-';
     }
 
     private function detailText($row): string

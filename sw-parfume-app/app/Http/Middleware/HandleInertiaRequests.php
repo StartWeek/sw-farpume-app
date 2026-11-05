@@ -47,6 +47,7 @@ class HandleInertiaRequests extends Middleware
                 ? app(BusinessService::class)->operationalDate()->toDateString()
                 : null,
             'appSettings' => fn () => app(SettingsService::class)->get(),
+            'appVersion' => fn () => config('version'),
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

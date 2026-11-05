@@ -136,7 +136,7 @@ export default function FinancePage({ type, rows = [], refs = {} }) {
                     ]}
                     renderActions={(row) => (
                         <>
-                            <Button size="sm" variant="outline" disabled={Number(isDebt ? row.sisa_hutang : row.sisa_piutang) <= 0} onClick={() => { setErrors({}); setAmount(""); setActive(row); }}>Bayar</Button>
+                            <Button size="sm" variant="outline" disabled={!!row.payment_history?.pending?.length || Number(isDebt ? row.sisa_hutang : row.sisa_piutang) <= 0} onClick={() => { setErrors({}); setAmount(""); setActive(row); }}>{row.payment_history?.pending?.length ? "Menunggu Validasi" : "Bayar"}</Button>
                             <a href={`/admin/keuangan-nota/${type}/${row.id}/${!isDebt && !isSupplierReceivable ? "slip" : "pdf"}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 text-sm font-bold text-main"><IconFileTypePdf size={16} />{!isDebt && !isSupplierReceivable ? "Cetak Slip" : "Bukti PDF"}</a>
                         </>
                     )}

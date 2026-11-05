@@ -22,12 +22,12 @@ import {
     IconLogout,
     IconUserCircle,
 } from "@tabler/icons-react";
-import LogoImg from "../../assets/images/logo.jpg";
 import AvatarImg from "../../assets/images/Avatar.png";
 import DefaultFoto from "../../assets/images/defaultfoto.jpg";
 import { useSidebarStore } from "@/store/sidebarStore";
 import { useIsMobile } from "@/utils/isMobile";
 import { menuAdmin } from "../menu";
+import releaseVersion from "../../../../version.json";
 
 
 export default function Sidebar() {
@@ -224,8 +224,8 @@ const MenuItem = ({
                     style={{ paddingLeft: `${paddingLeftValue}px` }}
                     className={`w-full flex items-center justify-between gap-3 pr-3 py-2 rounded-xl text-sm transition-all duration-300 cursor-pointer focus:outline-none focus-visible:outline-none focus:ring-0 ${
                         shouldHighlight
-                            ? "bg-white/10 text-amber-100 font-semibold shadow-[inset_3px_0_0_rgba(251,191,36,0.9)]"
-                            : "text-emerald-50/80 hover:bg-white/10 hover:text-white font-medium"
+                            ? "bg-white/10 text-[var(--color-primary-100)] font-semibold shadow-[inset_3px_0_0_var(--color-primary-300)]"
+                            : "text-white/80 hover:bg-white/10 hover:text-white font-medium"
                     }`}
                 >
                     <div className="flex items-center gap-3">
@@ -234,8 +234,8 @@ const MenuItem = ({
                                 size={18}
                                 className={
                                     shouldHighlight
-                                        ? "text-amber-200"
-                                        : "text-emerald-100/45"
+                                        ? "text-[var(--color-primary-200)]"
+                                        : "text-white/45"
                                 }
                             />
                         )}
@@ -245,7 +245,7 @@ const MenuItem = ({
                         size={16}
                         className={`transition-transform duration-300 ${
                             expanded ? "rotate-0" : "-rotate-90 opacity-40"
-                        } ${shouldHighlight ? "text-amber-200 opacity-100" : "text-emerald-100/40"}`}
+                        } ${shouldHighlight ? "text-[var(--color-primary-200)] opacity-100" : "text-white/40"}`}
                     />
                 </button>
             ) : (
@@ -255,8 +255,8 @@ const MenuItem = ({
                     style={{ paddingLeft: `${paddingLeftValue}px` }}
                     className={`flex items-center gap-3 pr-3 py-2 rounded-xl text-sm transition-all duration-300 cursor-pointer focus:outline-none focus-visible:outline-none focus:ring-0 ${
                         isItemActive
-                            ? "bg-amber-300 text-emerald-950 font-semibold shadow-[0_12px_28px_-18px_rgba(251,191,36,0.85)]"
-                            : "text-emerald-50/80 hover:bg-white/10 hover:text-white font-medium"
+                            ? "bg-[var(--color-primary-300)] text-slate-950 font-semibold shadow-[0_12px_28px_-18px_var(--color-primary-300)]"
+                            : "text-white/80 hover:bg-white/10 hover:text-white font-medium"
                     }`}
                 >
                     {Icon && (
@@ -264,8 +264,8 @@ const MenuItem = ({
                             size={18}
                             className={
                                 isItemActive
-                                    ? "text-emerald-950"
-                                    : "text-emerald-100/45"
+                                    ? "text-slate-950"
+                                    : "text-white/45"
                             }
                         />
                     )}
@@ -309,27 +309,27 @@ const SidebarContent = ({
     setSearchQuery,
 }) => {
     const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-        const { appSettings } = usePage().props;
-        const logoSrc = appSettings?.logo_path || LogoImg;
+        const { appSettings, appVersion } = usePage().props;
+        const logoSrc = appSettings?.logo_path || "/favicon.svg?v=studio-blue-1";
         const appName = appSettings?.app_name || "Paris Parfum Admin";
 
     return (
         <>
             {/* Header / Logo */}
-            <div className="px-4 flex justify-between h-18 items-center border-b border-white/10 bg-white/[0.03] shrink-0">
+            <div className="px-4 flex justify-between h-18 items-center border-b border-white/10 shrink-0">
                 <div className="flex items-center gap-2.5">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-lg overflow-hidden border border-amber-300/35 bg-white/10 shrink-0">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-lg overflow-hidden border border-[var(--color-primary-300)] bg-white/10 shrink-0">
                         <img
                             src={logoSrc}
                             alt="Logo"
-                            className="w-full h-full object-cover p-1"
+                            className="w-full h-full object-contain"
                         />
                     </div>
                     <div>
                         <div className="text-sm font-bold text-white leading-tight tracking-tight">
                             {appName}
                         </div>
-                        <div className="text-[10px] text-amber-100/80 leading-tight">
+                        <div className="text-[10px] text-[var(--color-primary-100)] leading-tight">
                             Admin Panel
                         </div>
                     </div>
@@ -337,7 +337,7 @@ const SidebarContent = ({
                 {isMobile && onClose && (
                     <button
                         onClick={onClose}
-                        className="p-1.5 rounded-lg text-emerald-50/60 hover:text-white hover:bg-white/10 transition-colors"
+                        className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
                     >
                         <IconX size={18} />
                     </button>
@@ -372,18 +372,18 @@ const SidebarContent = ({
                         />
                     ))
                 ) : (
-                    <div className="px-3 py-4 text-sm text-emerald-50/55">
+                    <div className="px-3 py-4 text-sm text-white/55">
                         Menu tidak ditemukan.
                     </div>
                 )}
             </nav>
 
             {/* Footer */}
-            <div className="px-4 py-3 border-t border-white/10 bg-black/10">
-                <div className="text-[10px] font-bold text-emerald-50/40 text-center tracking-widest uppercase">
-                    {appName} v1.0
+            {appVersion?.frontend && appVersion.frontend !== releaseVersion.frontend && (
+                <div className="px-4 py-3 border-t border-white/10 bg-black/10">
+                    <p className="text-center text-[10px] text-amber-300" role="status">Pembaruan frontend tersedia. Muat ulang halaman.</p>
                 </div>
-            </div>
+            )}
         </>
     );
 };

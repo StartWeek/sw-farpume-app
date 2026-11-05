@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112" fill="none">
+  <title>Botol parfum Studio</title>
+  <defs>
+    <linearGradient id="background" x1="8" y1="0" x2="108" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/><stop offset=".5" stop-color="#E7EFFF"/><stop offset="1" stop-color="#A8C4F9"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="37" y1="12" x2="72" y2="17" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3A4250"/><stop offset=".48" stop-color="#121A27"/><stop offset="1" stop-color="#323C4B"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="22" y1="40" x2="88" y2="96" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/><stop offset=".45" stop-color="#EDF4FF" stop-opacity=".85"/><stop offset=".85" stop-color="#9DBDF5" stop-opacity=".75"/><stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <linearGradient id="liquid" x1="28" y1="60" x2="84" y2="94" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C7DAFF"/><stop offset="1" stop-color="#2563EB" stop-opacity=".7"/>
+    </linearGradient>
+  </defs>
+  <rect width="112" height="112" rx="25" fill="url(#background)"/>
+  <ellipse cx="58" cy="99" rx="33" ry="5" fill="#1E3A5F" opacity=".12"/>
+  <g transform="rotate(-9 56 56)">
+    <rect x="44" y="30" width="22" height="10" fill="#ACC3EB"/>
+    <rect x="37" y="10" width="36" height="23" rx="4" fill="url(#cap)"/>
+    <path d="M40 14h29" stroke="#FFFFFF" stroke-opacity=".2" stroke-linecap="round"/>
+    <rect x="21" y="38" width="68" height="62" rx="10" fill="url(#glass)" stroke="#FFFFFF" stroke-width="2"/>
+    <path d="M27 58h56v29a7 7 0 0 1-7 7H34a7 7 0 0 1-7-7V58Z" fill="url(#liquid)"/>
+    <path d="M28 59h54" stroke="#FFFFFF" stroke-opacity=".7"/>
+    <rect x="36" y="59" width="38" height="28" rx="1" fill="#F8FBFF" stroke="#D7E1EE"/>
+    <path d="M55 65c-2 3-5 6-5 9a5 5 0 0 0 10 0c0-3-3-6-5-9Z" stroke="#31568D" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M27 47v8" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -8,7 +8,6 @@
 @php
 $s = $validation->snapshot;
 $d = data_get($validation->result, 'details', []);
-$approved = $validation->status === 'APPROVED';
 $trade = $validation->type === 'pembelian' || str_starts_with($validation->type, 'penjualan-');
 $hasAmount = isset($s['amount']);
 $partyLabel = $validation->type === 'pembelian' || str_contains($validation->type, 'supplier') || $validation->type === 'bayar-hutang'
@@ -17,7 +16,6 @@ $reference = data_get($validation->result, 'number') ?: ($s['reference'] ?? null
 $hasBaseConversion = collect($s['items'] ?? [])->contains(fn ($item) => ($item['base_unit'] ?? $item['unit']) !== $item['unit']);
 $n = fn($v) => preg_replace('/,00$/', '', number_format((float)$v, 2, ',', '.'));
 $rp = fn($v) => 'Rp '.$n($v);
-$status = ['PENDING' => 'Menunggu Validasi', 'APPROVED' => 'Disetujui', 'REJECTED' => 'Ditolak'][$validation->status] ?? $validation->status;
 $total = (float) ($s['amount'] ?? 0);
 $paid = $d['jumlah_bayar'] ?? match ($s['payment_method'] ?? '') {
     'CASH', 'TRANSFER', 'SPLIT' => $total,
@@ -27,7 +25,7 @@ $paid = $d['jumlah_bayar'] ?? match ($s['payment_method'] ?? '') {
 $date = fn($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('d-m-Y') : '-';
 @endphp
 @include('exports.receipt_header', ['documentTitle' => $documentTitle, 'documentNumber' => $validation->number, 'documentDate' => $date($validation->operational_date)])
-<div class="status"><strong>{{ $status }}</strong>@if(!$approved)<span class="muted"> - {{ $validation->status === 'REJECTED' ? 'Tidak diproses.' : 'Belum diproses.' }}</span>@endif</div>
+@if($validation->status === 'REJECTED')<div class="status"><strong>Ditolak</strong><span class="muted"> - Tidak diproses.</span></div>@endif
 <table class="info">
     @if(!empty($s['party']) && $s['party'] !== '-')<tr><td colspan="2">{{ $partyLabel }}: <strong>{{ $s['party'] }}</strong></td></tr>@endif
     @if(!empty($s['warehouse']) || !empty($s['sales']))
@@ -47,7 +45,7 @@ $date = fn($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('d-m-Y') : 
 @if($hasAmount)<table class="summary"><tr><td></td><td><table class="totals">
 @if($trade && ($s['discount'] ?? 0) > 0)<tr><td>Subtotal</td><td class="right">{{ $rp(collect($s['items'])->sum('subtotal')) }}</td></tr><tr><td>Diskon</td><td class="right">- {{ $rp($s['discount']) }}</td></tr>@endif
 <tr class="grand"><td>{{ $trade ? 'Total' : 'Nominal' }}</td><td class="right">{{ $rp($total) }}</td></tr>
-@if($trade)<tr><td>{{ $approved ? 'Dibayar saat transaksi' : 'Rencana pembayaran' }}</td><td class="right">{{ $rp($paid) }}</td></tr><tr><td>Sisa tagihan</td><td class="right">{{ $rp(max(0, $total - $paid)) }}</td></tr>@endif
+@if($trade)<tr><td>Pembayaran</td><td class="right">{{ $rp($paid) }}</td></tr><tr><td>Sisa tagihan</td><td class="right">{{ $rp(max(0, $total - $paid)) }}</td></tr>@endif
 @if($trade)@include('exports.receipt_payment_details', ['paymentDetails' => $d['payment_details'] ?? $s['payment_details'] ?? null, 'formatMoney' => $rp])@endif
 @if(isset($d['sisa_hutang']) || isset($d['sisa_piutang']))<tr><td>Sisa setelah transaksi</td><td class="right">{{ $rp($d['sisa_hutang'] ?? $d['sisa_piutang']) }}</td></tr>@endif
 @if(isset($d['saldo_akhir']))<tr><td>Saldo kas setelah transaksi</td><td class="right">{{ $rp($d['saldo_akhir']) }}</td></tr>@endif

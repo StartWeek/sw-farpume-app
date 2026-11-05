@@ -1,3 +1,9 @@
+@php
+    $pdfLayoutKind = isset($validation)
+        ? ($validation->type === 'pembelian' ? 'purchase' : 'payment')
+        : (($receipt['type'] ?? '') === 'pembelian' ? 'purchase' : 'payment');
+    $pdfLayout = $settings['receipt_pdf_layout'][$pdfLayoutKind] ?? [];
+@endphp
 <style>
     @page { size: a4 portrait; margin: 14mm; }
     body { margin: 0; font-family: DejaVu Sans, sans-serif; font-size: 10px; line-height: 1.4; color: #111; }
@@ -33,4 +39,17 @@
     .actors td { width: 50%; }
     .status { margin-bottom: 10px; }
     .footer { margin-top: 14px; padding-top: 6px; border-top: 1px solid #ccc; font-size: 9px; page-break-inside: avoid; }
+    @foreach(['header' => 0, 'info' => 0, 'items' => 0, 'summary' => 3.175, 'signatures' => 5.292, 'actors' => 4.763, 'footer' => 3.704] as $block => $baseMargin)
+        @php
+            $offsetX = max(-10, min(10, (float) ($pdfLayout[$block]['x'] ?? 0)));
+            $offsetY = max(0, min(40, (float) ($pdfLayout[$block]['y'] ?? 0)));
+        @endphp
+        body > .{{ $block }} { margin-left: {{ $offsetX }}mm; margin-top: {{ $baseMargin + $offsetY }}mm; width: {{ 182 - abs($offsetX) }}mm; }
+    @endforeach
+    @if($preview ?? false)
+        @media screen {
+            html { background: #e2e8f0; }
+            body { box-sizing: border-box; width: 210mm; min-height: 297mm; padding: 14mm; background: white; }
+        }
+    @endif
 </style>

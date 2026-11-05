@@ -22,6 +22,7 @@ const emptyForm = {
     nama_barang: "",
     id_brand: "",
     id_gudang: "",
+    id_botol: "",
     jenis_barang: "",
     harga_beli_per_ml: "",
     harga_jual_retail_per_ml: "",
@@ -30,7 +31,7 @@ const emptyForm = {
     supplier_ids: [],
 };
 
-export default function BarangBibitPage({ rows = [], brand = [], gudang = [], supplier = [] }) {
+export default function BarangBibitPage({ rows = [], brand = [], botol = [], gudang = [], supplier = [] }) {
     useFlashMessages();
     const { errors: pageErrors } = usePage().props;
     const errors = pageErrors || {};
@@ -134,6 +135,15 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [], su
                                     <option value="ABSOLUTE">Absolute</option>
                                 </Select>
                             </Field>
+                            <Field label="Varian Botol">
+                                <Select value={form.id_botol || ""} onChange={(event) => set("id_botol", event.target.value)} error={errors.id_botol}>
+                                    <option value="">Pilih satu varian botol</option>
+                                    {form.botol && !botol.some((item) => Number(item.id) === Number(form.botol.id)) && <option value={form.botol.id}>{form.botol.nama_botol} ({number(form.botol.varian_ml)} ML)</option>}
+                                    {botol.map((item) => <option key={item.id} value={item.id}>{item.nama_botol} ({number(item.varian_ml)} ML)</option>)}
+                                </Select>
+                                <p className="text-xs text-muted">Satu barang memakai satu varian. Pembelian dan penjualan mengikuti ukuran ini, termasuk konversi LITER ke botol.</p>
+                                {!botol.length && <p className="text-xs text-amber-700">Belum ada varian botol aktif dengan kapasitas yang valid.</p>}
+                            </Field>
                             <div className="space-y-1.5 md:col-span-2">
                                     <span className="text-[11px] font-bold uppercase tracking-widest text-muted">Supplier Barang</span>
                                     <Select
@@ -173,6 +183,7 @@ export default function BarangBibitPage({ rows = [], brand = [], gudang = [], su
                         { key: "nama_barang", label: "Barang" },
                         { key: "gudang", label: "Gudang", render: (row) => row.gudang?.nama_gudang || "-" },
                         { key: "jenis_barang", label: "Jenis" },
+                        { key: "botol", label: "Varian Botol", render: (row) => row.botol ? `${row.botol.nama_botol} (${number(row.botol.varian_ml)} ML)` : "Belum ditentukan" },
                         { key: "suppliers", label: "Supplier", render: (row) => row.suppliers?.length ? row.suppliers.map((item) => item.nama_supplier).join(", ") : "Belum ditentukan" },
                         { key: "stok_saat_ini_ml", label: "Stok Saat Ini (ML)", render: (row) => (
                             <div className="text-right tabular-nums">

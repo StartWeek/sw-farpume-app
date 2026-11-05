@@ -4,7 +4,6 @@ import ProtectedLayout from "@/components/layouts/ProtectedLayout";
 import Button from "@/components/common/Button";
 import toast from "react-hot-toast";
 import { Card, Field, PageHeader, Select, SimpleTable, Textarea, formatBusinessDate, money, number } from "./_components";
-import { withPdfProof } from "./useTransactionSubmissionOptions";
 import { TransactionDialog } from "./TransactionDialogs";
 import { PaymentBreakdown } from "./PaymentDetails";
 
@@ -83,7 +82,7 @@ export default function ValidationPage({ rows = [], filters = {}, counts = {}, t
             onError: (values) => setActionErrors(values),
             onFinish: () => setBusy(false),
         };
-        router.post(`/admin/validasi-transaksi/${selected.id}/${action}`, action === "tolak" ? { reason: reason.trim() } : {}, action === "setujui" ? withPdfProof(options, selected.type.startsWith("penjualan-") || selected.type === "bayar-piutang") : options);
+        router.post(`/admin/validasi-transaksi/${selected.id}/${action}`, action === "tolak" ? { reason: reason.trim() } : {}, options);
     };
 
     return (
@@ -172,7 +171,6 @@ export default function ValidationPage({ rows = [], filters = {}, counts = {}, t
                         {snapshot.amount !== null && <div className="space-y-2 rounded-lg bg-page p-4 text-sm">{snapshot.discount > 0 && <div className="flex justify-between gap-3 text-muted"><span>Diskon Transaksi</span><span className="tabular-nums">{money(snapshot.discount)}</span></div>}<div className="flex justify-between gap-3 font-extrabold text-main"><span>Nilai Transaksi</span><span className="tabular-nums">{money(snapshot.amount)}</span></div></div>}
                         {snapshot.notes && <div><p className="text-xs text-muted">Keterangan</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-main">{snapshot.notes}</p></div>}
                         {selected.reviewed_by_name && <p className="text-xs text-muted">Diproses oleh {selected.reviewed_by_name} · {formatBusinessDate(selected.reviewed_at)}{selected.result?.number ? ` · ${selected.result.number}` : ""}</p>}
-                        {(selected.receipt_url || selected.pdf_url) && <a href={selected.receipt_url || selected.pdf_url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-stroke px-4 py-2 text-sm font-bold text-main hover:border-primary focus-visible:outline-2 focus-visible:outline-primary">{selected.type.startsWith("penjualan-") || selected.type === "bayar-piutang" ? "Cetak Slip" : "Bukti PDF"}</a>}
                         {selected.rejection_reason && <div className="rounded-lg bg-red-50 p-4 text-sm text-red-800"><p className="font-bold">Alasan Penolakan</p><p className="mt-1 whitespace-pre-wrap break-words">{selected.rejection_reason}</p></div>}
                         {Object.keys(actionErrors).length > 0 && <div role="alert" className="space-y-1 rounded-lg bg-red-50 p-3 text-sm text-red-700">{Object.entries(actionErrors).map(([key, message]) => <p key={key}>{message}</p>)}</div>}
                         {selected.status === "PENDING" && rejecting ? (

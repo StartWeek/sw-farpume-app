@@ -46,7 +46,7 @@ class TransactionValidationController extends Controller
     {
         $validation = $this->validations->approve($id, $request->user());
 
-        return back()->with('success', "{$validation->number} disetujui. Transaksi sudah diproses dan masuk laporan.")->with('transactionPdf', $validation->receipt_url);
+        return back()->with('success', "{$validation->number} disetujui. Transaksi sudah diproses dan masuk laporan.");
     }
 
     public function approveSelected(Request $request): RedirectResponse

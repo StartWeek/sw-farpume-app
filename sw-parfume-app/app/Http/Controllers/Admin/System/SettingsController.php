@@ -44,21 +44,31 @@ class SettingsController extends Controller
 
     public function notaIndex(): Response
     {
+        $settings = $this->settings->get();
+
         return Inertia::render('admin/business/SettingNotaPage', [
-            'settings' => $this->settings->get(),
+            'settings' => $settings,
+            'previews' => $this->notaPreviews($settings),
         ]);
     }
 
     public function notaUpdate(Request $request): RedirectResponse
     {
+        $layoutRules = ['receipt_pdf_layout' => ['nullable', 'array:purchase,payment']];
+        foreach (['purchase', 'payment'] as $kind) {
+            $layoutRules["receipt_pdf_layout.$kind"] = ['sometimes', 'array:header,info,items,summary,signatures,actors,footer'];
+            foreach (['header', 'info', 'items', 'summary', 'signatures', 'actors', 'footer'] as $block) {
+                $layoutRules["receipt_pdf_layout.$kind.$block"] = ['sometimes', 'array:x,y'];
+                $layoutRules["receipt_pdf_layout.$kind.$block.x"] = ['sometimes', 'numeric', 'between:-10,10'];
+                $layoutRules["receipt_pdf_layout.$kind.$block.y"] = ['sometimes', 'numeric', 'between:0,40'];
+            }
+        }
         $validated = $request->validate([
             'store_name' => ['required', 'string', 'max:100'],
             'store_address' => ['nullable', 'string', 'max:500'],
             'store_phone' => ['nullable', 'string', 'max:30'],
             'receipt_footer' => ['nullable', 'string', 'max:200'],
-            'receipt_template' => ['nullable', 'string', 'max:10000'],
-            'payment_receipt_template' => ['nullable', 'string', 'max:10000'],
-            'item_template' => ['nullable', 'string', 'max:2000'],
+            ...$layoutRules,
         ], $this->validationMessages());
 
         foreach (['store_name', 'store_address', 'store_phone', 'receipt_footer'] as $key) {
@@ -72,6 +82,41 @@ class SettingsController extends Controller
         return redirect()
             ->route('admin.setting-nota')
             ->with('success', 'Pengaturan nota berhasil disimpan.');
+    }
+
+    private function notaPreviews(array $settings): array
+    {
+        $date = app(\App\Services\Business\BusinessService::class)->operationalDate();
+        $previews = [];
+        foreach ([
+            ['sale', 'penjualan-retail', 'Penjualan Retail', true, false],
+            ['purchase', 'pembelian', 'Pembelian Supplier', false, false],
+            ['customer-payment', 'bayar-piutang', 'Pembayaran Piutang Customer', true, true],
+            ['supplier-payment', 'bayar-hutang', 'Pembayaran Hutang Supplier', false, true],
+            ['supplier-receivable', 'bayar-piutang-supplier', 'Pembayaran Piutang Supplier', false, true],
+        ] as [$key, $type, $label, $customer, $payment]) {
+            $validation = (object) [
+                'type' => $type, 'status' => 'PENDING', 'number' => 'CONTOH-001',
+                'operational_date' => $date, 'result' => null, 'rejection_reason' => null,
+                'submitted_by_name' => 'OPERATOR CONTOH', 'reviewed_by_name' => null,
+                'snapshot' => [
+                    'label' => $label, 'party' => $customer ? 'CUSTOMER CONTOH' : 'SUPPLIER CONTOH',
+                    'amount' => $payment ? 50000 : 100000, 'discount' => 0,
+                    'payment_method' => 'CASH', 'down_payment' => 0,
+                    'remaining_before' => 100000, 'reference' => $payment ? 'TAGIHAN-CONTOH' : null,
+                    'items' => $payment ? [] : [[
+                        'code' => 'BRG-CONTOH', 'name' => 'PARFUM CONTOH',
+                        'qty' => 2, 'unit' => 'BOTOL', 'base_qty' => 100, 'base_unit' => 'ML',
+                        'variant' => '50 ML', 'price' => 1000, 'price_unit' => 'ML', 'subtotal' => 100000,
+                    ]],
+                ],
+            ];
+            $previews[$key] = view($customer ? 'exports.customer_slip' : 'exports.validation_receipt', [
+                'settings' => $settings, 'validation' => $validation, 'preview' => true,
+            ])->render();
+        }
+
+        return $previews;
     }
 
     private function validationMessages(): array
