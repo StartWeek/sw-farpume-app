@@ -5,11 +5,15 @@ import {
     IconDeviceFloppy,
     IconMoon,
     IconSun,
+    IconRefresh,
 } from "@tabler/icons-react";
 import { PageHeader, Card, Field, Input } from "./_components";
 import ImageUpload from "@/components/input/ImageUpload";
 import { useThemeStore } from "@/store/themeStore";
 import ProtectedLayout from "@/components/layouts/ProtectedLayout";
+
+const DEFAULT_PRIMARY_COLOR = "#2563EB";
+const DEFAULT_SIDEBAR_COLOR = "#0F172A";
 
 const primaryColors = [
     { name: "Indigo", color: "#4F46E5" },
@@ -18,6 +22,15 @@ const primaryColors = [
     { name: "Amber", color: "#D97706" },
     { name: "Purple", color: "#9333EA" },
     { name: "Rose", color: "#E11D48" },
+];
+
+const sidebarColors = [
+    { name: "Slate Dark", color: "#0F172A" },
+    { name: "Navy Night", color: "#1E1B4B" },
+    { name: "Charcoal", color: "#18181B" },
+    { name: "Deep Wine", color: "#4C0519" },
+    { name: "Forest", color: "#064E3B" },
+    { name: "Ocean Deep", color: "#0C4A6E" },
 ];
 
 const legacyPrimaryColors = Object.fromEntries(
@@ -29,6 +42,11 @@ const normalizePrimaryColor = (color) => {
 
     return legacyPrimaryColors[value.toLowerCase()]
         || (/^#[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : "#D97706");
+};
+
+const normalizeSidebarColor = (color) => {
+    const value = String(color || "").trim();
+    return /^#[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : DEFAULT_SIDEBAR_COLOR;
 };
 
 const lightThemes = [
@@ -53,6 +71,7 @@ export default function SettingSystemPage() {
         login_logo_path: settings.login_logo_path || "",
         app_name: settings.app_name || "",
         primary_color: normalizePrimaryColor(settings.primary_color),
+        sidebar_color: normalizeSidebarColor(settings.sidebar_color),
         light_theme: settings.light_theme || "slate",
         dark_theme: settings.dark_theme || "navy",
         is_dark_mode: settings.is_dark_mode || false,
@@ -60,6 +79,19 @@ export default function SettingSystemPage() {
     const isCustomPrimary = !primaryColors.some(
         ({ color }) => color === data.primary_color,
     );
+    const isCustomSidebar = !sidebarColors.some(
+        ({ color }) => color === data.sidebar_color,
+    );
+
+    const handlePrimaryColorChange = (color) => {
+        setData("primary_color", color);
+        useThemeStore.getState().setPrimaryColor(color);
+    };
+
+    const handleSidebarColorChange = (color) => {
+        setData("sidebar_color", color);
+        useThemeStore.getState().setSidebarColor(color);
+    };
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -138,9 +170,20 @@ export default function SettingSystemPage() {
                                     Pilih warna cepat atau tentukan warna khusus.
                                 </p>
                             </div>
-                            <code className="rounded-lg border border-stroke bg-page px-3 py-1.5 text-xs font-bold text-main">
-                                {data.primary_color}
-                            </code>
+                            <div className="flex items-center gap-2">
+                                <code className="rounded-lg border border-stroke bg-page px-3 py-1.5 text-xs font-bold text-main">
+                                    {data.primary_color}
+                                </code>
+                                <button
+                                    type="button"
+                                    onClick={() => handlePrimaryColorChange(DEFAULT_PRIMARY_COLOR)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-stroke bg-page px-3 py-1.5 text-xs font-bold text-muted transition-colors hover:border-primary hover:text-primary active:scale-95"
+                                    title="Reset ke warna default (Blue #2563EB)"
+                                >
+                                    <IconRefresh size={14} />
+                                    Reset ke Default
+                                </button>
+                            </div>
                         </div>
                         <div className="flex flex-wrap items-start gap-4">
                             {primaryColors.map((colorOption) => {
@@ -150,7 +193,7 @@ export default function SettingSystemPage() {
                                 <button
                                     key={colorOption.name}
                                     type="button"
-                                    onClick={() => setData("primary_color", colorOption.color)}
+                                    onClick={() => handlePrimaryColorChange(colorOption.color)}
                                     className="group flex min-w-16 flex-col items-center gap-2 rounded-xl px-2 py-2 text-center outline-none transition-transform duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
                                     aria-pressed={isActive}
                                 >
@@ -182,7 +225,7 @@ export default function SettingSystemPage() {
                                 <input
                                     type="color"
                                     value={data.primary_color}
-                                    onChange={(event) => setData("primary_color", event.target.value.toUpperCase())}
+                                    onChange={(event) => handlePrimaryColorChange(event.target.value.toUpperCase())}
                                     className="absolute inset-0 cursor-pointer opacity-0"
                                     aria-label="Pilih warna utama khusus"
                                 />
@@ -206,6 +249,99 @@ export default function SettingSystemPage() {
                         </div>
                         {errors.primary_color ? (
                             <p className="mt-3 text-sm font-medium text-red-500">{errors.primary_color}</p>
+                        ) : null}
+                    </Card>
+
+                    {/* Warna Sidebar & Header */}
+                    <Card>
+                        <div className="mb-5 flex flex-wrap items-end justify-between gap-2">
+                            <div>
+                                <h3 className="text-sm font-black uppercase tracking-widest text-muted">
+                                    Warna Sidebar & Header
+                                </h3>
+                                <p className="mt-1 text-xs font-medium text-muted">
+                                    Pilih warna latar untuk menu samping (sidebar) dan bilah judul halaman.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <code className="rounded-lg border border-stroke bg-page px-3 py-1.5 text-xs font-bold text-main">
+                                    {data.sidebar_color}
+                                </code>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSidebarColorChange(DEFAULT_SIDEBAR_COLOR)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-stroke bg-page px-3 py-1.5 text-xs font-bold text-muted transition-colors hover:border-primary hover:text-primary active:scale-95"
+                                    title="Reset ke warna default (#0F172A)"
+                                >
+                                    <IconRefresh size={14} />
+                                    Reset ke Default
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap items-start gap-4">
+                            {sidebarColors.map((colorOption) => {
+                                const isActive = data.sidebar_color === colorOption.color;
+
+                                return (
+                                    <button
+                                        key={colorOption.name}
+                                        type="button"
+                                        onClick={() => handleSidebarColorChange(colorOption.color)}
+                                        className="group flex min-w-16 flex-col items-center gap-2 rounded-xl px-2 py-2 text-center outline-none transition-transform duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
+                                        aria-pressed={isActive}
+                                    >
+                                        <div
+                                            className="flex size-12 items-center justify-center rounded-full border-4 border-card shadow-md transition-transform duration-150 group-hover:scale-105"
+                                            style={{
+                                                backgroundColor: colorOption.color,
+                                                boxShadow: isActive
+                                                    ? `0 0 0 3px ${colorOption.color}, 0 4px 10px rgba(15, 23, 42, 0.16)`
+                                                    : undefined,
+                                            }}
+                                        >
+                                            {isActive && (
+                                                <IconCheck
+                                                    size={20}
+                                                    stroke={3}
+                                                    className="text-white drop-shadow-md"
+                                                />
+                                            )}
+                                        </div>
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-muted">
+                                            {colorOption.name}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+
+                            <label className="group relative flex min-w-28 cursor-pointer flex-col items-center gap-2 rounded-xl px-2 py-2 text-center outline-none transition-transform duration-150 hover:-translate-y-0.5 focus-within:ring-2 focus-within:ring-primary/30 active:scale-95">
+                                <input
+                                    type="color"
+                                    value={data.sidebar_color}
+                                    onChange={(event) => handleSidebarColorChange(event.target.value.toUpperCase())}
+                                    className="absolute inset-0 cursor-pointer opacity-0"
+                                    aria-label="Pilih warna sidebar khusus"
+                                />
+                                <span
+                                    className="flex size-12 items-center justify-center rounded-full border-4 border-card text-lg font-black text-white shadow-md transition-transform duration-150 group-hover:scale-105"
+                                    style={{
+                                        backgroundColor: data.sidebar_color,
+                                        boxShadow: isCustomSidebar
+                                            ? `0 0 0 3px ${data.sidebar_color}, 0 4px 10px rgba(15, 23, 42, 0.16)`
+                                            : undefined,
+                                    }}
+                                >
+                                    {isCustomSidebar ? (
+                                        <IconCheck size={20} stroke={3} />
+                                    ) : "+"}
+                                </span>
+                                <span className="text-[10px] font-black uppercase tracking-wider text-muted">
+                                    Pilih Warna Lain
+                                </span>
+                            </label>
+                        </div>
+                        {errors.sidebar_color ? (
+                            <p className="mt-3 text-sm font-medium text-red-500">{errors.sidebar_color}</p>
                         ) : null}
                     </Card>
 

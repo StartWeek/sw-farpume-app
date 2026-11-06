@@ -17,14 +17,22 @@ class KasController extends Controller
 
     public function index(): Response
     {
+        $operationalDate = $this->business->operationalDate();
+
         return Inertia::render('admin/business/KasPage', [
             'rows' => KasMutasi::query()
                 ->where('sumber_transaksi', 'MANUAL')
-                ->whereDate('tanggal', $this->business->operationalDate())
+                ->whereDate('tanggal', $operationalDate)
                 ->latest('id')
                 ->paginate($this->perPage())
                 ->withQueryString(),
-            'operationalDate' => $this->business->operationalDate()->toDateString(),
+            'operationalDate' => $operationalDate->toDateString(),
+            'summary' => [
+                'saldo_saat_ini' => (float) (KasMutasi::query()->latest('id')->value('saldo_akhir') ?? 0),
+                'kas_masuk_hari_ini' => (float) KasMutasi::query()->whereDate('tanggal', $operationalDate)->sum('kas_masuk'),
+                'kas_keluar_hari_ini' => (float) KasMutasi::query()->whereDate('tanggal', $operationalDate)->sum('kas_keluar'),
+                'total_transaksi' => KasMutasi::query()->whereDate('tanggal', $operationalDate)->count(),
+            ],
         ]);
     }
 
@@ -58,6 +66,7 @@ class KasController extends Controller
     private function perPage(): int
     {
         $perPage = (int) request('per_page', 10);
+
         return in_array($perPage, [10, 25, 50, 100], true) ? $perPage : 10;
     }
 }

@@ -12,7 +12,10 @@ const Users = () => {
     return (
         <ProtectedLayout title={"Data Users"}>
             <div className="space-y-5">
-                <PageHeader title="Data Users" />
+                <PageHeader
+                    title="Data Users"
+                    subtitle="Kelola akun pengguna, peran akses, dan otorisasi sistem."
+                />
                 <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium" style={{ backgroundColor: "var(--color-card)" }}>
                     <TableUsers users={users} filters={filters} />
                 </div>

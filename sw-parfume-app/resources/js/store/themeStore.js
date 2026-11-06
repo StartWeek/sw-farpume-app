@@ -58,10 +58,22 @@ function applyPrimaryColor(color) {
     });
 }
 
+function normalizeSidebarColor(color) {
+    const value = String(color || "").trim();
+    if (/^#[0-9a-f]{6}$/i.test(value)) return value.toUpperCase();
+    return "#0F172A";
+}
+
+function applySidebarColor(color) {
+    const normalizedColor = normalizeSidebarColor(color);
+    document.documentElement.style.setProperty("--color-sidebar", normalizedColor);
+}
+
 export const useThemeStore = create(
     persist(
         (set) => ({
             primaryColor: legacyPrimaryColors.blue,
+            sidebarColor: "#0F172A",
             lightTheme: "slate",
             darkTheme: "navy",
             isDarkMode: false,
@@ -70,6 +82,12 @@ export const useThemeStore = create(
                 const primaryColor = normalizePrimaryColor(color);
                 set({ primaryColor });
                 applyPrimaryColor(primaryColor);
+            },
+
+            setSidebarColor: (color) => {
+                const sidebarColor = normalizeSidebarColor(color);
+                set({ sidebarColor });
+                applySidebarColor(sidebarColor);
             },
 
             setLightTheme: (theme) => {
@@ -102,6 +120,7 @@ export const useThemeStore = create(
                 const state = settings
                     ? {
                           primaryColor: normalizePrimaryColor(settings.primary_color),
+                          sidebarColor: normalizeSidebarColor(settings.sidebar_color),
                           lightTheme: settings.light_theme || "slate",
                           darkTheme: settings.dark_theme || "navy",
                           isDarkMode: Boolean(settings.is_dark_mode),
@@ -113,6 +132,7 @@ export const useThemeStore = create(
                 }
 
                 applyPrimaryColor(state.primaryColor);
+                applySidebarColor(state.sidebarColor);
                 document.documentElement.setAttribute(
                     "data-theme-light",
                     state.lightTheme,

@@ -33,32 +33,28 @@ export function useFlashMessages() {
     return null;
 }
 
-export function PageHeader({ title, subtitle, actionLabel, onAction }) {
+export function PageHeader({ title, subtitle, actionLabel, onAction, children }) {
     return (
-        <div className="space-y-2.5">
-            <section
-                className="relative flex items-center overflow-hidden rounded-xl border border-white/10 px-4 py-2.5 shadow-premium"
-                style={{ backgroundColor: "var(--color-sidebar, #0f172a)" }}
-            >
-                {/* Amber accent bar on left */}
-                <span className="absolute left-0 top-0 h-full w-1 rounded-l-xl bg-amber-400/90" />
-
-                {/* Decorative background glow */}
-                <span className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-amber-400/10 blur-2xl" />
-
-                <div className="flex flex-1 items-center justify-between gap-3 pl-1">
-                    <h1 className="text-sm font-bold tracking-tight text-white">{title}</h1>
-                    {actionLabel ? (
-                        <Button icon={IconPlus} size="sm" onClick={onAction}
-                            className="shrink-0 border border-amber-300/40 bg-amber-400/15 text-amber-100 hover:bg-amber-400/25">
-                            {actionLabel}
-                        </Button>
-                    ) : null}
-                </div>
-            </section>
-            {subtitle ? (
-                <p className="px-1 text-xs font-medium leading-relaxed text-muted">{subtitle}</p>
-            ) : null}
+        <div
+            className="flex flex-col gap-2 rounded-2xl border border-white/10 px-5 py-3.5 shadow-premium sm:flex-row sm:items-center sm:justify-between"
+            style={{ backgroundColor: "var(--color-sidebar, #0f172a)" }}
+        >
+            <div>
+                <h1 className="text-base font-extrabold tracking-tight text-white sm:text-lg">{title}</h1>
+                {subtitle ? (
+                    <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>
+                ) : null}
+            </div>
+            {children || (actionLabel && onAction ? (
+                <button
+                    type="button"
+                    onClick={onAction}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white transition hover:opacity-90"
+                >
+                    <IconPlus size={16} />
+                    {actionLabel}
+                </button>
+            ) : null)}
         </div>
     );
 }

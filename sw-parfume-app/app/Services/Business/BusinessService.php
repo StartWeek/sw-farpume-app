@@ -14,6 +14,7 @@ use App\Models\Business\KasMutasi;
 use App\Models\Business\MutasiStok;
 use App\Models\Business\Pembelian;
 use App\Models\Business\Penjualan;
+use App\Models\Business\PenjualanDetail;
 use App\Models\Business\Piutang;
 use App\Models\Business\PiutangSupplier;
 use App\Models\Business\SaldoBarang;
@@ -125,7 +126,9 @@ class BusinessService
 
     public function replaceStock(int $gudangId, int $barangId, float $qtyMl, array $meta, ?int $idBotol = null): StokGudang
     {
-        if (DB::transactionLevel() === 0) return DB::transaction(fn () => $this->replaceStock($gudangId, $barangId, $qtyMl, $meta, $idBotol));
+        if (DB::transactionLevel() === 0) {
+            return DB::transaction(fn () => $this->replaceStock($gudangId, $barangId, $qtyMl, $meta, $idBotol));
+        }
 
         $barang = BarangBibit::query()->with('botol')->findOrFail($barangId);
         $stock = StokGudang::query()->lockForUpdate()->firstOrCreate(
@@ -289,7 +292,11 @@ class BusinessService
 
     public function adjustBotolKosongStock(array $payload): void
     {
-        if (DB::transactionLevel() === 0) { DB::transaction(fn () => $this->adjustBotolKosongStock($payload)); return; }
+        if (DB::transactionLevel() === 0) {
+            DB::transaction(fn () => $this->adjustBotolKosongStock($payload));
+
+            return;
+        }
 
         $multiplier = ($payload['tipe_mutasi'] ?? 'MASUK') === 'KELUAR' ? -1 : 1;
         $qty = (float) $payload['jumlah_botol'] * $multiplier;
@@ -603,7 +610,7 @@ class BusinessService
                 $direction * (float) $detail['konversi_qty_dasar'],
                 [
                     'sumber_transaksi' => $source,
-                            'id_supplier' => $payload['id_supplier'] ?? null,
+                    'id_supplier' => $payload['id_supplier'] ?? null,
                     'no_transaksi' => $number,
                     'keterangan' => $source === 'PEMBELIAN' ? 'Pembelian supplier' : 'POS penjualan',
                     'created_by' => $payload['created_by'] ?? auth()->user()?->name,
@@ -1020,6 +1027,92 @@ class BusinessService
             }
         }
 
+        // 7 Days Trend
+        $sevenDaysAgo = $today->copy()->subDays(6);
+        $sales7d = Penjualan::query()
+            ->whereDate('tanggal', '>=', $sevenDaysAgo->toDateString())
+            ->whereDate('tanggal', '<=', $today->toDateString())
+            ->get()
+            ->groupBy(fn ($s) => $s->tanggal->toDateString());
+
+        $salesTrend7d = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $date = $today->copy()->subDays($i);
+            $dateStr = $date->toDateString();
+            $records = $sales7d->get($dateStr, collect());
+            $salesTrend7d[] = [
+                'date' => $dateStr,
+                'label' => $date->format('d M'),
+                'day' => $date->translatedFormat('D'),
+                'omzet' => (float) $records->sum('total_penjualan'),
+                'laba' => (float) $records->sum('laba_kotor'),
+                'transaksi' => $records->count(),
+            ];
+        }
+
+        // 30 Days Trend
+        $thirtyDaysAgo = $today->copy()->subDays(29);
+        $sales30d = Penjualan::query()
+            ->whereDate('tanggal', '>=', $thirtyDaysAgo->toDateString())
+            ->whereDate('tanggal', '<=', $today->toDateString())
+            ->get()
+            ->groupBy(fn ($s) => $s->tanggal->toDateString());
+
+        $salesTrend30d = [];
+        for ($i = 29; $i >= 0; $i--) {
+            $date = $today->copy()->subDays($i);
+            $dateStr = $date->toDateString();
+            $records = $sales30d->get($dateStr, collect());
+            $salesTrend30d[] = [
+                'date' => $dateStr,
+                'label' => $date->format('d/m'),
+                'day' => $date->translatedFormat('D'),
+                'omzet' => (float) $records->sum('total_penjualan'),
+                'laba' => (float) $records->sum('laba_kotor'),
+                'transaksi' => $records->count(),
+            ];
+        }
+
+        // Top 5 Best Selling Items by 3 Criteria (Omzet, Volume ML, Frekuensi Transaksi)
+        $baseTopProducts = PenjualanDetail::query()
+            ->selectRaw('nama_item, SUM(qty_ml) as total_ml, SUM(subtotal_jual) as total_omzet, COUNT(*) as total_transaksi')
+            ->groupBy('nama_item');
+
+        $formatTopProducts = fn ($query) => $query->get()->map(fn ($p) => [
+            'name' => $p->nama_item,
+            'total_ml' => (float) $p->total_ml,
+            'total_omzet' => (float) $p->total_omzet,
+            'total_transaksi' => (int) $p->total_transaksi,
+        ]);
+
+        $topProducts = [
+            'omzet' => $formatTopProducts((clone $baseTopProducts)->orderByDesc('total_omzet')->limit(5)),
+            'volume' => $formatTopProducts((clone $baseTopProducts)->orderByDesc('total_ml')->limit(5)),
+            'frekuensi' => $formatTopProducts((clone $baseTopProducts)->orderByDesc('total_transaksi')->limit(5)),
+        ];
+
+        // Payment Methods Composition (this month)
+        $paymentMethods = Penjualan::query()
+            ->where('tanggal', 'like', "{$month}%")
+            ->selectRaw('metode_pembayaran, SUM(total_penjualan) as total, COUNT(*) as count')
+            ->groupBy('metode_pembayaran')
+            ->get()
+            ->map(fn ($pm) => [
+                'method' => $pm->metode_pembayaran ?: 'CASH',
+                'total' => (float) $pm->total,
+                'count' => (int) $pm->count,
+            ]);
+
+        // Monthly Totals
+        $monthlySales = (float) Penjualan::query()->where('tanggal', 'like', "{$month}%")->sum('total_penjualan');
+        $monthlyBuys = (float) Pembelian::query()->where('tanggal', 'like', "{$month}%")->sum('total_pembelian');
+        $monthlyProfit = (float) Penjualan::query()->where('tanggal', 'like', "{$month}%")->sum('laba_kotor');
+
+        // Cash flow summary
+        $latestSaldoKas = (float) (KasMutasi::query()->latest('id')->value('saldo_akhir') ?? 0);
+        $kasMasukHariIni = (float) KasMutasi::query()->whereDate('tanggal', $today)->sum('kas_masuk');
+        $kasKeluarHariIni = (float) KasMutasi::query()->whereDate('tanggal', $today)->sum('kas_keluar');
+
         return [
             'omzet_hari_ini' => $salesToday->sum('total_penjualan'),
             'pembelian_hari_ini' => $buysToday->sum('total_pembelian'),
@@ -1027,10 +1120,19 @@ class BusinessService
             'stok_menipis' => $lowStocks,
             'total_piutang' => Piutang::query()->sum('sisa_piutang'),
             'total_hutang' => Hutang::query()->sum('sisa_hutang'),
+            'saldo_kas' => $latestSaldoKas,
+            'kas_masuk_hari_ini' => $kasMasukHariIni,
+            'kas_keluar_hari_ini' => $kasKeluarHariIni,
             'due_soon' => $dueSoon->sortBy('due_date')->values(),
             'laba_kotor_hari_ini' => $salesToday->sum('laba_kotor'),
-            'laba_kotor_bulan_ini' => Penjualan::query()->where('tanggal', 'like', "{$month}%")->sum('laba_kotor'),
+            'laba_kotor_bulan_ini' => $monthlyProfit,
+            'omzet_bulan_ini' => $monthlySales,
+            'pembelian_bulan_ini' => $monthlyBuys,
             'inventory_per_gudang' => $stocks->groupBy(fn ($stock) => $stock->gudang?->nama_gudang ?? 'Tidak diketahui')->map(fn ($rows, $name) => ['name' => $name, 'stok_ml' => $rows->sum('stok_ml')])->values(),
+            'sales_trend_7d' => $salesTrend7d,
+            'sales_trend_30d' => $salesTrend30d,
+            'top_products' => $topProducts,
+            'payment_methods' => $paymentMethods,
         ];
     }
 

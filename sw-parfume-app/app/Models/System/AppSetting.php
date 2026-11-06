@@ -13,6 +13,7 @@ class AppSetting extends Model
         'login_logo_path',
         'app_name',
         'primary_color',
+        'sidebar_color',
         'light_theme',
         'dark_theme',
         'is_dark_mode',

@@ -292,7 +292,10 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
                     </Modal>
                 )}
 
-                <PageHeader title={title} subtitle={isBotolKosong ? "Stok awal dan perubahan stok dicatat melalui Mutasi Stok, lalu menunggu validasi." : undefined} />
+                <PageHeader
+                    title={title}
+                    subtitle={isBotolKosong ? "Stok awal dan perubahan stok dicatat melalui Mutasi Stok." : `Kelola data master ${title.toLowerCase()} untuk operasional toko.`}
+                />
 
                 {/* Table Card */}
                 <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium"
@@ -344,9 +347,8 @@ export default function MasterPage({ resource, title, rows = [], fields = [], re
                                     filteredRows.map((row, i) => (
                                         <tr
                                             key={row.id || i}
-                                            className={`transition-colors hover:bg-page/60 ${
-                                                i % 2 === 1 ? "bg-page/30" : ""
-                                            }`}
+                                            className={`transition-colors hover:bg-page/60 ${i % 2 === 1 ? "bg-page/30" : ""
+                                                }`}
                                         >
                                             {columns.map((c, j) => (
                                                 <td

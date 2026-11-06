@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\System;
 
 use App\Http\Controllers\Controller;
+use App\Services\Business\BusinessService;
 use App\Services\SettingsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,6 +28,7 @@ class SettingsController extends Controller
             'login_logo_path' => ['nullable', 'string', 'max:255'],
             'app_name' => ['required', 'string', 'max:100'],
             'primary_color' => ['required', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'sidebar_color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'light_theme' => ['required', 'string', 'in:slate,gray,neutral'],
             'dark_theme' => ['required', 'string', 'in:navy,mirage,mint,black,cinder'],
             'is_dark_mode' => ['boolean'],
@@ -34,6 +36,9 @@ class SettingsController extends Controller
 
         $validated['app_name'] = mb_strtoupper($validated['app_name']);
         $validated['primary_color'] = mb_strtoupper($validated['primary_color']);
+        if (! empty($validated['sidebar_color'])) {
+            $validated['sidebar_color'] = mb_strtoupper($validated['sidebar_color']);
+        }
 
         $this->settings->updateSystem($validated);
 
@@ -86,7 +91,7 @@ class SettingsController extends Controller
 
     private function notaPreviews(array $settings): array
     {
-        $date = app(\App\Services\Business\BusinessService::class)->operationalDate();
+        $date = app(BusinessService::class)->operationalDate();
         $previews = [];
         foreach ([
             ['sale', 'penjualan-retail', 'Penjualan Retail', true, false],
@@ -124,6 +129,7 @@ class SettingsController extends Controller
         return [
             'required' => 'Kolom ini wajib diisi.',
             'primary_color.regex' => 'Warna utama harus menggunakan format HEX, contoh #3B82F6.',
+            'sidebar_color.regex' => 'Warna sidebar harus menggunakan format HEX, contoh #0F172A.',
         ];
     }
 }

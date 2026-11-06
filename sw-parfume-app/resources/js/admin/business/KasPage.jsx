@@ -17,13 +17,22 @@ import {
     todayDate,
     useFlashMessages,
 } from "./_components";
-import { IconPlus } from "@tabler/icons-react";
+import {
+    IconArrowDownLeft,
+    IconArrowUpRight,
+    IconPlus,
+    IconWallet,
+} from "@tabler/icons-react";
 import useTransactionSubmissionOptions from "./useTransactionSubmissionOptions";
 
-export default function KasPage({ rows, operationalDate = todayDate() }) {
+export default function KasPage({ rows, operationalDate = todayDate(), summary = {} }) {
     useFlashMessages();
     const submissionOptions = useTransactionSubmissionOptions();
     const [isModalOpen, setIsModalOpen] = useState(false);
+
+    const saldo = Number(summary?.saldo_saat_ini ?? 0);
+    const kasMasuk = Number(summary?.kas_masuk_hari_ini ?? 0);
+    const kasKeluar = Number(summary?.kas_keluar_hari_ini ?? 0);
 
     const { data, setData, post, processing, errors, reset, clearErrors } = useForm({
         tanggal: operationalDate,
@@ -70,14 +79,83 @@ export default function KasPage({ rows, operationalDate = todayDate() }) {
 
     return (
         <ProtectedLayout title="Uang Kas">
-            <div className="space-y-5">
-                <PageHeader title="Uang Kas" />
+            <div className="space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                    <PageHeader
+                        title="Uang Kas"
+                        subtitle="Pencatatan arus kas operasional toko, pemasukan kasir, dan pengeluaran manual."
+                    />
+                    <button
+                        type="button"
+                        onClick={openModal}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90"
+                    >
+                        <IconPlus size={18} />
+                        Tambah Transaksi Kas
+                    </button>
+                </div>
+
+                {/* 3 Summary Cards */}
+                <div className="grid gap-4 sm:grid-cols-3">
+                    <Card className="flex items-center gap-4">
+                        <span className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${saldo < 0 ? "bg-rose-500/10 text-rose-500" : "bg-blue-500/10 text-blue-600 dark:text-blue-400"}`}>
+                            <IconWallet size={24} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                                Saldo Kas Saat Ini
+                            </span>
+                            <div className={`text-xl font-extrabold truncate ${saldo < 0 ? "text-rose-600 dark:text-rose-400" : "text-main"}`}>
+                                {money(saldo)}
+                            </div>
+                            <span className="text-xs text-muted">
+                                {saldo < 0 ? "Saldo kas defisit" : "Posisi kas aktif"}
+                            </span>
+                        </div>
+                    </Card>
+
+                    <Card className="flex items-center gap-4">
+                        <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                            <IconArrowDownLeft size={24} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                                Kas Masuk Hari Ini
+                            </span>
+                            <div className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 truncate">
+                                {money(kasMasuk)}
+                            </div>
+                            <span className="text-xs text-muted">
+                                Total arus kas masuk
+                            </span>
+                        </div>
+                    </Card>
+
+                    <Card className="flex items-center gap-4">
+                        <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                            <IconArrowUpRight size={24} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                                Kas Keluar Hari Ini
+                            </span>
+                            <div className="text-xl font-extrabold text-rose-600 dark:text-rose-400 truncate">
+                                {money(kasKeluar)}
+                            </div>
+                            <span className="text-xs text-muted">
+                                Total arus kas keluar
+                            </span>
+                        </div>
+                    </Card>
+                </div>
+
+                {/* Table Card */}
                 <div className="overflow-hidden rounded-2xl border border-stroke shadow-premium" style={{ backgroundColor: "var(--color-card)" }}>
-                    <div className="flex items-center justify-end px-5 py-3 border-b border-stroke">
-                        <button type="button" onClick={openModal} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white transition hover:opacity-90">
-                            <IconPlus size={16} />
-                            Tambah Transaksi
-                        </button>
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-stroke">
+                        <div>
+                            <h3 className="text-sm font-bold text-main">Riwayat Mutasi Kas Manual</h3>
+                            <p className="text-xs text-muted">Daftar transaksi kas manual tanggal {operationalDate}</p>
+                        </div>
                     </div>
                     <SimpleTable columns={columns} rows={rows} />
                 </div>

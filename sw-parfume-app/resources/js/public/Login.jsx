@@ -1,138 +1,306 @@
-import { Head, useForm, usePage } from "@inertiajs/react";
-import { useEffect, useState } from "react";
-import { IconArrowRight, IconDroplet, IconEye, IconEyeOff } from "@tabler/icons-react";
-import Button from "@/components/common/Button";
-import { useThemeStore } from "@/store/themeStore";
-import releaseVersion from "../../../version.json";
-import "./Login.css";
+import { Head, usePage } from '@inertiajs/react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import {
+    IconArrowRight,
+    IconEye,
+    IconEyeOff,
+} from '@tabler/icons-react';
+import { useThemeStore } from '@/store/themeStore';
+import ParticleCanvas from './ParticleCanvas';
+import releaseVersion from '../../../version.json';
+import './Login.css';
+
+/** Determine readable text color (black or white) for a given hex background. */
+function primaryTextColor(color) {
+    const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : '#2563EB';
+    const rgb = hex.slice(1).match(/.{2}/g).map((c) => {
+        const v = parseInt(c, 16) / 255;
+        return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 0.179
+        ? '#000000'
+        : '#ffffff';
+}
 
 export default function Login() {
-    const [showPassword, setShowPassword] = useState(false);
     const { appSettings, appVersion } = usePage().props;
-    const primaryColor = useThemeStore((state) => state.primaryColor);
-    const buttonTextColor = primaryTextColor(primaryColor);
-    const appName = appSettings?.app_name || "Manajemen Parfum";
-    const loginLogoSrc = appSettings?.login_logo_path || appSettings?.logo_path || "/favicon.svg?v=studio-blue-1";
+    const primaryColor = useThemeStore((s) => s.primaryColor);
+    const btnTextColor = primaryTextColor(primaryColor);
+    const appName = appSettings?.app_name || 'ERP Parfum';
+    const logoSrc = appSettings?.login_logo_path || appSettings?.logo_path || '/favicon.svg?v=studio-blue-1';
 
     useEffect(() => {
         if (appSettings) useThemeStore.getState().init(appSettings);
     }, [appSettings]);
 
-    const { data, setData, post, processing, errors } = useForm({
-        login: "",
-        password: "",
+    // ── Form State ────────────────────────────────────────────
+    const [data, setData] = useState({
+        login: '',
+        password: '',
         remember: false,
     });
+    const [processing, setProcessing] = useState(false);
+    const [formErrors, setFormErrors] = useState({});
+    const [throttleMsg, setThrottleMsg] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
 
-    const handleSubmit = (event) => {
-        event.preventDefault();
-        if (processing) return;
-        post("/login", { onFinish: () => setData("password", "") });
+    // ── Particle Aerosol Mist State ───────────────────────────
+    const [sprayActive, setSprayActive] = useState(false);
+    const [sprayType, setSprayType] = useState('green'); // 'green' | 'red'
+    const [sprayOrigin, setSprayOrigin] = useState({ x: 0, y: 0 });
+    const tipRef = useRef(null);
+
+    const triggerSpray = (type) => {
+        if (tipRef.current) {
+            const rect = tipRef.current.getBoundingClientRect();
+            setSprayOrigin({
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            });
+        } else {
+            setSprayOrigin({
+                x: window.innerWidth / 2 + 50,
+                y: 200,
+            });
+        }
+        setSprayType(type);
+        setSprayActive(true);
+        setTimeout(() => {
+            setSprayActive(false);
+        }, 1800);
     };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (processing) return;
+        setProcessing(true);
+        setThrottleMsg('');
+        setFormErrors({});
+
+        try {
+            // Get XSRF token from cookie if present
+            const xsrfToken = document.cookie
+                .split('; ')
+                .find((row) => row.startsWith('XSRF-TOKEN='))
+                ?.split('=')[1];
+
+            const response = await fetch('/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    ...(xsrfToken ? { 'X-XSRF-TOKEN': decodeURIComponent(xsrfToken) } : {}),
+                },
+                body: JSON.stringify({
+                    login: data.login,
+                    password: data.password,
+                    remember: data.remember,
+                }),
+                credentials: 'same-origin',
+            });
+
+            if (response.ok || response.redirected) {
+                // SEMPROTAN HIJAU: Login Berhasil!
+                triggerSpray('green');
+
+                // Beri jeda 1.2 detik agar user dapat melihat semprotan kabut hijau sebelum pindah halaman
+                setTimeout(() => {
+                    window.location.href = '/admin/dashboard';
+                }, 1200);
+            } else if (response.status === 429) {
+                // SEMPROTAN MERAH: Rate Limited
+                triggerSpray('red');
+                setThrottleMsg('Terlalu banyak percobaan. Harap tunggu 1 menit.');
+                setProcessing(false);
+            } else {
+                // SEMPROTAN MERAH: Login Gagal
+                triggerSpray('red');
+                const resJson = await response.json().catch(() => ({}));
+                const errMsg =
+                    resJson?.errors?.login?.[0] ||
+                    resJson?.message ||
+                    'Username atau password yang Anda masukkan salah.';
+                setFormErrors({ login: errMsg });
+                setProcessing(false);
+            }
+        } catch (err) {
+            triggerSpray('red');
+            setFormErrors({ login: 'Terjadi gangguan koneksi. Silakan coba lagi.' });
+            setProcessing(false);
+        }
+    };
+
+    const displayError = throttleMsg || formErrors.login;
 
     return (
         <>
             <Head title="Masuk">
-                <meta name="theme-color" content={primaryColor} />
+                <meta name="theme-color" content="#0f172a" />
                 <meta name="application-name" content={appName} />
             </Head>
-            <main className="studio-login">
-                <div className="studio-login__art" aria-hidden="true">
-                    <div className="studio-login__ring studio-login__ring--outer" />
-                    <div className="studio-login__ring" />
-                    <div className="studio-login__shadow" />
-                    <div className="studio-login__bottle">
-                        <div className="studio-login__cap" />
-                        <div className="studio-login__neck" />
-                        <div className="studio-login__glass">
-                            <div className="studio-login__liquid" />
-                            <div className="studio-login__label"><IconDroplet size={25} stroke={1.25} /></div>
+
+            <main className="p-bottle-root">
+                {/* Particle Aerosol Mist Spray (Green on Success, Red on Error) */}
+                <ParticleCanvas
+                    active={sprayActive}
+                    type={sprayType}
+                    originX={sprayOrigin.x}
+                    originY={sprayOrigin.y}
+                />
+
+                <div className="p-bottle-stage">
+
+                    {/* ══════ SILUET BOTOL PARFUM SEBAGAI CONTAINER ══════ */}
+                    <div className="p-bottle-container">
+                        
+                        {/* 1. Atomizer Cap / Tutup Botol Parfum */}
+                        <motion.div 
+                            className="p-bottle-cap"
+                            animate={processing || sprayActive ? { y: [0, 5, 2, 5, 0] } : { y: 0 }}
+                            transition={{ duration: 0.5, repeat: processing ? Infinity : 0 }}
+                        >
+                            <div className="p-bottle-spray-tip" ref={tipRef} />
+                            <div className="p-bottle-cap-band" />
+                        </motion.div>
+
+                        {/* 2. Leher Botol (Neck Ring) */}
+                        <div className="p-bottle-neck" />
+
+                        {/* 3. Badan Botol Utama (Card Form Login) */}
+                        <div className="p-bottle-body">
+                            {/* Beveled Shoulder Accents */}
+                            <div className="p-bottle-shoulder-left" />
+                            <div className="p-bottle-shoulder-right" />
+
+                            {/* Brand Header */}
+                            <div className="p-bottle-brand">
+                                <div className="p-bottle-logo">
+                                    <img src={logoSrc} alt={appName} />
+                                </div>
+                                <h1 className="p-bottle-title">{appName}</h1>
+                                <p className="p-bottle-subtitle">Sistem Manajemen & Operasional</p>
+                            </div>
+
+                            {/* Error Alert */}
+                            <AnimatePresence>
+                                {displayError && (
+                                    <motion.div
+                                        role="alert"
+                                        className="p-bottle-error"
+                                        initial={{ opacity: 0, y: -6 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -6 }}
+                                        transition={{ duration: 0.15 }}
+                                    >
+                                        <span>{displayError}</span>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+
+                            <form onSubmit={handleSubmit} className="p-bottle-form" noValidate>
+                                {/* Username Field */}
+                                <div className="p-bottle-field">
+                                    <label htmlFor="login" className="p-bottle-label">
+                                        Username
+                                    </label>
+                                    <input
+                                        id="login"
+                                        type="text"
+                                        name="login"
+                                        value={data.login}
+                                        onChange={(e) => setData((prev) => ({ ...prev, login: e.target.value }))}
+                                        placeholder="Masukkan username"
+                                        autoComplete="username"
+                                        autoCapitalize="none"
+                                        spellCheck={false}
+                                        disabled={processing}
+                                        required
+                                        autoFocus
+                                        className={`p-bottle-input${displayError ? ' p-bottle-input--error' : ''}`}
+                                    />
+                                </div>
+
+                                {/* Password Field */}
+                                <div className="p-bottle-field">
+                                    <label htmlFor="password" className="p-bottle-label">
+                                        Password
+                                    </label>
+                                    <div className="p-bottle-pw-wrap">
+                                        <input
+                                            id="password"
+                                            type={showPassword ? 'text' : 'password'}
+                                            name="password"
+                                            value={data.password}
+                                            onChange={(e) => setData((prev) => ({ ...prev, password: e.target.value }))}
+                                            placeholder="Masukkan password"
+                                            autoComplete="current-password"
+                                            disabled={processing}
+                                            required
+                                            className={`p-bottle-input${displayError ? ' p-bottle-input--error' : ''}`}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword((v) => !v)}
+                                            disabled={processing}
+                                            aria-label={showPassword ? 'Sembunyikan password' : 'Lihat password'}
+                                            className="p-bottle-eye"
+                                        >
+                                            {showPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Remember Me */}
+                                <label className="p-bottle-remember">
+                                    <input
+                                        type="checkbox"
+                                        checked={data.remember}
+                                        onChange={(e) => setData((prev) => ({ ...prev, remember: e.target.checked }))}
+                                        disabled={processing}
+                                        className="p-bottle-checkbox"
+                                    />
+                                    <span>Ingat saya</span>
+                                </label>
+
+                                {/* Submit Button */}
+                                <button
+                                    type="submit"
+                                    disabled={processing}
+                                    className="p-bottle-submit"
+                                    style={{
+                                        backgroundColor: processing ? '#475569' : primaryColor,
+                                        color: btnTextColor,
+                                    }}
+                                >
+                                    {processing ? (
+                                        <span className="p-bottle-btn-inner">
+                                            <span className="p-bottle-spinner" />
+                                            Memverifikasi...
+                                        </span>
+                                    ) : (
+                                        <span className="p-bottle-btn-inner">
+                                            Masuk
+                                            <IconArrowRight size={18} />
+                                        </span>
+                                    )}
+                                </button>
+                            </form>
+
+                            {/* Solid Crystal Bottom Base Rim */}
+                            <div className="p-bottle-base-rim" />
                         </div>
+                    </div>
+
+                    {/* Version */}
+                    <div className="p-bottle-footer">
+                        <span>v{releaseVersion.frontend}</span>
+                        <span>&bull;</span>
+                        <span>Backend v{appVersion?.backend || '—'}</span>
                     </div>
                 </div>
-
-                <section className="studio-login__panel" aria-labelledby="login-heading">
-                    <div className="studio-login__form">
-                        <div className="studio-login__mark">
-                            <img src={loginLogoSrc} alt="" />
-                        </div>
-                        <h1 id="login-heading">Masuk ke akun</h1>
-                        <p className="studio-login__intro">Silakan gunakan akun yang telah terdaftar.</p>
-
-                        <form onSubmit={handleSubmit} className="space-y-5" aria-busy={processing}>
-                            <LoginField
-                                id="login-username"
-                                name="login"
-                                label="Username"
-                                type="text"
-                                value={data.login}
-                                onChange={(event) => setData("login", event.target.value)}
-                                error={errors.login}
-                                autoComplete="username"
-                                autoCapitalize="none"
-                                spellCheck={false}
-                                disabled={processing}
-                            />
-                            <LoginField
-                                id="login-password"
-                                name="password"
-                                label="Password"
-                                type={showPassword ? "text" : "password"}
-                                value={data.password}
-                                onChange={(event) => setData("password", event.target.value)}
-                                error={errors.password}
-                                autoComplete="current-password"
-                                rightIcon={showPassword ? IconEyeOff : IconEye}
-                                rightIconLabel={showPassword ? "Sembunyikan password" : "Tampilkan password"}
-                                rightIconPressed={showPassword}
-                                onRightIconClick={() => setShowPassword((value) => !value)}
-                                disabled={processing}
-                            />
-                            <label className="flex min-h-10 w-fit cursor-pointer items-center gap-2.5 text-sm text-muted">
-                                <input type="checkbox" name="remember" checked={data.remember} disabled={processing} onChange={(event) => setData("remember", event.target.checked)} className="size-4 rounded border-stroke accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" />
-                                Ingat saya
-                            </label>
-                            <Button type="submit" loading={processing} fullWidth icon={IconArrowRight} iconPosition="right" className="studio-login__submit" style={{ color: buttonTextColor, "--studio-button-shade": buttonTextColor === "#000000" ? "#ffffff" : "#000000" }}>
-                                Masuk
-                            </Button>
-                        </form>
-                        {/* <p className="studio-login__help">Butuh akses? Hubungi administrator.</p> */}
-                        <p className="studio-login__version">
-                            Backend v{appVersion?.backend || "—"} · Frontend v{releaseVersion.frontend}
-                        </p>
-                    </div>
-                </section>
             </main>
         </>
-    );
-}
-
-function primaryTextColor(color) {
-    const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : "#2563EB";
-    const rgb = hex.slice(1).match(/.{2}/g).map((channel) => {
-        const value = parseInt(channel, 16) / 255;
-        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-    });
-    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 0.179 ? "#000000" : "#ffffff";
-}
-
-function LoginField({ id, label, rightIcon: RightIcon, rightIconLabel, rightIconPressed, onRightIconClick, error, ...props }) {
-    return (
-        <div>
-            <label htmlFor={id} className="mb-2 block text-[13px] font-medium text-main">{label}</label>
-            <div className="group relative">
-                <input
-                    {...props}
-                    id={id}
-                    required
-                    aria-invalid={!!error}
-                    aria-describedby={error ? `${id}-error` : undefined}
-                    placeholder={label === "Username" ? "Masukkan username" : "Masukkan password"}
-                    className={`studio-login__input w-full rounded-[9px] border bg-card pl-3.5 text-main outline-none transition-[border-color,box-shadow] placeholder:font-normal placeholder:text-muted focus:ring-4 ${RightIcon ? "pr-12" : "pr-3.5"} ${error ? "border-red-500 focus:border-red-500 focus:ring-red-500/15" : "border-stroke focus:border-primary focus:ring-primary/15"}`}
-                />
-                {RightIcon && <button type="button" onClick={onRightIconClick} disabled={props.disabled} aria-label={rightIconLabel} aria-pressed={rightIconPressed} aria-controls={id} className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-muted transition-colors hover:bg-card hover:text-main focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"><RightIcon size={18} stroke={1.8} aria-hidden="true" /></button>}
-            </div>
-            {error ? <p id={`${id}-error`} role="alert" className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{error}</p> : null}
-        </div>
     );
 }

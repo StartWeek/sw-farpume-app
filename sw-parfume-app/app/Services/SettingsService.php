@@ -23,8 +23,10 @@ class SettingsService
             return $settings->toArray();
         });
 
-        foreach (['primary_color', 'light_theme', 'dark_theme'] as $key) {
-            $data[$key] = strtolower($data[$key]);
+        foreach (['primary_color', 'sidebar_color', 'light_theme', 'dark_theme'] as $key) {
+            if (isset($data[$key]) && is_string($data[$key])) {
+                $data[$key] = strtolower($data[$key]);
+            }
         }
 
         return $data;
@@ -52,6 +54,7 @@ class SettingsService
             'login_logo_path' => null,
             'app_name' => 'Paris Parfum Admin',
             'primary_color' => '#2563EB',
+            'sidebar_color' => '#0F172A',
             'light_theme' => 'slate',
             'dark_theme' => 'navy',
             'is_dark_mode' => false,
