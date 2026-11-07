@@ -590,6 +590,31 @@ function PaymentAndWarehouseCards({ paymentMethods = [], warehouseStock = [] }) 
         [warehouseStock],
     );
 
+    // Sort descending and group > 5 into top 4 + "Gudang Lainnya"
+    const displayedWarehouses = useMemo(() => {
+        if (!warehouseStock || warehouseStock.length === 0) return [];
+        const sorted = [...warehouseStock].sort(
+            (a, b) => Number(b.stok_ml || 0) - Number(a.stok_ml || 0),
+        );
+
+        if (sorted.length <= 5) {
+            return sorted;
+        }
+
+        const top4 = sorted.slice(0, 4);
+        const others = sorted.slice(4);
+        const othersStockMl = others.reduce((acc, w) => acc + Number(w.stok_ml || 0), 0);
+
+        return [
+            ...top4,
+            {
+                name: `Gudang Lainnya (${others.length} Gudang)`,
+                stok_ml: othersStockMl,
+                isOther: true,
+            },
+        ];
+    }, [warehouseStock]);
+
     const methodColorMap = {
         CASH: { bg: "bg-emerald-500", text: "text-emerald-500", label: "Tunai (Cash)" },
         TRANSFER: { bg: "bg-blue-500", text: "text-blue-500", label: "Transfer Bank" },
@@ -674,16 +699,21 @@ function PaymentAndWarehouseCards({ paymentMethods = [], warehouseStock = [] }) 
                             <IconBuildingWarehouse size={18} />
                         </span>
                         <div>
-                            <h3 className="text-sm font-bold text-main">Kapasitas Stok per Gudang</h3>
-                            <p className="text-[11px] text-muted">Penyebaran volume cairan bibit parfum</p>
+                            <h3 className="text-sm font-bold text-main">Sebaran Stok per Gudang</h3>
+                            <p className="text-[11px] text-muted">Penyebaran volume fisik cairan bibit parfum</p>
                         </div>
                     </div>
-                    <span className="text-xs font-bold text-main">{number(totalStockMl)} ML</span>
+                    <div className="text-right">
+                        <span className="text-xs font-bold text-main">{number(totalStockMl)} ML</span>
+                        {warehouseStock.length > 0 && (
+                            <div className="text-[10px] text-muted">{warehouseStock.length} Gudang</div>
+                        )}
+                    </div>
                 </div>
 
                 <div className="mt-4 space-y-3.5">
-                    {warehouseStock.length > 0 ? (
-                        warehouseStock.map((w, idx) => {
+                    {displayedWarehouses.length > 0 ? (
+                        displayedWarehouses.map((w, idx) => {
                             const pct = totalStockMl > 0 ? (Number(w.stok_ml || 0) / totalStockMl) * 100 : 0;
                             const barColors = [
                                 "bg-blue-600",
@@ -691,10 +721,14 @@ function PaymentAndWarehouseCards({ paymentMethods = [], warehouseStock = [] }) 
                                 "bg-violet-600",
                                 "bg-cyan-600",
                             ];
+                            const barColor = w.isOther ? "bg-slate-400 dark:bg-slate-600" : barColors[idx % barColors.length];
+
                             return (
                                 <div key={w.name}>
                                     <div className="mb-1 flex items-center justify-between text-xs">
-                                        <span className="font-bold text-main">{w.name}</span>
+                                        <span className={`font-bold ${w.isOther ? "italic text-muted" : "text-main"}`}>
+                                            {w.name}
+                                        </span>
                                         <span className="font-semibold text-main">
                                             {number(w.stok_ml)} ML{" "}
                                             <span className="text-[11px] font-normal text-muted">
@@ -704,9 +738,7 @@ function PaymentAndWarehouseCards({ paymentMethods = [], warehouseStock = [] }) 
                                     </div>
                                     <div className="h-2.5 w-full overflow-hidden rounded-full bg-stroke/60">
                                         <div
-                                            className={`h-full rounded-full ${
-                                                barColors[idx % barColors.length]
-                                            } transition-all duration-500`}
+                                            className={`h-full rounded-full ${barColor} transition-all duration-500`}
                                             style={{ width: `${Math.max(4, pct)}%` }}
                                         />
                                     </div>
