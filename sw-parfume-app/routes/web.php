@@ -1,19 +1,21 @@
 <?php
 
-use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\Business\BarangBibitController;
 use App\Http\Controllers\Admin\Business\DashboardController;
 use App\Http\Controllers\Admin\Business\FinanceController;
 use App\Http\Controllers\Admin\Business\InventoryController;
+use App\Http\Controllers\Admin\Business\KasController;
 use App\Http\Controllers\Admin\Business\MasterController;
 use App\Http\Controllers\Admin\Business\ReportController;
 use App\Http\Controllers\Admin\Business\TransactionController;
 use App\Http\Controllers\Admin\Business\TransactionValidationController;
 use App\Http\Controllers\Admin\Business\UtilityController;
+use App\Http\Controllers\Admin\ProfileController;
 use App\Http\Controllers\Admin\System\SettingsController;
+use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\UploadController;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
 Route::get('/', [AuthenticatedSessionController::class, 'create'])
     ->middleware('guest')
@@ -38,8 +40,14 @@ Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group
     Route::put('/users/{user}/access', [UserController::class, 'updateAccess'])
         ->name('users.access.update');
 
+    Route::put('/profile/password', [ProfileController::class, 'updatePassword'])
+        ->name('admin.profile.password.update');
+    Route::get('/profile', function () {
+        return redirect()->route('dashboard');
+    })->name('admin.profile');
+
     // Upload endpoint (backend validation + audit)
-    Route::post('/upload/image', [\App\Http\Controllers\UploadController::class, 'image'])
+    Route::post('/upload/image', [UploadController::class, 'image'])
         ->middleware(['sql.injection.guard', 'xss.guard', 'throttle:10,1'])
         ->name('upload.image');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
@@ -90,8 +98,8 @@ Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group
     Route::post('/piutang-supplier', [FinanceController::class, 'storePiutangSupplier'])->name('business.piutang-supplier.store');
     Route::post('/piutang-supplier/{piutangSupplier}/bayar', [FinanceController::class, 'payPiutangSupplier'])->name('business.piutang-supplier.pay');
 
-    Route::get('/kas', [\App\Http\Controllers\Admin\Business\KasController::class, 'index'])->name('business.kas.index');
-    Route::post('/kas', [\App\Http\Controllers\Admin\Business\KasController::class, 'store'])->name('business.kas.store');
+    Route::get('/kas', [KasController::class, 'index'])->name('business.kas.index');
+    Route::post('/kas', [KasController::class, 'store'])->name('business.kas.store');
 
     Route::get('/laporan/{type}', [ReportController::class, 'show'])->name('business.report.show');
 
@@ -109,6 +117,5 @@ Route::middleware(['auth', 'store.open', 'menu.access'])->prefix('admin')->group
     Route::put('/setting-system', [SettingsController::class, 'systemUpdate'])->name('admin.setting-system.update');
     Route::get('/setting-nota', [SettingsController::class, 'notaIndex'])->name('admin.setting-nota');
     Route::put('/setting-nota', [SettingsController::class, 'notaUpdate'])->name('admin.setting-nota.update');
-
 
 });

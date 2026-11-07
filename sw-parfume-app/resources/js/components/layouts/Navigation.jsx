@@ -1,19 +1,23 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Link, useForm, usePage } from "@inertiajs/react";
+import { useForm, usePage } from "@inertiajs/react";
 import {
     IconLogout,
     IconUser,
     IconMenu2,
     IconChevronDown,
+    IconKey,
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
+import { AnimatePresence } from "framer-motion";
 import { useSidebarStore } from "@/store/sidebarStore";
 import DefaultFoto from "@/assets/images/defaultfoto.jpg";
 import { formatBusinessDate } from "@/admin/business/formatters";
+import ProfilePasswordModal from "./ProfilePasswordModal";
 
 export default function Navigation() {
     const { auth, systemDate } = usePage().props;
     const [showUserDropdown, setShowUserDropdown] = useState(false);
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
     const userDropdownRef = useRef(null);
     const { toggleSidebar } = useSidebarStore();
 
@@ -109,15 +113,18 @@ export default function Navigation() {
                     </button>
 
                     {showUserDropdown && (
-                        <div className="absolute right-0 mt-2 w-52 bg-card rounded-xl shadow-premium-lg border border-stroke py-1.5 z-50 overflow-hidden">
-                            <Link
-                                href="/profile"
-                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-main hover:bg-page transition-colors"
-                                onClick={() => setShowUserDropdown(false)}
+                        <div className="absolute right-0 mt-2 w-56 bg-card rounded-xl shadow-premium-lg border border-stroke py-1.5 z-50 overflow-hidden">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowUserDropdown(false);
+                                    setShowPasswordModal(true);
+                                }}
+                                className="w-full flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm text-main hover:bg-page transition-colors text-left"
                             >
-                                <IconUser size={16} className="text-muted" />
-                                <span>Profile</span>
-                            </Link>
+                                <IconKey size={16} className="text-primary" />
+                                <span>Profil & Ubah Password</span>
+                            </button>
 
                             <hr className="my-1.5 border-stroke" />
 
@@ -136,6 +143,16 @@ export default function Navigation() {
                     )}
                 </div>
             </div>
+
+            {/* Profile & Change Password Modal */}
+            <AnimatePresence>
+                {showPasswordModal && (
+                    <ProfilePasswordModal
+                        user={auth?.user}
+                        onClose={() => setShowPasswordModal(false)}
+                    />
+                )}
+            </AnimatePresence>
         </header>
     );
 }
