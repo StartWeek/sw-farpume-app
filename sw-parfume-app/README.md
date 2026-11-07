@@ -489,6 +489,15 @@ Perintah `setup` akan otomatis menjalankan:
    php artisan db:seed
    ```
 
+Baseline SQLite disimpan di `database/schema/sqlite-business-baseline.sql`,
+diturunkan dari baseline MySQL. Migration pemulihan membuat tabel dasar yang
+belum ada sebelum migration lanjutan dan memulihkan kolom supplier/pembayaran
+jika migration sebelumnya tercatat selesai saat tabel dasarnya belum ada.
+Jika instalasi SQLite sebelumnya berhenti dengan `no such table`, jalankan
+`php artisan migrate` lagi; tidak perlu `migrate:fresh` atau menghapus database.
+Baseline ini tidak dapat di-rollback karena tabelnya mungkin berisi data lama;
+gunakan backup database untuk pemulihan.
+
 ### B. Pakai MySQL (untuk production / development serius)
 
 1. Buat database di MySQL:

@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         foreach (['tt_pembelian', 'tt_penjualan'] as $name) {
-            if (! Schema::hasTable($name)) {
+            if (! Schema::hasTable($name) || Schema::hasColumn($name, 'payment_details')) {
                 continue;
             }
             Schema::table($name, function (Blueprint $table): void {

@@ -10,11 +10,12 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
-        "barryvdh/laravel-dompdf": "^3.1",
+        "barryvdh/laravel-dompdf": "^3.1.2",
+        "dompdf/dompdf": "^3.1.6",
         "inertiajs/inertia-laravel": "^2.0.20",
-        "laravel/framework": "^12.51",
+        "laravel/framework": "^12.71.0",
         "laravel/tinker": "^2.11.1",
-        "maatwebsite/excel": "^3.1",
+        "maatwebsite/excel": "^3.1 || ^4.0",
         "tightenco/ziggy": "^2.6"
     },
     "require-dev": {
